@@ -1,3 +1,35 @@
 pub enum Statement {
     Table
 }
+
+pub enum SqlType {
+    FixedLengthString(u32), // char(size)
+    VariableLengthString(u32), // varchar(size)
+    Text, // text
+    
+    FixedLengthBitString(u32), // bit(size)
+    VariableLengthBitString(u32), // varbit(size)
+
+    SmallInteger, // smallint
+    Integer, // int
+    BigInteger, // bigint
+
+    SmallSerial, // smallserial
+    Serial, // serial
+    BigSerial, // bigserial
+
+    Numeric(u32, u32), // numeric(m,d)
+    Double, // double precision
+    Single, // real
+    Money, // money
+
+    Boolean, // bool
+
+    Date, // date
+    DateTime, // timestamp without time zone
+    DateTimeWithTimeZone, // timestamp with time zone
+    Time, // time
+    TimeWithTimeZone, // time with time zone
+
+    Uuid, // uuid
+}

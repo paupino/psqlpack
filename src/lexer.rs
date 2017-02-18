@@ -7,24 +7,53 @@ pub type Spanned<Token, Loc, Error> = Result<(Loc, Token, Loc), Error>;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Token {
     
+    BIGINT,
+    BIGSERIAL,
+    BIT,
+    BOOL,
+    BOOLEAN,
     CONSTRAINT,
+    CHAR,
+    CHARACTER,
     CREATE,
+    DATE,
+    DOUBLE,
     FILLFACTOR,
     FOREIGN,
     INT,
+    INT2,
+    INT4,
+    INT8,
     INTEGER,
     KEY,
+    MONEY,
     NOT,
     NULL,
+    NUMERIC,
+    PRECISION,
     PRIMARY,
+    REAL,
     REFERENCES,
     SERIAL,
+    SERIAL2,
+    SERIAL4,
+    SERIAL8,
     SMALLINT,
+    SMALLSERIAL,
     TABLE,
+    TEXT,
+    TIME,
+    TIMESTAMP,
+    TIMESTAMPTZ,
+    TIMETZ,
     UNIQUE,
     UUID,
+    VARBIT,
     VARCHAR,
+    VARYING,
     WITH,
+    WITHOUT,
+    ZONE,
 
     Identifier(String),
     Digit(i32),
@@ -86,24 +115,53 @@ macro_rules! match_keyword {
 fn create_token<'input>(value: String) -> Option<Token> {
 
     // Keywords
+    match_keyword!(value, BIGINT);
+    match_keyword!(value, BIGSERIAL);
+    match_keyword!(value, BIT);
+    match_keyword!(value, BOOL);
+    match_keyword!(value, BOOLEAN);
     match_keyword!(value, CONSTRAINT);
+    match_keyword!(value, CHAR);
+    match_keyword!(value, CHARACTER);
     match_keyword!(value, CREATE);
+    match_keyword!(value, DATE);
+    match_keyword!(value, DOUBLE);
     match_keyword!(value, FILLFACTOR);
     match_keyword!(value, FOREIGN);
     match_keyword!(value, INT);
+    match_keyword!(value, INT2);
+    match_keyword!(value, INT4);
+    match_keyword!(value, INT8);
     match_keyword!(value, INTEGER);
     match_keyword!(value, KEY);
+    match_keyword!(value, MONEY);
     match_keyword!(value, NOT);
     match_keyword!(value, NULL);
+    match_keyword!(value, NUMERIC);
+    match_keyword!(value, PRECISION);
     match_keyword!(value, PRIMARY);
+    match_keyword!(value, REAL);
     match_keyword!(value, REFERENCES);
     match_keyword!(value, SERIAL);
+    match_keyword!(value, SERIAL2);
+    match_keyword!(value, SERIAL4);
+    match_keyword!(value, SERIAL8);
     match_keyword!(value, SMALLINT);
+    match_keyword!(value, SMALLSERIAL);
     match_keyword!(value, TABLE);
+    match_keyword!(value, TEXT);
+    match_keyword!(value, TIME);
+    match_keyword!(value, TIMESTAMP);
+    match_keyword!(value, TIMESTAMPTZ);
+    match_keyword!(value, TIMETZ);
     match_keyword!(value, UNIQUE);
     match_keyword!(value, UUID);
+    match_keyword!(value, VARBIT);
     match_keyword!(value, VARCHAR);
+    match_keyword!(value, VARYING);
     match_keyword!(value, WITH);
+    match_keyword!(value, WITHOUT);
+    match_keyword!(value, ZONE);
 
     // Regex
     if IDENTIFIER.is_match(&value[..]) {

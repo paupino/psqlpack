@@ -1,4 +1,4 @@
-use ast::{Statement};
+use ast::{SqlType,Statement};
 use lexer::{self};
 
 grammar<'input>;
@@ -12,24 +12,53 @@ extern {
         "=" => lexer::Token::Equals,
         "." => lexer::Token::Period,
 
+        BIGINT => lexer::Token::BIGINT,
+        BIGSERIAL => lexer::Token::BIGSERIAL,
+        BIT => lexer::Token::BIT,
+        BOOL => lexer::Token::BOOL,
+        BOOLEAN => lexer::Token::BOOLEAN,
         CONSTRAINT => lexer::Token::CONSTRAINT,
+        CHAR => lexer::Token::CHAR,
+        CHARACTER => lexer::Token::CHARACTER,
         CREATE => lexer::Token::CREATE,
+        DATE => lexer::Token::DATE,
+        DOUBLE => lexer::Token::DOUBLE,
         FILLFACTOR => lexer::Token::FILLFACTOR,
         FOREIGN => lexer::Token::FOREIGN,
         INT => lexer::Token::INT,
+        INT2 => lexer::Token::INT2,
+        INT4 => lexer::Token::INT4,
+        INT8 => lexer::Token::INT8,
         INTEGER => lexer::Token::INTEGER,
         KEY => lexer::Token::KEY,
+        MONEY => lexer::Token::MONEY,
         NOT => lexer::Token::NOT,
         NULL => lexer::Token::NULL,
+        NUMERIC => lexer::Token::NUMERIC,
+        PRECISION => lexer::Token::PRECISION,
         PRIMARY => lexer::Token::PRIMARY,
+        REAL => lexer::Token::REAL,
         REFERENCES => lexer::Token::REFERENCES,
         SERIAL => lexer::Token::SERIAL,
+        SERIAL2 => lexer::Token::SERIAL2,
+        SERIAL4 => lexer::Token::SERIAL4,
+        SERIAL8 => lexer::Token::SERIAL8,
         SMALLINT => lexer::Token::SMALLINT,
+        SMALLSERIAL => lexer::Token::SMALLSERIAL,
         TABLE => lexer::Token::TABLE,
+        TEXT => lexer::Token::TEXT,
+        TIME => lexer::Token::TIME,
+        TIMESTAMP => lexer::Token::TIMESTAMP,
+        TIMESTAMPTZ => lexer::Token::TIMESTAMPTZ,
+        TIMETZ => lexer::Token::TIMETZ,
         UNIQUE => lexer::Token::UNIQUE,
         UUID => lexer::Token::UUID,
+        VARBIT => lexer::Token::VARBIT,
         VARCHAR => lexer::Token::VARCHAR,
+        VARYING => lexer::Token::VARYING,
         WITH => lexer::Token::WITH,
+        WITHOUT => lexer::Token::WITHOUT,
+        ZONE => lexer::Token::ZONE,
         
         Ident => lexer::Token::Identifier(<String>),
         Digit => lexer::Token::Digit(<i32>),
@@ -85,13 +114,49 @@ with_option: () = {
     FILLFACTOR "=" Digit  
 };
 
-sql_type: () = {
-    INT,
-    INTEGER,
-    SERIAL,
-    SMALLINT,
-    UUID,  
-    VARCHAR "(" Digit ")"
+sql_type: SqlType = {
+    CHAR "(" <Digit> ")" => SqlType::FixedLengthString(<> as u32),
+    CHARACTER "(" <Digit> ")" => SqlType::FixedLengthString(<> as u32),
+    VARCHAR "(" <Digit> ")" => SqlType::VariableLengthString(<> as u32),
+    CHARACTER VARYING "(" <Digit> ")" => SqlType::VariableLengthString(<> as u32),
+    TEXT => SqlType::Text,
+
+    BIT "(" <Digit> ")" => SqlType::FixedLengthBitString(<> as u32),
+    VARBIT "(" <Digit> ")" => SqlType::VariableLengthBitString(<> as u32),
+    BIT VARYING "(" <Digit> ")" => SqlType::VariableLengthBitString(<> as u32),
+    SMALLINT => SqlType::SmallInteger,
+    INT => SqlType::Integer,
+    INTEGER => SqlType::Integer,
+    BIGINT => SqlType::BigInteger,
+    INT2 => SqlType::SmallInteger,
+    INT4 => SqlType::Integer,
+    INT8 => SqlType::BigInteger,
+
+    SMALLSERIAL => SqlType::SmallSerial,
+    SERIAL => SqlType::Serial,
+    BIGSERIAL => SqlType::BigSerial,
+    SERIAL2 => SqlType::SmallSerial,
+    SERIAL4 => SqlType::Serial,
+    SERIAL8 => SqlType::BigSerial,
+
+    NUMERIC "(" <m:Digit> "," <d:Digit> ")" => SqlType::Numeric(m as u32, d as u32),
+    DOUBLE PRECISION => SqlType::Double,
+    REAL => SqlType::Single,
+    MONEY => SqlType::Money,
+    BOOL => SqlType::Boolean,
+    BOOLEAN => SqlType::Boolean,
+
+    DATE => SqlType::Date,
+    TIMESTAMP => SqlType::DateTime,
+    TIMESTAMP WITHOUT TIME ZONE => SqlType::DateTime,
+    TIMESTAMP WITH TIME ZONE => SqlType::DateTimeWithTimeZone,
+    TIMESTAMPTZ => SqlType::DateTimeWithTimeZone,
+    TIME => SqlType::Time,
+    TIME WITHOUT TIME ZONE => SqlType::Time,
+    TIME WITH TIME ZONE => SqlType::TimeWithTimeZone,
+    TIMETZ => SqlType::TimeWithTimeZone,
+    
+    UUID => SqlType::Uuid,
 };
 
 qualifier_list: () = {
