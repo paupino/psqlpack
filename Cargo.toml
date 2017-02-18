@@ -1,0 +1,6 @@
+[package]
+name = "psqlpackage"
+version = "0.1.0"
+authors = ["Paul Mason <paul@form1.co.nz>"]
+
+[dependencies]
