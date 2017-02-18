@@ -1,3 +1,3 @@
-CREATE TABLE public.tax_table {
+CREATE TABLE public.tax_table(
 	id serial primary key
-};
+);

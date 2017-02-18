@@ -1,2 +1,2 @@
 #!/bin/bash
-cargo run -- package --source ./sample --out ./out/sample.dacpac
+cargo run -- package --source ./sample/project.json --out ./out/sample.dacpac

@@ -1,6 +1,40 @@
 use ast::{Statement};
+use lexer::{self};
 
-grammar;
+grammar<'input>;
+
+extern {
+    enum lexer::Token {
+        "(" => lexer::Token::LeftBracket,
+        ")" => lexer::Token::RightBracket,
+        "," => lexer::Token::Comma,
+        ";" => lexer::Token::Semicolon,
+        "=" => lexer::Token::Equals,
+        "." => lexer::Token::Period,
+
+        CONSTRAINT => lexer::Token::CONSTRAINT,
+        CREATE => lexer::Token::CREATE,
+        FILLFACTOR => lexer::Token::FILLFACTOR,
+        FOREIGN => lexer::Token::FOREIGN,
+        INT => lexer::Token::INT,
+        INTEGER => lexer::Token::INTEGER,
+        KEY => lexer::Token::KEY,
+        NOT => lexer::Token::NOT,
+        NULL => lexer::Token::NULL,
+        PRIMARY => lexer::Token::PRIMARY,
+        REFERENCES => lexer::Token::REFERENCES,
+        SERIAL => lexer::Token::SERIAL,
+        SMALLINT => lexer::Token::SMALLINT,
+        TABLE => lexer::Token::TABLE,
+        UNIQUE => lexer::Token::UNIQUE,
+        UUID => lexer::Token::UUID,
+        VARCHAR => lexer::Token::VARCHAR,
+        WITH => lexer::Token::WITH,
+        
+        Ident => lexer::Token::Identifier(<String>),
+        Digit => lexer::Token::Digit(<i32>),
+    }
+}
 
 pub statement_list: Vec<Statement> = {
     <v:statement_list> <stmt:statement> => {
@@ -12,9 +46,62 @@ pub statement_list: Vec<Statement> = {
 };
 
 statement: Statement = {
-    "CREATE" "TABLE" identifier => Statement::Table,
+    CREATE TABLE table_name "(" column_definition_list ("," constraint_list)? ")" ";"? => Statement::Table,
 };
 
-identifier: () = {
-    r"[a-zA-Z][a-zA-Z0-9_]*",
+table_name: () = {
+    (Ident ".")? Ident
+};
+
+column_definition_list: () = {
+    column_definition_list "," column_definition,
+    column_definition  
+};
+
+column_definition: () = {
+    Ident sql_type qualifier_list,
+};
+
+constraint_list: () = {
+    constraint_list "," constraint,
+    constraint  
+};
+
+constraint: () = {
+    CONSTRAINT Ident PRIMARY KEY "(" Ident ")" with_qualifier?,
+    CONSTRAINT Ident FOREIGN KEY "(" Ident ")" REFERENCES table_name "(" Ident ")" 
+};
+
+with_qualifier: () = {
+    WITH "(" with_option_list ")"
+};
+
+with_option_list: () = {
+    with_option_list "," with_option,  
+    with_option,
+};
+
+with_option: () = {
+    FILLFACTOR "=" Digit  
+};
+
+sql_type: () = {
+    INT,
+    INTEGER,
+    SERIAL,
+    SMALLINT,
+    UUID,  
+    VARCHAR "(" Digit ")"
+};
+
+qualifier_list: () = {
+    qualifier_list qualifier,
+    qualifier
+};
+
+qualifier: () = {
+    NULL,
+    NOT NULL,
+    UNIQUE,
+    PRIMARY KEY,
 };

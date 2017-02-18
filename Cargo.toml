@@ -7,8 +7,12 @@ build = "build.rs"
 [dependencies]
 chrono = { version = "0.2", features = ["serde"] }
 clap = "2.20.0"
+lazy_static = "0.1.*"
 lalrpop-util = "0.12.5"
+regex = "0.2"
 serde = "0.9"
+serde_derive = "0.9"
+serde_json = "0.9"
 
 [build-dependencies]
 lalrpop = "0.12.5"

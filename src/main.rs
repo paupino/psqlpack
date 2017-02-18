@@ -1,7 +1,13 @@
 extern crate chrono;
 #[macro_use] 
 extern crate clap;
+#[macro_use]
+extern crate lazy_static;
 extern crate lalrpop_util;
+extern crate regex;
+#[macro_use]
+extern crate serde_derive;
+extern crate serde_json;
 
 mod ast;
 mod gen;
@@ -18,7 +24,7 @@ fn main() {
             (about: "DACPAC for PostgreSQL")
             (@subcommand package =>
                 (about: "creates a DACPAC from the specified target")
-                (@arg SOURCE: --source +required +takes_value "The source project folder (Future: or connection string to a database)")
+                (@arg SOURCE: --source +required +takes_value "The source project JSON file")
                 (@arg OUT: --out +required +takes_value "The location of the folder to export the dacpac to")
             )
             (@subcommand publish =>

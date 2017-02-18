@@ -1,52 +1,180 @@
-use lalrpop_util::{Spanned};
+use regex::Regex;
+use std::ascii::AsciiExt;
+use std::iter::FromIterator;
 
-#[derive(Debug)]
-struct Token {
-    value: String,
-    line_number: u32,
-    start_position: u32,
-    end_position: u32,
-    symbol: Symbol,
-}
+pub type Spanned<Token, Loc, Error> = Result<(Loc, Token, Loc), Error>;
 
-#[derive(Debug)]
-enum Symbol {
-    CREATE,
-    TABLE,
-    Identifier
-}
-
-pub enum LexicalError {
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Token {
     
+    CONSTRAINT,
+    CREATE,
+    FILLFACTOR,
+    FOREIGN,
+    INT,
+    INTEGER,
+    KEY,
+    NOT,
+    NULL,
+    PRIMARY,
+    REFERENCES,
+    SERIAL,
+    SMALLINT,
+    TABLE,
+    UNIQUE,
+    UUID,
+    VARCHAR,
+    WITH,
+
+    Identifier(String),
+    Digit(i32),
+
+    LeftBracket,
+    RightBracket,
+    Comma,
+    Period,
+    Semicolon,
+    Equals,
 }
 
-use std::str::CharIndices;
-
-pub struct Lexer<'input> {
-    chars: CharIndices<'input>,
+#[derive(Debug)]
+pub struct LexicalError<'input> {
+    pub line: &'input str,
+    pub line_number: i32,
+    pub start_pos: i32,
+    pub end_pos: i32,
 }
 
-impl<'input> Lexer<'input> {
-    pub fn new(input: &'input str) -> Self {
-        Lexer { chars: input.char_indices() }
-    }
+lazy_static! {
+
+    static ref IDENTIFIER: Regex = Regex::new("^[a-zA-Z][a-zA-Z0-9_]+$").unwrap();
+    static ref DIGIT: Regex = Regex::new("^\\d+$").unwrap();
 }
 
-impl<'input> Iterator for Lexer<'input> {
-    type Item = Spanned<Token, usize, LexicalError>;
 
-    fn next(&mut self) -> Option<Self::Item> {
-        let mut buffer = Vec::new();
-        let mut current_line = 0;
-        let mut current_position;
-
-        loop {
-            match self.chars.next() {
-                Some((i, c)) => {
-                    println!("{}", c);
+macro_rules! tokenize_buffer {
+    ($tokens:ident, $buffer:ident, $line:ident, $current_line:ident, $current_position:ident) => {{
+        if $buffer.len() > 0 {
+            let token = match self::create_token(String::from_iter($buffer.clone())) {
+                Some(t) => t,
+                None => { 
+                    return Err(LexicalError {
+                        line: $line,
+                        line_number: $current_line,
+                        start_pos: $current_position - $buffer.len() as i32,
+                        end_pos: $current_position as i32
+                    });
                 },
-                None => return None, // End of file
-            }
+            };
+            $tokens.push(token);
+            $buffer.clear();
         }
+    }};
+}
+
+
+macro_rules! match_keyword {
+    ($value:ident, $enum_value:ident) => {{
+        let raw = stringify!($enum_value);
+        //println!("Match {}, Value: {}", raw.eq_ignore_ascii_case(&$value[..]), $value);
+        if raw.eq_ignore_ascii_case(&$value[..]) {
+            return Some(Token::$enum_value);
+        }
+    }};
+}
+
+fn create_token<'input>(value: String) -> Option<Token> {
+
+    // Keywords
+    match_keyword!(value, CONSTRAINT);
+    match_keyword!(value, CREATE);
+    match_keyword!(value, FILLFACTOR);
+    match_keyword!(value, FOREIGN);
+    match_keyword!(value, INT);
+    match_keyword!(value, INTEGER);
+    match_keyword!(value, KEY);
+    match_keyword!(value, NOT);
+    match_keyword!(value, NULL);
+    match_keyword!(value, PRIMARY);
+    match_keyword!(value, REFERENCES);
+    match_keyword!(value, SERIAL);
+    match_keyword!(value, SMALLINT);
+    match_keyword!(value, TABLE);
+    match_keyword!(value, UNIQUE);
+    match_keyword!(value, UUID);
+    match_keyword!(value, VARCHAR);
+    match_keyword!(value, WITH);
+
+    // Regex
+    if IDENTIFIER.is_match(&value[..]) {
+        return Some(Token::Identifier(value));
     }
+    if DIGIT.is_match(&value[..]) {
+        return Some(Token::Digit(0));
+    }
+
+    // Error
+    None
+}
+
+pub fn tokenize(text: &str) -> Result<Vec<Token>, LexicalError> {
+
+    // This tokenizer is whitespace dependent by default, i.e. whitespace is relevant.
+    let mut tokens = Vec::new(); 
+    let mut current_line = 0;
+    let mut current_position;
+    let mut buffer = Vec::new();
+
+    // Loop through each character, halting on whitespace
+    // Our outer loop works by newline
+    let lines: Vec<&str> = text.split('\n').collect();
+    for line in lines {
+        current_line += 1;
+        current_position = 0;
+
+        for c in line.chars() {
+            // Simple check for whitespace
+            if c.is_whitespace() {
+                tokenize_buffer!(tokens, buffer, line, current_line, current_position);
+            } else {
+
+                // If it is a symbol then don't bother with the buffer
+                match c {
+                    '(' => {
+                        tokenize_buffer!(tokens, buffer, line, current_line, current_position);
+                        tokens.push(Token::LeftBracket);
+                    }, 
+                    ')' => {
+                        tokenize_buffer!(tokens, buffer, line, current_line, current_position);
+                        tokens.push(Token::RightBracket);
+                    },
+                    ',' => {
+                        tokenize_buffer!(tokens, buffer, line, current_line, current_position);
+                        tokens.push(Token::Comma);
+                    }, 
+                    ';' => {
+                        tokenize_buffer!(tokens, buffer, line, current_line, current_position);
+                        tokens.push(Token::Semicolon);
+                    },
+                    '=' => {
+                        tokenize_buffer!(tokens, buffer, line, current_line, current_position);
+                        tokens.push(Token::Equals);
+                    }, 
+                    '.' => {
+                        tokenize_buffer!(tokens, buffer, line, current_line, current_position);
+                        tokens.push(Token::Period);
+                    }, 
+                    _ => buffer.push(c),
+                }
+            }
+
+            // Move the current_position
+            current_position += 1;
+        }
+
+        // We may also have a full buffer
+        tokenize_buffer!(tokens, buffer, line, current_line, current_position);
+    }
+
+    Ok(tokens)
 }
