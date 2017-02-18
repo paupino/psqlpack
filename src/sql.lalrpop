@@ -1,0 +1,20 @@
+use ast::{Statement};
+
+grammar;
+
+pub statement_list: Vec<Statement> = {
+    <v:statement_list> <stmt:statement> => {
+        let mut v = v;
+        v.push(stmt);
+        v
+    },
+    <statement> => vec!(<>),
+};
+
+statement: Statement = {
+    "CREATE" "TABLE" identifier => Statement::Table,
+};
+
+identifier: () = {
+    r"[a-zA-Z][a-zA-Z0-9_]*",
+};

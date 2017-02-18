@@ -2,5 +2,10 @@
 name = "psqlpackage"
 version = "0.1.0"
 authors = ["Paul Mason <paul@form1.co.nz>"]
+build = "build.rs"
 
 [dependencies]
+lalrpop-util = "0.12.5"
+
+[build-dependencies]
+lalrpop = "0.12.5"
