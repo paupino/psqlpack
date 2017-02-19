@@ -13,12 +13,12 @@ extern crate walkdir;
 extern crate zip;
 
 mod ast;
-mod gen;
+mod dacpac;
 mod lexer;
 mod sql;
 
 use std::time::Instant;
-use gen::{Dacpac};
+use dacpac::Dacpac;
 
 fn main() {
     let matches = clap_app!(myapp =>
