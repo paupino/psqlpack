@@ -538,25 +538,39 @@ enum ChangeInstruction<'input> {
 impl<'input> ChangeInstruction<'input> {
     fn to_sql(&self) -> String {
         match *self {
+            // Database level
             ChangeInstruction::CreateDatabase(ref db) => {
                 format!("CREATE DATABASE `{}`", db)
             },
+            ChangeInstruction::DropDatabase(ref db) => {
+                format!("DROP DATABASE `{}`", db)
+            },
+
+            // Table level
             ChangeInstruction::AddTable(ref def) => {
                 let mut instr = String::new();
                 instr.push_str(&format!("CREATE TABLE {} (\n", def.name)[..]);
+                let mut first_column = true;
                 for column in def.columns.iter() {
+                    if first_column { 
+                        first_column = false;
+                    } else {
+                        instr.push_str(",\n");
+                    }
                     instr.push_str(&format!("  {} {}", column.name, column.sql_type)[..]);
                     // Evaluate qualifiers
-                    /*
-                    if column.qualifiers.is_some() {
-                        for qualifier in column.qualifiers.unwrap().iter() {
-                            instr.push_str("_");
+                    if let &Some(ref qualifiers) = &column.qualifiers {
+                        for qualifier in qualifiers.iter() {
+                            match qualifier {
+                                &Qualifier::NotNull => instr.push_str(" NOT NULL"),
+                                &Qualifier::Null => instr.push_str(" NULL"),
+                                &Qualifier::Unique => instr.push_str(" UNIQUE"),
+                                &Qualifier::PrimaryKey => instr.push_str(" PRIMARY KEY"),
+                            }
                         }
                     }
-                    */
-                    instr.push('\n');
                 }
-                instr.push_str(")");
+                instr.push_str("\n)");
                 instr
             }
             _ => { 
