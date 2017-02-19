@@ -55,8 +55,41 @@ pub enum IndexParameter {
 
 #[derive(Serialize,Deserialize)]
 pub enum TableConstraint {
-    Primary { name: String, columns: Vec<String>, parameters: Option<Vec<IndexParameter>> },
-    Foreign { name: String, columns: Vec<String>, ref_table: TableName, ref_columns: Vec<String> },
+    Primary { 
+        name: String, 
+        columns: Vec<String>, 
+        parameters: Option<Vec<IndexParameter>> 
+    },
+    Foreign { 
+        name: String, 
+        columns: Vec<String>, 
+        ref_table: TableName, 
+        ref_columns: Vec<String>,
+        match_type: Option<ForeignConstraintMatchType>,
+        events: Option<Vec<ForeignConstraintEvent>>,
+    },
+}
+
+#[derive(Serialize,Deserialize)]
+pub enum ForeignConstraintMatchType {
+    Simple,
+    Partial,
+    Full,
+}
+
+#[derive(Serialize,Deserialize)]
+pub enum ForeignConstraintEvent {
+    Delete(ForeignConstraintAction),
+    Update(ForeignConstraintAction),
+}
+
+#[derive(Serialize,Deserialize)]
+pub enum ForeignConstraintAction {
+    NoAction,
+    Restrict,
+    Cascade,
+    SetNull,
+    SetDefault,
 }
 
 #[derive(Serialize,Deserialize)]
@@ -70,15 +103,6 @@ pub struct TableDefinition {
 pub struct TableName {
     pub schema: Option<String>,
     pub name: String,
-}
-
-impl fmt::Display for TableName {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self.schema {
-            Some(ref s) => write!(f, "{}.{}", s, self.name),
-            None => write!(f, "{}", self.name),
-        }
-    }
 }
 
 #[derive(Serialize,Deserialize)]

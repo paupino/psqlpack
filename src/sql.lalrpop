@@ -12,16 +12,20 @@ extern {
         "=" => lexer::Token::Equals,
         "." => lexer::Token::Period,
 
+        ACTION => lexer::Token::ACTION,
         BIGINT => lexer::Token::BIGINT,
         BIGSERIAL => lexer::Token::BIGSERIAL,
         BIT => lexer::Token::BIT,
         BOOL => lexer::Token::BOOL,
         BOOLEAN => lexer::Token::BOOLEAN,
+        CASCADE => lexer::Token::CASCADE,
         CONSTRAINT => lexer::Token::CONSTRAINT,
         CHAR => lexer::Token::CHAR,
         CHARACTER => lexer::Token::CHARACTER,
         CREATE => lexer::Token::CREATE,
         DATE => lexer::Token::DATE,
+        DEFAULT => lexer::Token::DEFAULT,
+        DELETE => lexer::Token::DELETE,
         DOUBLE => lexer::Token::DOUBLE,
         FILLFACTOR => lexer::Token::FILLFACTOR,
         FOREIGN => lexer::Token::FOREIGN,
@@ -34,19 +38,23 @@ extern {
         KEY => lexer::Token::KEY,
         MATCH => lexer::Token::MATCH,
         MONEY => lexer::Token::MONEY,
+        NO => lexer::Token::NO,
         NOT => lexer::Token::NOT,
         NULL => lexer::Token::NULL,
         NUMERIC => lexer::Token::NUMERIC,
+        ON => lexer::Token::ON,
         PARTIAL => lexer::Token::PARTIAL,
         PRECISION => lexer::Token::PRECISION,
         PRIMARY => lexer::Token::PRIMARY,
         REAL => lexer::Token::REAL,
         REFERENCES => lexer::Token::REFERENCES,
+        RESTRICT => lexer::Token::RESTRICT,
         SCHEMA => lexer::Token::SCHEMA,
         SERIAL => lexer::Token::SERIAL,
         SERIAL2 => lexer::Token::SERIAL2,
         SERIAL4 => lexer::Token::SERIAL4,
         SERIAL8 => lexer::Token::SERIAL8,
+        SET => lexer::Token::SET,
         SIMPLE => lexer::Token::SIMPLE,
         SMALLINT => lexer::Token::SMALLINT,
         SMALLSERIAL => lexer::Token::SMALLSERIAL,
@@ -57,6 +65,7 @@ extern {
         TIMESTAMPTZ => lexer::Token::TIMESTAMPTZ,
         TIMETZ => lexer::Token::TIMETZ,
         UNIQUE => lexer::Token::UNIQUE,
+        UPDATE => lexer::Token::UPDATE,
         UUID => lexer::Token::UUID,
         VARBIT => lexer::Token::VARBIT,
         VARCHAR => lexer::Token::VARCHAR,
@@ -141,11 +150,13 @@ table_constraint: TableConstraint = {
         columns: columns, 
         parameters: parameters 
     },
-    CONSTRAINT <name:Ident> FOREIGN KEY "(" <columns:column_list> ")" REFERENCES <ref_table:table_name> "(" <ref_columns:column_list> ")" => TableConstraint::Foreign { 
+    CONSTRAINT <name:Ident> FOREIGN KEY "(" <columns:column_list> ")" REFERENCES <ref_table:table_name> "(" <ref_columns:column_list> ")" <match_type:match_type?> <events:constraint_events?> => TableConstraint::Foreign { 
         name: name, 
         columns: columns, 
         ref_table: ref_table, 
-        ref_columns: ref_columns 
+        ref_columns: ref_columns,
+        match_type: match_type,
+        events: events,
     }, 
 };
 
@@ -164,6 +175,34 @@ index_parameter_list: Vec<IndexParameter> = {
 
 index_parameter: IndexParameter = {
     FILLFACTOR "=" <Digit> => IndexParameter::FillFactor(<> as u32),
+};
+
+match_type: ForeignConstraintMatchType = {
+    MATCH SIMPLE => ForeignConstraintMatchType::Simple,
+    MATCH PARTIAL => ForeignConstraintMatchType::Partial,
+    MATCH FULL => ForeignConstraintMatchType::Full,
+};
+
+constraint_events: Vec<ForeignConstraintEvent> = {
+    <v:constraint_events> <e:constraint_event> => {
+        let mut v = v;
+        v.push(e);
+        v
+    },
+    <constraint_event> => vec!(<>),
+};
+
+constraint_event: ForeignConstraintEvent = {
+    ON DELETE <foreign_constraint_action> => ForeignConstraintEvent::Delete(<>),
+    ON UPDATE <foreign_constraint_action> => ForeignConstraintEvent::Update(<>),
+};
+
+foreign_constraint_action: ForeignConstraintAction = {
+    NO ACTION => ForeignConstraintAction::NoAction,
+    RESTRICT => ForeignConstraintAction::Restrict,
+    CASCADE => ForeignConstraintAction::Cascade,
+    SET NULL => ForeignConstraintAction::SetNull,
+    SET DEFAULT => ForeignConstraintAction::SetDefault,
 };
 
 sql_type: SqlType = {

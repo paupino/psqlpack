@@ -658,7 +658,11 @@ impl<'input> ChangeInstruction<'input> {
                             instr.push_str(",\n");
                         }
                         match *constraint {
-                            TableConstraint::Primary { ref name, ref columns, ref parameters } => {
+                            TableConstraint::Primary { 
+                                ref name, 
+                                ref columns, 
+                                ref parameters 
+                            } => {
                                 instr.push_str(&format!("  CONSTRAINT {} PRIMARY KEY ({})", name, columns.join(", "))[..]);
                                 
                                 // Do the WITH options too
@@ -675,9 +679,27 @@ impl<'input> ChangeInstruction<'input> {
                                     instr.push_str(")");
                                 }
                             },
-                            TableConstraint::Foreign { ref name, ref columns, ref ref_table, ref ref_columns } => {
+                            TableConstraint::Foreign { 
+                                ref name, 
+                                ref columns, 
+                                ref ref_table, 
+                                ref ref_columns,
+                                ref match_type,
+                                ref events,
+                            } => {
                                 instr.push_str(&format!("  CONSTRAINT {} FOREIGN KEY ({})", name, columns.join(", "))[..]);
                                 instr.push_str(&format!(" REFERENCES {} ({})", ref_table, ref_columns.join(", "))[..]);
+                                if let Some(ref m) = *match_type {
+                                    instr.push_str(&format!(" {}", m));
+                                }
+                                if let Some(ref events) = *events {
+                                    for e in events {
+                                        match *e {
+                                            ForeignConstraintEvent::Delete(ref action) => instr.push_str(&format!(" ON DELETE {}", action)),
+                                            ForeignConstraintEvent::Update(ref action) => instr.push_str(&format!(" ON UPDATE {}", action)),
+                                        }
+                                    }
+                                }
                             },
                         }
                     }
@@ -704,6 +726,37 @@ impl<'input> ChangeInstruction<'input> {
             _ => "TODO".to_owned(),
         }
         
+    }
+}
+
+impl fmt::Display for ForeignConstraintMatchType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            ForeignConstraintMatchType::Simple => write!(f, "MATCH SIMPLE"),
+            ForeignConstraintMatchType::Partial => write!(f, "MATCH PARTIAL"),
+            ForeignConstraintMatchType::Full => write!(f, "MATCH FULL"),
+        }
+    }
+}
+
+impl fmt::Display for ForeignConstraintAction {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            ForeignConstraintAction::NoAction => write!(f, "NO ACTION"),
+            ForeignConstraintAction::Restrict => write!(f, "RESTRICT"),
+            ForeignConstraintAction::Cascade => write!(f, "CASCADE"),
+            ForeignConstraintAction::SetNull => write!(f, "SET NULL"),
+            ForeignConstraintAction::SetDefault => write!(f, "SET DEFAULT"),
+        }
+    }
+}
+
+impl fmt::Display for TableName {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self.schema {
+            Some(ref s) => write!(f, "{}.{}", s, self.name),
+            None => write!(f, "{}", self.name),
+        }
     }
 }
 

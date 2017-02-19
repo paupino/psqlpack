@@ -5,16 +5,20 @@ use std::iter::FromIterator;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Token {
     
+    ACTION,
     BIGINT,
     BIGSERIAL,
     BIT,
     BOOL,
     BOOLEAN,
+    CASCADE,
     CONSTRAINT,
     CHAR,
     CHARACTER,
     CREATE,
     DATE,
+    DEFAULT,
+    DELETE,
     DOUBLE,
     FILLFACTOR,
     FOREIGN,
@@ -27,19 +31,23 @@ pub enum Token {
     KEY,
     MATCH,
     MONEY,
+    NO,
     NOT,
     NULL,
     NUMERIC,
+    ON,
     PARTIAL,
     PRECISION,
     PRIMARY,
     REAL,
     REFERENCES,
+    RESTRICT,
     SCHEMA,
     SERIAL,
     SERIAL2,
     SERIAL4,
     SERIAL8,
+    SET,
     SIMPLE,
     SMALLINT,
     SMALLSERIAL,
@@ -50,6 +58,7 @@ pub enum Token {
     TIMESTAMPTZ,
     TIMETZ,
     UNIQUE,
+    UPDATE,
     UUID,
     VARBIT,
     VARCHAR,
@@ -125,16 +134,20 @@ macro_rules! match_keyword {
 fn create_token(value: String) -> Option<Token> {
 
     // Keywords
+    match_keyword!(value, ACTION);
     match_keyword!(value, BIGINT);
     match_keyword!(value, BIGSERIAL);
     match_keyword!(value, BIT);
     match_keyword!(value, BOOL);
     match_keyword!(value, BOOLEAN);
+    match_keyword!(value, CASCADE);
     match_keyword!(value, CONSTRAINT);
     match_keyword!(value, CHAR);
     match_keyword!(value, CHARACTER);
     match_keyword!(value, CREATE);
     match_keyword!(value, DATE);
+    match_keyword!(value, DEFAULT);
+    match_keyword!(value, DELETE);
     match_keyword!(value, DOUBLE);
     match_keyword!(value, FILLFACTOR);
     match_keyword!(value, FOREIGN);
@@ -147,19 +160,23 @@ fn create_token(value: String) -> Option<Token> {
     match_keyword!(value, KEY);
     match_keyword!(value, MATCH);
     match_keyword!(value, MONEY);
+    match_keyword!(value, NO);
     match_keyword!(value, NOT);
     match_keyword!(value, NULL);
     match_keyword!(value, NUMERIC);
+    match_keyword!(value, ON);
     match_keyword!(value, PARTIAL);
     match_keyword!(value, PRECISION);
     match_keyword!(value, PRIMARY);
     match_keyword!(value, REAL);
     match_keyword!(value, REFERENCES);
+    match_keyword!(value, RESTRICT);
     match_keyword!(value, SCHEMA);
     match_keyword!(value, SERIAL);
     match_keyword!(value, SERIAL2);
     match_keyword!(value, SERIAL4);
     match_keyword!(value, SERIAL8);
+    match_keyword!(value, SET);
     match_keyword!(value, SIMPLE);
     match_keyword!(value, SMALLINT);
     match_keyword!(value, SMALLSERIAL);
@@ -170,6 +187,7 @@ fn create_token(value: String) -> Option<Token> {
     match_keyword!(value, TIMESTAMPTZ);
     match_keyword!(value, TIMETZ);
     match_keyword!(value, UNIQUE);
+    match_keyword!(value, UPDATE);
     match_keyword!(value, UUID);
     match_keyword!(value, VARBIT);
     match_keyword!(value, VARCHAR);
