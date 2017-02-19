@@ -1,4 +1,5 @@
 use ast::*;
+use std::fmt::{self};
 use lexer::{self};
 use lalrpop_util::ParseError;
 use postgres::{Connection, TlsMode};
@@ -188,7 +189,7 @@ impl Dacpac {
             match out.write_all(change.to_sql().as_bytes()) {
                 Ok(_) => {
                     // New line
-                    out.write(&[10u8]);
+                    out.write(&[59u8, 10u8, 10u8]);
                 },
                 Err(e) => return Err(vec!(DacpacError::GenerationError {
                     message: format!("Failed to generate SQL file: {}", e),
@@ -538,11 +539,24 @@ impl<'input> ChangeInstruction<'input> {
     fn to_sql(&self) -> String {
         match *self {
             ChangeInstruction::CreateDatabase(ref db) => {
-                format!("CREATE DATABASE `{}`;", db)
+                format!("CREATE DATABASE `{}`", db)
             },
             ChangeInstruction::AddTable(ref def) => {
                 let mut instr = String::new();
-                instr.push_str(&format!("CREATE TABLE {}", def.name)[..]);
+                instr.push_str(&format!("CREATE TABLE {} (\n", def.name)[..]);
+                for column in def.columns.iter() {
+                    instr.push_str(&format!("  {} {}", column.name, column.sql_type)[..]);
+                    // Evaluate qualifiers
+                    /*
+                    if column.qualifiers.is_some() {
+                        for qualifier in column.qualifiers.unwrap().iter() {
+                            instr.push_str("_");
+                        }
+                    }
+                    */
+                    instr.push('\n');
+                }
+                instr.push_str(")");
                 instr
             }
             _ => { 
@@ -551,6 +565,42 @@ impl<'input> ChangeInstruction<'input> {
         }
         
     }
+}
+
+impl fmt::Display for SqlType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            SqlType::FixedLengthString(size) => write!(f, "char({})", size),
+            SqlType::VariableLengthString(size) => write!(f, "varchar({})", size),
+            SqlType::Text => write!(f, "text"),
+            
+            SqlType::FixedLengthBitString(size) => write!(f, "bit({})", size),
+            SqlType::VariableLengthBitString(size) => write!(f, "varbit({})", size),
+
+            SqlType::SmallInteger => write!(f, "smallint"),
+            SqlType::Integer => write!(f, "int"),
+            SqlType::BigInteger => write!(f, "bigint"),
+
+            SqlType::SmallSerial => write!(f, "smallserial"),
+            SqlType::Serial => write!(f, "serial"),
+            SqlType::BigSerial => write!(f, "bigserial"),
+
+            SqlType::Numeric(m, d) => write!(f, "numeric({},{})", m, d),
+            SqlType::Double => write!(f, "double precision"),
+            SqlType::Single => write!(f, "real"),
+            SqlType::Money => write!(f, "money"),
+
+            SqlType::Boolean => write!(f, "bool"),
+
+            SqlType::Date => write!(f, "date"),
+            SqlType::DateTime => write!(f, "timestamp without time zone"),
+            SqlType::DateTimeWithTimeZone => write!(f, "timestamp with time zone"),
+            SqlType::Time => write!(f, "time"),
+            SqlType::TimeWithTimeZone => write!(f, "time with time zone"),
+
+            SqlType::Uuid => write!(f, "uuid"),
+        }
+    }  
 }
 
 pub enum DacpacError {

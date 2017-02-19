@@ -75,7 +75,6 @@ impl fmt::Display for TableName {
             Some(ref s) => write!(f, "{}.{}", s, self.name),
             None => write!(f, "{}", self.name),
         }
-        
     }
 }
 

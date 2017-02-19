@@ -166,7 +166,7 @@ fn create_token<'input>(value: String) -> Option<Token> {
         return Some(Token::Identifier(value));
     }
     if DIGIT.is_match(&value[..]) {
-        return Some(Token::Digit(0));
+        return Some(Token::Digit(value.parse::<i32>().unwrap()));
     }
 
     // Error
