@@ -46,6 +46,16 @@ macro_rules! load_file {
     }};
 }
 
+static Q_DATABASE_EXISTS : &'static str = "SELECT 1 from pg_database WHERE datname=$1;";
+static Q_TABLE_EXISTS : &'static str = "SELECT 1 
+                                        FROM pg_catalog.pg_class c
+                                        JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+                                        WHERE n.nspname = $1 AND c.relname = $2 AND c.relkind = 'r';";
+static Q_DESCRIBE_COLUMNS : &'static str = "SELECT ordinal_position, column_name, column_default, is_nullable, data_type, character_maximum_length, numeric_precision, numeric_scale
+                                            FROM information_schema.columns
+                                            WHERE table_schema = $1 AND table_name = $2
+                                            ORDER BY ordinal_position;";
+
 pub struct Dacpac;
 
 impl Dacpac {
@@ -511,7 +521,7 @@ impl Project {
         // First up, detect if there is no database (or it needs to be recreated)
         // If so, we assume everything is new
         let db_conn = dbtry!(Connection::connect(connection_string.uri(false), connection_string.tls_mode()));
-        let db_result = dbtry!(db_conn.query("SELECT 1 from pg_database WHERE datname=$1;", &[ &connection_string.database.clone().unwrap() ]));
+        let db_result = dbtry!(db_conn.query(Q_DATABASE_EXISTS, &[ &connection_string.database.clone().unwrap() ]));
         let mut has_db = false;
         if db_result.len() > 0 {
             has_db = true;
@@ -535,17 +545,15 @@ impl Project {
             // Go through each table
             for table in self.tables.iter() {
                 let mut table_exists = false;
-                for table in &conn.query("SELECT 1 
-                                          FROM   pg_catalog.pg_class c
-                                          JOIN   pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-                                          WHERE  n.nspname = $1
-                                          AND    c.relname = $2
-                                          AND    c.relkind = 'r';", &[ &table.name.schema, &table.name.name ]).unwrap() {
+                for table in &conn.query(Q_TABLE_EXISTS, &[ &table.name.schema, &table.name.name ]).unwrap() {
                     table_exists = true;
                     break;
                 }
                 if table_exists {
                     // Check the columns
+                    for column in &conn.query(Q_DESCRIBE_COLUMNS, &[ &table.name.schema, &table.name.name ]).unwrap() {
+                        //let column_name : String = column.get(1);
+                    }
 
                     // Check the constraints
                 } else {
