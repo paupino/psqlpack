@@ -13,6 +13,7 @@ regex = "0.2"
 serde = "0.9"
 serde_derive = "0.9"
 serde_json = "0.9"
+walkdir = "1"
 
 [build-dependencies]
 lalrpop = "0.12.5"

@@ -2,6 +2,7 @@ pub enum Statement {
     Table(TableDefinition),
 }
 
+#[derive(Serialize,Deserialize)]
 pub enum SqlType {
     FixedLengthString(u32), // char(size)
     VariableLengthString(u32), // varchar(size)
@@ -34,6 +35,7 @@ pub enum SqlType {
     Uuid, // uuid
 }
 
+#[derive(Serialize,Deserialize)]
 pub enum Qualifier {
     NotNull,
     Null,
@@ -41,26 +43,31 @@ pub enum Qualifier {
     PrimaryKey,
 }
 
+#[derive(Serialize,Deserialize)]
 pub enum IndexOption {
     FillFactor(u32),
 }
 
+#[derive(Serialize,Deserialize)]
 pub enum Constraint {
     Primary { name: String, columns: Vec<String>, options: Option<Vec<IndexOption>> },
     Foreign { name: String, columns: Vec<String>, ref_table: TableName, ref_columns: Vec<String> },
 }
 
+#[derive(Serialize,Deserialize)]
 pub struct TableDefinition {
     pub name: TableName, 
     pub columns: Vec<ColumnDefinition>, 
     pub constraints: Option<Vec<Constraint>>,
 }
 
+#[derive(Serialize,Deserialize)]
 pub struct TableName {
     pub schema: Option<String>,
     pub name: String,
 }
 
+#[derive(Serialize,Deserialize)]
 pub struct ColumnDefinition {
     pub name: String,
     pub sql_type: SqlType,

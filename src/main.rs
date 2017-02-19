@@ -8,6 +8,7 @@ extern crate regex;
 #[macro_use]
 extern crate serde_derive;
 extern crate serde_json;
+extern crate walkdir;
 
 mod ast;
 mod gen;
@@ -15,7 +16,7 @@ mod lexer;
 mod sql;
 
 use std::time::Instant;
-use gen::Dacpac;
+use gen::{Dacpac};
 
 fn main() {
     let matches = clap_app!(myapp =>
@@ -52,9 +53,8 @@ fn main() {
         match Dacpac::package_project(source, output) {
             Ok(_) => { },
             Err(errors) => { 
-                println!("Failed to package DACPAC:");
                 for error in errors {
-                    println!("  {}", error);
+                    error.print();
                 }
             }
         }

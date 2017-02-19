@@ -2,8 +2,6 @@ use regex::Regex;
 use std::ascii::AsciiExt;
 use std::iter::FromIterator;
 
-pub type Spanned<Token, Loc, Error> = Result<(Loc, Token, Loc), Error>;
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Token {
     
