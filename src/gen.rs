@@ -119,6 +119,7 @@ impl Dacpac {
         // First up validate the dacpac
         project.set_defaults(project_config);
         try!(project.validate());
+        project.update_dependency_graph();
 
         // Now generate the dacpac
         let output_path = Path::new(&output_file[..]);
@@ -161,9 +162,38 @@ impl Dacpac {
         let changeset = project.generate_changeset(&connection_string, publish_profile)?;
 
         // These instructions turn into SQL statements that get executed
-        for change in changeset {
-            println!("TODO");
+        let mut conn = match Connection::connect(connection_string.uri(false), connection_string.tls_mode()) {
+            Ok(conn) => conn,
+            Err(e) => return Err(vec!(DacpacError::DatabaseError {
+                message: format!("{}", e),
+            })),
+        };
+        for change in changeset.iter() {
+            match *change {
+                ChangeInstruction::UseDatabase(ref db) => {
+                    conn.finish();
+                    conn = match Connection::connect(connection_string.uri(true), connection_string.tls_mode()) {
+                        Ok(conn) => conn,
+                        Err(e) => return Err(vec!(DacpacError::DatabaseError {
+                            message: format!("{}", e),
+                        })),
+                    };
+                    continue;
+                },
+                _ => {}
+            }
+
+            // Execute SQL directly
+            println!("{}", change.to_progress_message());
+            match conn.execute(&change.to_sql()[..], &[]) {
+                Ok(_) => {},
+                Err(e) => return Err(vec!(DacpacError::DatabaseError {
+                    message: format!("{}", e),
+                })),
+            }
         }
+        // Close the connection
+        conn.finish();
 
         Ok(())
     }
@@ -452,7 +482,23 @@ impl Project {
             if table.name.schema.is_none() {
                 table.name.schema = Some(config.default_schema.clone());
             }
+            if let Some(ref mut constraints) = table.constraints {
+                for constraint in constraints.iter_mut() {
+                    match *constraint {
+                        Constraint::Foreign { ref name, ref columns, ref mut ref_table, ref ref_columns } => {
+                            if ref_table.schema.is_none() {
+                                ref_table.schema = Some(config.default_schema.clone());
+                            }
+                        },
+                        _ => {}
+                    }
+                }
+            }
         }
+    }
+
+    fn update_dependency_graph(&mut self) {
+
     }
 
     fn validate(&self) -> Result<(), Vec<DacpacError>> {
@@ -468,7 +514,12 @@ impl Project {
 
         // First up, detect if there is no database (or it needs to be recreated)
         // If so, we assume everything is new
-        let db_conn = Connection::connect(connection_string.uri(false), connection_string.tls_mode()).unwrap();        
+        let db_conn = match Connection::connect(connection_string.uri(false), connection_string.tls_mode()) {
+            Ok(conn) => conn,
+            Err(e) => return Err(vec!(DacpacError::DatabaseError {
+                message: format!("{}", e),
+            })),
+        };
         let db_result = match db_conn.query("SELECT 1 from pg_database WHERE datname=$1;", &[ &connection_string.database.clone().unwrap() ]) {
             Ok(r) => r,
             Err(e) => return Err(vec!(DacpacError::DatabaseError {
@@ -488,6 +539,11 @@ impl Project {
 
         // If we have the DB we generate an actual change set, else we generate new instructions
         if has_db {
+
+            // Set the connection instruction
+            changeset.push(ChangeInstruction::UseDatabase(connection_string.database.clone().unwrap()));
+
+            // Connect to the database
             let conn = Connection::connect(connection_string.uri(true), connection_string.tls_mode()).unwrap();
 
             // Go through each table
@@ -503,6 +559,7 @@ impl Project {
             } 
         } else {
             changeset.push(ChangeInstruction::CreateDatabase(connection_string.database.clone().unwrap()));
+            changeset.push(ChangeInstruction::UseDatabase(connection_string.database.clone().unwrap()));
             for table in self.tables.iter() {
                 changeset.push(ChangeInstruction::AddTable(table));
             }
@@ -524,6 +581,7 @@ enum ChangeInstruction<'input> {
     // Databases
     DropDatabase(String),
     CreateDatabase(String),
+    UseDatabase(String),
 
     // Tables
     AddTable(&'input TableDefinition),
@@ -540,21 +598,21 @@ impl<'input> ChangeInstruction<'input> {
         match *self {
             // Database level
             ChangeInstruction::CreateDatabase(ref db) => {
-                format!("CREATE DATABASE `{}`", db)
+                format!("CREATE DATABASE {}", db)
             },
             ChangeInstruction::DropDatabase(ref db) => {
-                format!("DROP DATABASE `{}`", db)
+                format!("DROP DATABASE {}", db)
+            },
+            ChangeInstruction::UseDatabase(ref db) => {
+                format!("/c {}", db)
             },
 
             // Table level
             ChangeInstruction::AddTable(ref def) => {
                 let mut instr = String::new();
                 instr.push_str(&format!("CREATE TABLE {} (\n", def.name)[..]);
-                let mut first_column = true;
-                for column in def.columns.iter() {
-                    if first_column { 
-                        first_column = false;
-                    } else {
+                for (index, column) in def.columns.iter().enumerate() {
+                    if index > 0 { 
                         instr.push_str(",\n");
                     }
                     instr.push_str(&format!("  {} {}", column.name, column.sql_type)[..]);
@@ -570,12 +628,57 @@ impl<'input> ChangeInstruction<'input> {
                         }
                     }
                 }
+                if let Some(ref constraints) = def.constraints {
+                    instr.push_str(",\n");
+                    for (index, constraint) in constraints.iter().enumerate() {
+                        if index > 0 { 
+                            instr.push_str(",\n");
+                        }
+                        match *constraint {
+                            Constraint::Primary { ref name, ref columns, ref options } => {
+                                instr.push_str(&format!("  CONSTRAINT {} PRIMARY KEY ({})", name, columns.join(", "))[..]);
+                                
+                                // Do the WITH options too
+                                if let Some(ref unwrapped) = *options {
+                                    instr.push_str(" WITH (");
+                                    for (position, value) in unwrapped.iter().enumerate() {
+                                        if position > 0 {
+                                            instr.push_str(", ");
+                                        }
+                                        match *value {
+                                            IndexOption::FillFactor(i) => instr.push_str(&format!("FILLFACTOR={}", i)[..]),
+                                        }
+                                    }
+                                    instr.push_str(")");
+                                }
+                            },
+                            Constraint::Foreign { ref name, ref columns, ref ref_table, ref ref_columns } => {
+                                instr.push_str(&format!("  CONSTRAINT {} FOREIGN KEY ({})", name, columns.join(", "))[..]);
+                                instr.push_str(&format!(" REFERENCES {} ({})", ref_table, ref_columns.join(", "))[..]);
+                            },
+                        }
+                    }
+                }
                 instr.push_str("\n)");
                 instr
             }
             _ => { 
                 "TODO".to_owned()
             }
+        }
+        
+    }
+
+    fn to_progress_message(&self) -> String {
+        match *self {
+            // Database level
+            ChangeInstruction::CreateDatabase(ref db) => format!("Creating database {}", db),
+            ChangeInstruction::DropDatabase(ref db) => format!("Dropping database {}", db),
+            ChangeInstruction::UseDatabase(ref db) => format!("Using database {}", db),
+
+            // Table level
+            ChangeInstruction::AddTable(ref def) => format!("Adding table {}", def.name),
+            _ => "TODO".to_owned(),
         }
         
     }
