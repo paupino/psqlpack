@@ -1,3 +1,5 @@
+use std::fmt::{self};
+
 pub enum Statement {
     Table(TableDefinition),
 }
@@ -65,6 +67,16 @@ pub struct TableDefinition {
 pub struct TableName {
     pub schema: Option<String>,
     pub name: String,
+}
+
+impl fmt::Display for TableName {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self.schema {
+            Some(ref s) => write!(f, "{}.{}", s, self.name),
+            None => write!(f, "{}", self.name),
+        }
+        
+    }
 }
 
 #[derive(Serialize,Deserialize)]

@@ -9,6 +9,7 @@ extern crate regex;
 extern crate serde_derive;
 extern crate serde_json;
 extern crate walkdir;
+extern crate zip;
 
 mod ast;
 mod gen;

@@ -3,16 +3,31 @@ use lexer::{self};
 use lalrpop_util::ParseError;
 use serde_json::{self};
 use std::io::{self,Read};
+use std::io::prelude::*;
 use std::path::Path;
 use std::fs::{self,DirEntry,File};
 use std::result::Result as StdResult;
 use sql::{self};
 use walkdir::WalkDir;
+use zip::ZipWriter;
+use zip::write::FileOptions;
 
 pub enum DacpacError {
     IOError { file: String, message: String },
     SyntaxError { file: String, line: String, line_number: i32, start_pos: i32, end_pos: i32 },
     ParseError { file: String, errors: Vec<ParseError<(), lexer::Token, ()>> },
+    GenerationError { message: String },
+}
+
+macro_rules! ztry {
+    ($expr:expr) => {{ 
+        match $expr {
+            Ok(_) => {},
+            Err(e) => return Err(vec!(DacpacError::GenerationError { 
+                message: format!("Failed to write DACPAC: {}", e),
+            })),
+        }
+    }};
 }
 
 pub struct Dacpac;
@@ -95,9 +110,32 @@ impl Dacpac {
         try!(project.validate());
 
         // Now generate the dacpac
-        for table in project.tables {
-            println!("{}", serde_json::to_string_pretty(&table).unwrap());
+        let output_path = Path::new(&output_file[..]);
+        if output_path.parent().is_some() {
+            fs::create_dir_all(format!("{}", output_path.parent().unwrap().display()));
         }
+
+        let output_file = match File::create(&output_path) {
+            Ok(f) => f,
+            Err(e) => return Err(vec!(DacpacError::GenerationError { 
+                message: format!("Failed to write DACPAC: {}", e),
+            })),
+        };
+        let mut zip = ZipWriter::new(output_file);
+
+        ztry!(zip.add_directory("tables/", FileOptions::default()));
+
+        for table in project.tables {
+            ztry!(zip.start_file(format!("tables/{}.json", table.name), FileOptions::default()));
+            let json = match serde_json::to_string_pretty(&table) {
+                Ok(j) => j,
+                Err(e) => return Err(vec!(DacpacError::GenerationError {
+                    message: format!("Failed to write DACPAC: {}", e),
+                })),
+            };
+            ztry!(zip.write_all(json.as_bytes()));
+        }
+        ztry!(zip.finish());
 
         Ok(())
     }
@@ -197,7 +235,12 @@ impl DacpacError {
                     }
                 }
                 println!();                            
-            }
+            },
+            DacpacError::GenerationError { ref message } => {
+                println!("Error generating DACPAC");
+                println!("  {}", message);
+                println!();
+            },
         }        
     }
 }
