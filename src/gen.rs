@@ -157,7 +157,7 @@ impl Dacpac {
         let connection_string = try!(Dacpac::test_connection(target_connection_string));
 
         // Now we generate our instructions
-        let changeset = project.generate_changeset(connection_string, publish_profile)?;
+        let changeset = project.generate_changeset(&connection_string, publish_profile)?;
 
         // These instructions turn into SQL statements that get executed
         for change in changeset {
@@ -174,7 +174,7 @@ impl Dacpac {
         let connection_string = try!(Dacpac::test_connection(target_connection_string));
 
         // Now we generate our instructions
-        let changeset = project.generate_changeset(connection_string, publish_profile)?;
+        let changeset = project.generate_changeset(&connection_string, publish_profile)?;
 
         // These instructions turn into a single SQL file
         let mut out = match File::create(&output_file[..]) {
@@ -203,7 +203,7 @@ impl Dacpac {
         let connection_string = try!(Dacpac::test_connection(target_connection_string));
 
         // Now we generate our instructions
-        let changeset = project.generate_changeset(connection_string, publish_profile)?;
+        let changeset = project.generate_changeset(&connection_string, publish_profile)?;
 
         // These instructions turn into a JSON report
         let json = match serde_json::to_string_pretty(&changeset) {
@@ -398,12 +398,20 @@ impl ConnectionString {
         }
     }
 
-    fn uri(&self) -> String {
+    fn uri(&self, with_database: bool) -> String {
         // Assumes validate has been called
         if self.password.is_none() {
-            format!("postgres://{}@{}/{}", self.user.clone().unwrap(), self.host.clone().unwrap(), self.database.clone().unwrap())
+            if with_database {
+                format!("postgres://{}@{}/{}", self.user.clone().unwrap(), self.host.clone().unwrap(), self.database.clone().unwrap())                
+            } else {
+                format!("postgres://{}@{}", self.user.clone().unwrap(), self.host.clone().unwrap())
+            }
         } else {
-            format!("postgres://{}:{}@{}/{}", self.user.clone().unwrap(), self.password.clone().unwrap(), self.host.clone().unwrap(), self.database.clone().unwrap())
+            if with_database {
+                format!("postgres://{}:{}@{}/{}", self.user.clone().unwrap(), self.password.clone().unwrap(), self.host.clone().unwrap(), self.database.clone().unwrap())
+            } else {
+                format!("postgres://{}:{}@{}", self.user.clone().unwrap(), self.password.clone().unwrap(), self.host.clone().unwrap())
+            }
         }
     }
 
@@ -449,26 +457,81 @@ impl Project {
         Ok(())
     }
 
-    fn generate_changeset(&self, connection_string: ConnectionString, publish_profile: PublishProfile) -> StdResult<Vec<ChangeInstruction>, Vec<DacpacError>> {
-        Ok(vec!(ChangeInstruction::AddColumn))
+    fn generate_changeset(&self, connection_string: &ConnectionString, publish_profile: PublishProfile) -> StdResult<Vec<ChangeInstruction>, Vec<DacpacError>> {
+
+        // Start the changeset
+        let mut changeset = Vec::new();
+
+        // First up, detect if there is no database (or it needs to be recreated)
+        // If so, we assume everything is new
+        let db_conn = Connection::connect(connection_string.uri(false), connection_string.tls_mode()).unwrap();        
+        let db_result = match db_conn.query("SELECT 1 from pg_database WHERE datname=$1;", &[ &connection_string.database.clone().unwrap() ]) {
+            Ok(r) => r,
+            Err(e) => return Err(vec!(DacpacError::DatabaseError {
+                message: format!("{}", e),
+            })),
+        };
+        let mut has_db = false;
+        if db_result.len() > 0 {
+            has_db = true;
+        }
+
+        // If we always recreate then add a drop and set to false
+        if has_db && publish_profile.always_recreate_database {
+            changeset.push(ChangeInstruction::DropDatabase(connection_string.database.clone().unwrap()));
+            has_db = false;
+        }
+
+        // If we have the DB we generate an actual change set, else we generate new instructions
+        if has_db {
+            let conn = Connection::connect(connection_string.uri(true), connection_string.tls_mode()).unwrap();
+
+            // Go through each table
+            for table in self.tables.iter() {
+                let result = &conn.query("SELECT EXISTS (
+                               SELECT 1 
+                               FROM   pg_catalog.pg_class c
+                               JOIN   pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+                               WHERE  n.nspname = $1
+                               AND    c.relname = $2
+                               AND    c.relkind = 'r'    -- only tables
+                               );", &[ &table.name.schema, &table.name.name ]).unwrap();
+            } 
+        } else {
+            changeset.push(ChangeInstruction::CreateDatabase(connection_string.database.clone().unwrap()));
+            for table in self.tables.iter() {
+                changeset.push(ChangeInstruction::AddTable(table));
+            }
+        }
+        Ok(changeset)
     }
 }
 
 #[derive(Deserialize)]
 struct PublishProfile {
     version: String,
+    #[serde(rename = "alwaysRecreateDatabase")]
+    always_recreate_database: bool,
 }
 
 #[derive(Serialize)]
-enum ChangeInstruction {
-    AddTable(TableDefinition),
+enum ChangeInstruction<'input> {
+
+    // Databases
+    DropDatabase(String),
+    CreateDatabase(String),
+
+    // Tables
+    AddTable(&'input TableDefinition),
     RemoveTable,
+
+    // Columns
     AddColumn,
     ModifyColumn,
     RemoveColumn,
 }
 
-impl ChangeInstruction {
+impl<'input> ChangeInstruction<'input> {
     fn to_sql(&self) -> String {
         "CREATE".to_owned()
     }
