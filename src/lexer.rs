@@ -110,7 +110,7 @@ macro_rules! match_keyword {
     }};
 }
 
-fn create_token<'input>(value: String) -> Option<Token> {
+fn create_token(value: String) -> Option<Token> {
 
     // Keywords
     match_keyword!(value, BIGINT);

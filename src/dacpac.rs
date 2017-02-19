@@ -5,10 +5,10 @@ use lalrpop_util::ParseError;
 use postgres::{Connection, TlsMode};
 use serde_json::{self};
 use std::ascii::AsciiExt;
-use std::io::{self,Read};
+use std::io::Read;
 use std::io::prelude::*;
 use std::path::Path;
-use std::fs::{self,DirEntry,File};
+use std::fs::{self,File};
 use std::result::Result as StdResult;
 use sql::{self};
 use walkdir::WalkDir;
@@ -148,7 +148,12 @@ impl Dacpac {
         // Now generate the dacpac
         let output_path = Path::new(&output_file[..]);
         if output_path.parent().is_some() {
-            fs::create_dir_all(format!("{}", output_path.parent().unwrap().display()));
+            match fs::create_dir_all(format!("{}", output_path.parent().unwrap().display())) {
+                Ok(_) => {},
+                Err(e) => return Err(vec!(DacpacError::GenerationError { 
+                    message: format!("Failed to create DACPAC directory: {}", e),
+                })),
+            }
         }
 
         let output_file = match File::create(&output_path) {
@@ -187,14 +192,11 @@ impl Dacpac {
 
         // These instructions turn into SQL statements that get executed
         let mut conn = dbtry!(Connection::connect(connection_string.uri(false), connection_string.tls_mode()));
-        for change in changeset.iter() {
-            match *change {
-                ChangeInstruction::UseDatabase(ref db) => {
-                    conn.finish();
-                    conn = dbtry!(Connection::connect(connection_string.uri(true), connection_string.tls_mode()));
-                    continue;
-                },
-                _ => {}
+        for change in &changeset {
+            if let ChangeInstruction::UseDatabase(..) = *change {
+                dbtry!(conn.finish());
+                conn = dbtry!(Connection::connect(connection_string.uri(true), connection_string.tls_mode()));
+                continue;
             }
 
             // Execute SQL directly
@@ -202,7 +204,7 @@ impl Dacpac {
             dbtry!(conn.execute(&change.to_sql()[..], &[]));
         }
         // Close the connection
-        conn.finish();
+        dbtry!(conn.finish());
 
         Ok(())
     }
@@ -228,7 +230,12 @@ impl Dacpac {
             match out.write_all(change.to_sql().as_bytes()) {
                 Ok(_) => {
                     // New line
-                    out.write(&[59u8, 10u8, 10u8]);
+                    match out.write(&[59u8, 10u8, 10u8]) {
+                        Ok(_) => {},
+                        Err(e) => return Err(vec!(DacpacError::GenerationError {
+                            message: format!("Failed to generate SQL file: {}", e),
+                        })),
+                    }
                 },
                 Err(e) => return Err(vec!(DacpacError::GenerationError {
                     message: format!("Failed to generate SQL file: {}", e),
@@ -349,7 +356,7 @@ impl Dacpac {
         let sections: Vec<&str> = target_connection_string.split(';').collect();
         for section in sections {
 
-            if section.trim().len() == 0 {
+            if section.trim().is_empty() {
                 continue;
             }
 
@@ -489,19 +496,16 @@ impl Project {
     fn set_defaults(&mut self, config: ProjectConfig) { 
 
         // Set default schema's
-        for table in self.tables.iter_mut() {
+        for table in &mut self.tables {
             if table.name.schema.is_none() {
                 table.name.schema = Some(config.default_schema.clone());
             }
             if let Some(ref mut constraints) = table.constraints {
                 for constraint in constraints.iter_mut() {
-                    match *constraint {
-                        Constraint::Foreign { ref name, ref columns, ref mut ref_table, ref ref_columns } => {
-                            if ref_table.schema.is_none() {
-                                ref_table.schema = Some(config.default_schema.clone());
-                            }
-                        },
-                        _ => {}
+                    if let Constraint::Foreign { ref mut ref_table, .. } = *constraint {
+                        if ref_table.schema.is_none() {
+                            ref_table.schema = Some(config.default_schema.clone());
+                        }
                     }
                 }
             }
@@ -527,10 +531,7 @@ impl Project {
         // If so, we assume everything is new
         let db_conn = dbtry!(Connection::connect(connection_string.uri(false), connection_string.tls_mode()));
         let db_result = dbtry!(db_conn.query(Q_DATABASE_EXISTS, &[ &connection_string.database.clone().unwrap() ]));
-        let mut has_db = false;
-        if db_result.len() > 0 {
-            has_db = true;
-        }
+        let mut has_db = !db_result.is_empty();
 
         // If we always recreate then add a drop and set to false
         if has_db && publish_profile.always_recreate_database {
@@ -548,15 +549,15 @@ impl Project {
             let conn = dbtry!(Connection::connect(connection_string.uri(true), connection_string.tls_mode()));
 
             // Go through each table
-            for table in self.tables.iter() {
+            for table in &self.tables {
                 let mut table_exists = false;
-                for table in &conn.query(Q_TABLE_EXISTS, &[ &table.name.schema, &table.name.name ]).unwrap() {
+                for _ in &conn.query(Q_TABLE_EXISTS, &[ &table.name.schema, &table.name.name ]).unwrap() {
                     table_exists = true;
                     break;
                 }
                 if table_exists {
                     // Check the columns
-                    for column in &conn.query(Q_DESCRIBE_COLUMNS, &[ &table.name.schema, &table.name.name ]).unwrap() {
+                    for _ in &conn.query(Q_DESCRIBE_COLUMNS, &[ &table.name.schema, &table.name.name ]).unwrap() {
                         //let column_name : String = column.get(1);
                     }
 
@@ -568,7 +569,7 @@ impl Project {
         } else {
             changeset.push(ChangeInstruction::CreateDatabase(connection_string.database.clone().unwrap()));
             changeset.push(ChangeInstruction::UseDatabase(connection_string.database.clone().unwrap()));
-            for table in self.tables.iter() {
+            for table in &self.tables {
                 changeset.push(ChangeInstruction::AddTable(table));
             }
         }
@@ -616,7 +617,7 @@ impl<'input> ChangeInstruction<'input> {
             },
 
             // Table level
-            ChangeInstruction::AddTable(ref def) => {
+            ChangeInstruction::AddTable(def) => {
                 let mut instr = String::new();
                 instr.push_str(&format!("CREATE TABLE {} (\n", def.name)[..]);
                 for (index, column) in def.columns.iter().enumerate() {
@@ -625,13 +626,13 @@ impl<'input> ChangeInstruction<'input> {
                     }
                     instr.push_str(&format!("  {} {}", column.name, column.sql_type)[..]);
                     // Evaluate qualifiers
-                    if let &Some(ref qualifiers) = &column.qualifiers {
+                    if let Some(ref qualifiers) = column.qualifiers {
                         for qualifier in qualifiers.iter() {
-                            match qualifier {
-                                &Qualifier::NotNull => instr.push_str(" NOT NULL"),
-                                &Qualifier::Null => instr.push_str(" NULL"),
-                                &Qualifier::Unique => instr.push_str(" UNIQUE"),
-                                &Qualifier::PrimaryKey => instr.push_str(" PRIMARY KEY"),
+                            match *qualifier {
+                                Qualifier::NotNull => instr.push_str(" NOT NULL"),
+                                Qualifier::Null => instr.push_str(" NULL"),
+                                Qualifier::Unique => instr.push_str(" UNIQUE"),
+                                Qualifier::PrimaryKey => instr.push_str(" PRIMARY KEY"),
                             }
                         }
                     }
@@ -685,7 +686,7 @@ impl<'input> ChangeInstruction<'input> {
             ChangeInstruction::UseDatabase(ref db) => format!("Using database {}", db),
 
             // Table level
-            ChangeInstruction::AddTable(ref def) => format!("Adding table {}", def.name),
+            ChangeInstruction::AddTable(def) => format!("Adding table {}", def.name),
             _ => "TODO".to_owned(),
         }
         
@@ -773,11 +774,11 @@ impl DacpacError {
                 println!("Error in {}", file);
                 for e in errors.iter() {
                     match *e {
-                        ParseError::InvalidToken { ref location } => { 
+                        ParseError::InvalidToken { .. } => { 
                             println!("  Invalid token");
                         },
                         ParseError::UnrecognizedToken { ref token, ref expected } => {
-                            if let &Some(ref x) = token {
+                            if let Some(ref x) = *token {
                                 println!("  Unexpected {:?}.", x.1);
                             } else {
                                 println!("  Unexpected end of file");
