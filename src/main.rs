@@ -47,8 +47,10 @@ fn main() {
     let time_stamp = Instant::now();
 
     // Parse the subcommand
+    let action;
     if let Some(package) = matches.subcommand_matches("package") {
         // Source is a directory to begin with
+        action = "Packaging";
         let source = String::from(package.value_of("SOURCE").unwrap());
         let output = String::from(package.value_of("OUT").unwrap());
         match Dacpac::package_project(source, output) {
@@ -60,12 +62,14 @@ fn main() {
             }
         }
     } else if let Some(publish) = matches.subcommand_matches("publish") {
+        action = "Publishing";
         // Source is the dacpac
         //source = String::from(publish.value_of("SOURCE").unwrap());
         // Target is the database
         //target = Some(String::from(publish.value_of("TARGET").unwrap()));
         //profile = Some(String::from(publish.value_of("PROFILE").unwrap()));
     } else if let Some(report) = matches.subcommand_matches("report") {
+        action = "Report Generation";
         // Source is the dacpac
         //source = String::from(report.value_of("SOURCE").unwrap());
         // Target is the database
@@ -79,5 +83,5 @@ fn main() {
     // Capture how long was elapsed
     let elapsed = time_stamp.elapsed();
     let elapsed = elapsed.as_secs() as f64 + elapsed.subsec_nanos() as f64 / 1000_000_000.0;
-    println!("Action took {}s", elapsed);
+    println!("{} took {}s", action, elapsed);
 }
