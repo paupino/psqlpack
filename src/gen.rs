@@ -157,8 +157,12 @@ impl Dacpac {
         let connection_string = try!(Dacpac::test_connection(target_connection_string));
 
         // Now we generate our instructions
+        let changeset = project.generate_changeset(connection_string, publish_profile)?;
 
         // These instructions turn into SQL statements that get executed
+        for change in changeset {
+            println!("TODO");
+        }
 
         Ok(())
     }
@@ -170,21 +174,57 @@ impl Dacpac {
         let connection_string = try!(Dacpac::test_connection(target_connection_string));
 
         // Now we generate our instructions
+        let changeset = project.generate_changeset(connection_string, publish_profile)?;
 
         // These instructions turn into a single SQL file
+        let mut out = match File::create(&output_file[..]) {
+            Ok(o) => o,
+            Err(e) => return Err(vec!(DacpacError::GenerationError {
+                message: format!("Failed to generate SQL file: {}", e),
+            })),
+        };
+
+        for change in changeset {
+            match out.write_all(change.to_sql().as_bytes()) {
+                Ok(_) => {},
+                Err(e) => return Err(vec!(DacpacError::GenerationError {
+                    message: format!("Failed to generate SQL file: {}", e),
+                })),
+            }
+        }
 
         Ok(())
     }
 
-    pub fn generate_report(source_dacpac_file: String, target_connection_string: String, publish_profile: String) -> StdResult<(), Vec<DacpacError>> {
+    pub fn generate_report(source_dacpac_file: String, target_connection_string: String, publish_profile: String, output_file: String) -> StdResult<(), Vec<DacpacError>> {
 
         let project = try!(Dacpac::load_project(source_dacpac_file));
         let publish_profile = try!(Dacpac::load_publish_profile(publish_profile));
         let connection_string = try!(Dacpac::test_connection(target_connection_string));
 
         // Now we generate our instructions
+        let changeset = project.generate_changeset(connection_string, publish_profile)?;
 
         // These instructions turn into a JSON report
+        let json = match serde_json::to_string_pretty(&changeset) {
+            Ok(j) => j,
+            Err(e) => return Err(vec!(DacpacError::GenerationError {
+                message: format!("Failed to generate report: {}", e),
+            })),
+        };
+
+        let mut out = match File::create(&output_file[..]) {
+            Ok(o) => o,
+            Err(e) => return Err(vec!(DacpacError::GenerationError {
+                message: format!("Failed to generate report: {}", e),
+            })),
+        };
+        match out.write_all(json.as_bytes()) {
+            Ok(_) => {},
+            Err(e) => return Err(vec!(DacpacError::GenerationError {
+                message: format!("Failed to generate report: {}", e),
+            })),
+        }
 
         Ok(())
     }
@@ -408,11 +448,30 @@ impl Project {
         // TODO: Validate references etc
         Ok(())
     }
+
+    fn generate_changeset(&self, connection_string: ConnectionString, publish_profile: PublishProfile) -> StdResult<Vec<ChangeInstruction>, Vec<DacpacError>> {
+        Ok(vec!(ChangeInstruction::AddColumn))
+    }
 }
 
 #[derive(Deserialize)]
 struct PublishProfile {
     version: String,
+}
+
+#[derive(Serialize)]
+enum ChangeInstruction {
+    AddTable(TableDefinition),
+    RemoveTable,
+    AddColumn,
+    ModifyColumn,
+    RemoveColumn,
+}
+
+impl ChangeInstruction {
+    fn to_sql(&self) -> String {
+        "CREATE".to_owned()
+    }
 }
 
 pub enum DacpacError {
@@ -422,6 +481,7 @@ pub enum DacpacError {
     GenerationError { message: String },
     FormatError { file: String, message: String },
     InvalidConnectionString { message: String },
+    DatabaseError { message: String },
 }
 
 impl DacpacError {
@@ -491,6 +551,11 @@ impl DacpacError {
             },
             DacpacError::GenerationError { ref message } => {
                 println!("Error generating DACPAC");
+                println!("  {}", message);
+                println!();
+            },
+            DacpacError::DatabaseError { ref message } => {
+                println!("Database error:");
                 println!("  {}", message);
                 println!();
             },

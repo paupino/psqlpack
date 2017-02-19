@@ -48,6 +48,7 @@ fn main() {
                 (@arg SOURCE: --source +required +takes_value "The source dacpac to use for the deploy report")
                 (@arg TARGET: --target +required +takes_value "The target database to compare to")
                 (@arg PROFILE: --profile +required +takes_value "The publish profile to use for the deploy report")
+                (@arg OUT: --out +required +takes_value "The report file to generate")
             )
         ).get_matches();
 
@@ -104,7 +105,8 @@ fn main() {
         let source = String::from(report.value_of("SOURCE").unwrap());
         let target = String::from(report.value_of("TARGET").unwrap());
         let profile = String::from(report.value_of("PROFILE").unwrap());
-        match Dacpac::generate_report(source, target, profile) {
+        let output_file = String::from(report.value_of("OUT").unwrap());
+        match Dacpac::generate_report(source, target, profile, output_file) {
             Ok(_) => { },
             Err(errors) => {
                 for error in errors {
