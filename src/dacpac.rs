@@ -122,6 +122,7 @@ impl Dacpac {
                     for statement in statement_list {
                         match statement {
                             Statement::Table(table_definition) => project.push_table(table_definition),
+                            Statement::Schema(schema_definition) => project.push_schema(schema_definition),
                         }
                     }
                 },
@@ -304,6 +305,8 @@ impl Dacpac {
         };
 
         let mut tables = Vec::new();
+        let mut schemas = Vec::new();
+
         for i in 0..archive.len()
         {
             let mut file = archive.by_index(i).unwrap();
@@ -312,10 +315,14 @@ impl Dacpac {
             }
             if file.name().starts_with("tables/") {
                 load_file!(TableDefinition, tables, file);
+            } else if file.name().starts_with("schemas/") {
+                load_file!(SchemaDefinition, schemas, file);
             }
         }
+
         Ok(Project {
-            tables: tables
+            schemas: schemas,
+            tables: tables,
         })
     }
 
@@ -480,18 +487,24 @@ struct ProjectConfig {
 
 struct Project {
     tables: Vec<TableDefinition>,
+    schemas: Vec<SchemaDefinition>,
 }
 
 impl Project {
 
     fn new() -> Self {
         Project {
+            schemas: Vec::new(),
             tables: Vec::new(),
         }
     }
 
     fn push_table(&mut self, table: TableDefinition) {
         self.tables.push(table);
+    }
+
+    fn push_schema(&mut self, schema: SchemaDefinition) {
+        self.schemas.push(schema);
     }
 
     fn set_defaults(&mut self, config: ProjectConfig) { 
@@ -503,7 +516,7 @@ impl Project {
             }
             if let Some(ref mut constraints) = table.constraints {
                 for constraint in constraints.iter_mut() {
-                    if let Constraint::Foreign { ref mut ref_table, .. } = *constraint {
+                    if let TableConstraint::Foreign { ref mut ref_table, .. } = *constraint {
                         if ref_table.schema.is_none() {
                             ref_table.schema = Some(config.default_schema.clone());
                         }
@@ -626,14 +639,14 @@ impl<'input> ChangeInstruction<'input> {
                         instr.push_str(",\n");
                     }
                     instr.push_str(&format!("  {} {}", column.name, column.sql_type)[..]);
-                    // Evaluate qualifiers
-                    if let Some(ref qualifiers) = column.qualifiers {
-                        for qualifier in qualifiers.iter() {
-                            match *qualifier {
-                                Qualifier::NotNull => instr.push_str(" NOT NULL"),
-                                Qualifier::Null => instr.push_str(" NULL"),
-                                Qualifier::Unique => instr.push_str(" UNIQUE"),
-                                Qualifier::PrimaryKey => instr.push_str(" PRIMARY KEY"),
+                    // Evaluate column constraints
+                    if let Some(ref constraints) = column.constraints {
+                        for constraint in constraints.iter() {
+                            match *constraint {
+                                ColumnConstraint::NotNull => instr.push_str(" NOT NULL"),
+                                ColumnConstraint::Null => instr.push_str(" NULL"),
+                                ColumnConstraint::Unique => instr.push_str(" UNIQUE"),
+                                ColumnConstraint::PrimaryKey => instr.push_str(" PRIMARY KEY"),
                             }
                         }
                     }
@@ -645,24 +658,24 @@ impl<'input> ChangeInstruction<'input> {
                             instr.push_str(",\n");
                         }
                         match *constraint {
-                            Constraint::Primary { ref name, ref columns, ref options } => {
+                            TableConstraint::Primary { ref name, ref columns, ref parameters } => {
                                 instr.push_str(&format!("  CONSTRAINT {} PRIMARY KEY ({})", name, columns.join(", "))[..]);
                                 
                                 // Do the WITH options too
-                                if let Some(ref unwrapped) = *options {
+                                if let Some(ref unwrapped) = *parameters {
                                     instr.push_str(" WITH (");
                                     for (position, value) in unwrapped.iter().enumerate() {
                                         if position > 0 {
                                             instr.push_str(", ");
                                         }
                                         match *value {
-                                            IndexOption::FillFactor(i) => instr.push_str(&format!("FILLFACTOR={}", i)[..]),
+                                            IndexParameter::FillFactor(i) => instr.push_str(&format!("FILLFACTOR={}", i)[..]),
                                         }
                                     }
                                     instr.push_str(")");
                                 }
                             },
-                            Constraint::Foreign { ref name, ref columns, ref ref_table, ref ref_columns } => {
+                            TableConstraint::Foreign { ref name, ref columns, ref ref_table, ref ref_columns } => {
                                 instr.push_str(&format!("  CONSTRAINT {} FOREIGN KEY ({})", name, columns.join(", "))[..]);
                                 instr.push_str(&format!(" REFERENCES {} ({})", ref_table, ref_columns.join(", "))[..]);
                             },
@@ -726,6 +739,8 @@ impl fmt::Display for SqlType {
             SqlType::TimeWithTimeZone => write!(f, "time with time zone"),
 
             SqlType::Uuid => write!(f, "uuid"),
+
+            SqlType::Custom(ref custom_type) => write!(f, "{}", custom_type),
         }
     }  
 }

@@ -2,6 +2,7 @@ use std::fmt::{self};
 
 pub enum Statement {
     Table(TableDefinition),
+    Schema(SchemaDefinition),
 }
 
 #[derive(Serialize,Deserialize)]
@@ -35,10 +36,12 @@ pub enum SqlType {
     TimeWithTimeZone, // time with time zone
 
     Uuid, // uuid
+
+    Custom(String),
 }
 
 #[derive(Serialize,Deserialize)]
-pub enum Qualifier {
+pub enum ColumnConstraint {
     NotNull,
     Null,
     Unique,
@@ -46,13 +49,13 @@ pub enum Qualifier {
 }
 
 #[derive(Serialize,Deserialize)]
-pub enum IndexOption {
+pub enum IndexParameter {
     FillFactor(u32),
 }
 
 #[derive(Serialize,Deserialize)]
-pub enum Constraint {
-    Primary { name: String, columns: Vec<String>, options: Option<Vec<IndexOption>> },
+pub enum TableConstraint {
+    Primary { name: String, columns: Vec<String>, parameters: Option<Vec<IndexParameter>> },
     Foreign { name: String, columns: Vec<String>, ref_table: TableName, ref_columns: Vec<String> },
 }
 
@@ -60,7 +63,7 @@ pub enum Constraint {
 pub struct TableDefinition {
     pub name: TableName, 
     pub columns: Vec<ColumnDefinition>, 
-    pub constraints: Option<Vec<Constraint>>,
+    pub constraints: Option<Vec<TableConstraint>>,
 }
 
 #[derive(Serialize,Deserialize)]
@@ -82,5 +85,10 @@ impl fmt::Display for TableName {
 pub struct ColumnDefinition {
     pub name: String,
     pub sql_type: SqlType,
-    pub qualifiers: Option<Vec<Qualifier>>,
+    pub constraints: Option<Vec<ColumnConstraint>>,
+}
+
+#[derive(Serialize,Deserialize)]
+pub struct SchemaDefinition {
+    pub name: String,
 }

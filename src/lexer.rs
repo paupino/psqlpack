@@ -18,24 +18,29 @@ pub enum Token {
     DOUBLE,
     FILLFACTOR,
     FOREIGN,
+    FULL,
     INT,
     INT2,
     INT4,
     INT8,
     INTEGER,
     KEY,
+    MATCH,
     MONEY,
     NOT,
     NULL,
     NUMERIC,
+    PARTIAL,
     PRECISION,
     PRIMARY,
     REAL,
     REFERENCES,
+    SCHEMA,
     SERIAL,
     SERIAL2,
     SERIAL4,
     SERIAL8,
+    SIMPLE,
     SMALLINT,
     SMALLSERIAL,
     TABLE,
@@ -133,24 +138,29 @@ fn create_token(value: String) -> Option<Token> {
     match_keyword!(value, DOUBLE);
     match_keyword!(value, FILLFACTOR);
     match_keyword!(value, FOREIGN);
+    match_keyword!(value, FULL);
     match_keyword!(value, INT);
     match_keyword!(value, INT2);
     match_keyword!(value, INT4);
     match_keyword!(value, INT8);
     match_keyword!(value, INTEGER);
     match_keyword!(value, KEY);
+    match_keyword!(value, MATCH);
     match_keyword!(value, MONEY);
     match_keyword!(value, NOT);
     match_keyword!(value, NULL);
     match_keyword!(value, NUMERIC);
+    match_keyword!(value, PARTIAL);
     match_keyword!(value, PRECISION);
     match_keyword!(value, PRIMARY);
     match_keyword!(value, REAL);
     match_keyword!(value, REFERENCES);
+    match_keyword!(value, SCHEMA);
     match_keyword!(value, SERIAL);
     match_keyword!(value, SERIAL2);
     match_keyword!(value, SERIAL4);
     match_keyword!(value, SERIAL8);
+    match_keyword!(value, SIMPLE);
     match_keyword!(value, SMALLINT);
     match_keyword!(value, SMALLSERIAL);
     match_keyword!(value, TABLE);

@@ -25,24 +25,29 @@ extern {
         DOUBLE => lexer::Token::DOUBLE,
         FILLFACTOR => lexer::Token::FILLFACTOR,
         FOREIGN => lexer::Token::FOREIGN,
+        FULL => lexer::Token::FULL,
         INT => lexer::Token::INT,
         INT2 => lexer::Token::INT2,
         INT4 => lexer::Token::INT4,
         INT8 => lexer::Token::INT8,
         INTEGER => lexer::Token::INTEGER,
         KEY => lexer::Token::KEY,
+        MATCH => lexer::Token::MATCH,
         MONEY => lexer::Token::MONEY,
         NOT => lexer::Token::NOT,
         NULL => lexer::Token::NULL,
         NUMERIC => lexer::Token::NUMERIC,
+        PARTIAL => lexer::Token::PARTIAL,
         PRECISION => lexer::Token::PRECISION,
         PRIMARY => lexer::Token::PRIMARY,
         REAL => lexer::Token::REAL,
         REFERENCES => lexer::Token::REFERENCES,
+        SCHEMA => lexer::Token::SCHEMA,
         SERIAL => lexer::Token::SERIAL,
         SERIAL2 => lexer::Token::SERIAL2,
         SERIAL4 => lexer::Token::SERIAL4,
         SERIAL8 => lexer::Token::SERIAL8,
+        SIMPLE => lexer::Token::SIMPLE,
         SMALLINT => lexer::Token::SMALLINT,
         SMALLSERIAL => lexer::Token::SMALLSERIAL,
         TABLE => lexer::Token::TABLE,
@@ -75,15 +80,18 @@ pub statement_list: Vec<Statement> = {
 };
 
 statement: Statement = {
-    CREATE TABLE <name:table_name> "(" <columns:column_definition_list> "," <constraints:constraint_list> ")" ";"? => Statement::Table(TableDefinition {
+    CREATE TABLE <name:table_name> "(" <columns:column_definition_list> "," <table_constraints:table_constraint_list> ")" ";"? => Statement::Table(TableDefinition {
         name: name,
         columns: columns,
-        constraints: Some(constraints),
+        constraints: Some(table_constraints),
     }),
     CREATE TABLE <name:table_name> "(" <columns:column_definition_list> ")" ";"? => Statement::Table(TableDefinition {
         name: name,
         columns: columns,
         constraints: None,
+    }),
+    CREATE SCHEMA <name:Ident> ";"? => Statement::Schema(SchemaDefinition {
+        name: name,
     }),
 };
 
@@ -102,10 +110,10 @@ column_definition_list: Vec<ColumnDefinition> = {
 };
 
 column_definition: ColumnDefinition = {
-    <name:Ident> <t:sql_type> <qualifiers:qualifier_list?> => ColumnDefinition {
+    <name:Ident> <t:sql_type> <constraints:column_constraint_list?> => ColumnDefinition {
         name: name,
         sql_type: t,
-        qualifiers: qualifiers,
+        constraints: constraints,
     },
 };
 
@@ -118,22 +126,22 @@ column_list: Vec<String> = {
     <Ident> => vec!(<>),
 };
 
-constraint_list: Vec<Constraint> = {
-    <v:constraint_list> "," <c:constraint> => {
+table_constraint_list: Vec<TableConstraint> = {
+    <v:table_constraint_list> "," <c:table_constraint> => {
         let mut v = v;
         v.push(c);
         v
     },
-    <constraint> => vec!(<>),
+    <table_constraint> => vec!(<>),
 };
 
-constraint: Constraint = {
-    CONSTRAINT <name:Ident> PRIMARY KEY "(" <columns:column_list> ")" <options:index_options?> => Constraint::Primary { 
+table_constraint: TableConstraint = {
+    CONSTRAINT <name:Ident> PRIMARY KEY "(" <columns:column_list> ")" <parameters:index_parameters?> => TableConstraint::Primary { 
         name: name, 
         columns: columns, 
-        options: options 
+        parameters: parameters 
     },
-    CONSTRAINT <name:Ident> FOREIGN KEY "(" <columns:column_list> ")" REFERENCES <ref_table:table_name> "(" <ref_columns:column_list> ")" => Constraint::Foreign { 
+    CONSTRAINT <name:Ident> FOREIGN KEY "(" <columns:column_list> ")" REFERENCES <ref_table:table_name> "(" <ref_columns:column_list> ")" => TableConstraint::Foreign { 
         name: name, 
         columns: columns, 
         ref_table: ref_table, 
@@ -141,21 +149,21 @@ constraint: Constraint = {
     }, 
 };
 
-index_options: Vec<IndexOption> = {
-    WITH "(" <index_option_list> ")" => <>,
+index_parameters: Vec<IndexParameter> = {
+    WITH "(" <index_parameter_list> ")" => <>,
 };
 
-index_option_list: Vec<IndexOption> = {
-    <v:index_option_list> "," <i:index_option> => {
+index_parameter_list: Vec<IndexParameter> = {
+    <v:index_parameter_list> "," <i:index_parameter> => {
         let mut v = v;
         v.push(i);
         v
     },
-    <index_option> => vec!(<>),
+    <index_parameter> => vec!(<>),
 };
 
-index_option: IndexOption = {
-    FILLFACTOR "=" <Digit> => IndexOption::FillFactor(<> as u32),
+index_parameter: IndexParameter = {
+    FILLFACTOR "=" <Digit> => IndexParameter::FillFactor(<> as u32),
 };
 
 sql_type: SqlType = {
@@ -201,20 +209,22 @@ sql_type: SqlType = {
     TIMETZ => SqlType::TimeWithTimeZone,
     
     UUID => SqlType::Uuid,
+
+    <Ident> => SqlType::Custom(<>),
 };
 
-qualifier_list: Vec<Qualifier> = {
-    <v:qualifier_list> <q:qualifier> => {
+column_constraint_list: Vec<ColumnConstraint> = {
+    <v:column_constraint_list> <q:column_constraint> => {
         let mut v = v;
         v.push(q);
         v
     },
-    <qualifier> => vec!(<>),
+    <column_constraint> => vec!(<>),
 };
 
-qualifier: Qualifier = {
-    NULL => Qualifier::Null,
-    NOT NULL => Qualifier::NotNull,
-    UNIQUE => Qualifier::Unique,
-    PRIMARY KEY => Qualifier::PrimaryKey,
+column_constraint: ColumnConstraint = {
+    NULL => ColumnConstraint::Null,
+    NOT NULL => ColumnConstraint::NotNull,
+    UNIQUE => ColumnConstraint::Unique,
+    PRIMARY KEY => ColumnConstraint::PrimaryKey,
 };
