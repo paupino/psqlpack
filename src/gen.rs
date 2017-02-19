@@ -186,7 +186,10 @@ impl Dacpac {
 
         for change in changeset {
             match out.write_all(change.to_sql().as_bytes()) {
-                Ok(_) => {},
+                Ok(_) => {
+                    // New line
+                    out.write(&[10u8]);
+                },
                 Err(e) => return Err(vec!(DacpacError::GenerationError {
                     message: format!("Failed to generate SQL file: {}", e),
                 })),
@@ -523,17 +526,30 @@ enum ChangeInstruction<'input> {
 
     // Tables
     AddTable(&'input TableDefinition),
-    RemoveTable,
+    RemoveTable(String),
 
     // Columns
-    AddColumn,
-    ModifyColumn,
-    RemoveColumn,
+    AddColumn(&'input ColumnDefinition),
+    ModifyColumn(&'input ColumnDefinition),
+    RemoveColumn(String),
 }
 
 impl<'input> ChangeInstruction<'input> {
     fn to_sql(&self) -> String {
-        "CREATE".to_owned()
+        match *self {
+            ChangeInstruction::CreateDatabase(ref db) => {
+                format!("CREATE DATABASE `{}`;", db)
+            },
+            ChangeInstruction::AddTable(ref def) => {
+                let mut instr = String::new();
+                instr.push_str(&format!("CREATE TABLE {}", def.name)[..]);
+                instr
+            }
+            _ => { 
+                "TODO".to_owned()
+            }
+        }
+        
     }
 }
 
