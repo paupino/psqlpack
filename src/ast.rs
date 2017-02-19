@@ -1,5 +1,5 @@
 pub enum Statement {
-    TableDefinition { name: TableName, columns: Vec<ColumnDefinition>, constraints: Option<Vec<Constraint>> }
+    Table(TableDefinition),
 }
 
 pub enum SqlType {
@@ -48,6 +48,12 @@ pub enum IndexOption {
 pub enum Constraint {
     Primary { name: String, columns: Vec<String>, options: Option<Vec<IndexOption>> },
     Foreign { name: String, columns: Vec<String>, ref_table: TableName, ref_columns: Vec<String> },
+}
+
+pub struct TableDefinition {
+    pub name: TableName, 
+    pub columns: Vec<ColumnDefinition>, 
+    pub constraints: Option<Vec<Constraint>>,
 }
 
 pub struct TableName {

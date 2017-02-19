@@ -2834,11 +2834,11 @@ pub fn __action3<
     (_, _, _): ((), ::std::option::Option<lexer::Token>, ()),
 ) -> Statement
 {
-    Statement::TableDefinition {
+    Statement::Table(TableDefinition {
         name: name,
         columns: columns,
         constraints: Some(constraints),
-    }
+    })
 }
 
 pub fn __action4<
@@ -2853,11 +2853,11 @@ pub fn __action4<
     (_, _, _): ((), ::std::option::Option<lexer::Token>, ()),
 ) -> Statement
 {
-    Statement::TableDefinition {
+    Statement::Table(TableDefinition {
         name: name,
         columns: columns,
         constraints: None,
-    }
+    })
 }
 
 pub fn __action5<

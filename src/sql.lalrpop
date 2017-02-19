@@ -75,16 +75,16 @@ pub statement_list: Vec<Statement> = {
 };
 
 statement: Statement = {
-    CREATE TABLE <name:table_name> "(" <columns:column_definition_list> "," <constraints:constraint_list> ")" ";"? => Statement::TableDefinition {
+    CREATE TABLE <name:table_name> "(" <columns:column_definition_list> "," <constraints:constraint_list> ")" ";"? => Statement::Table(TableDefinition {
         name: name,
         columns: columns,
         constraints: Some(constraints),
-    },
-    CREATE TABLE <name:table_name> "(" <columns:column_definition_list> ")" ";"? => Statement::TableDefinition {
+    }),
+    CREATE TABLE <name:table_name> "(" <columns:column_definition_list> ")" ";"? => Statement::Table(TableDefinition {
         name: name,
         columns: columns,
         constraints: None,
-    },
+    }),
 };
 
 table_name: TableName = {
