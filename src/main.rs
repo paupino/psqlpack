@@ -4,6 +4,7 @@ extern crate clap;
 #[macro_use]
 extern crate lazy_static;
 extern crate lalrpop_util;
+extern crate postgres;
 extern crate regex;
 #[macro_use]
 extern crate serde_derive;
@@ -30,13 +31,20 @@ fn main() {
                 (@arg OUT: --out +required +takes_value "The location of the folder to export the dacpac to")
             )
             (@subcommand publish =>
-                (about: "publishes a DACPAC to a the specified database")
+                (about: "publishes a DACPAC to target")
                 (@arg SOURCE: --source +required +takes_value "The source dacpac to use for publishing")
                 (@arg TARGET: --target +required +takes_value "The target database to publish to")
                 (@arg PROFILE: --profile +required +takes_value "The publish profile to use for publishing")
             )
+            (@subcommand sql =>
+                (about: "outputs the SQL file that would be executed against the target")
+                (@arg SOURCE: --source +required +takes_value "The source dacpac to use for the deploy report")
+                (@arg TARGET: --target +required +takes_value "The target database to compare to")
+                (@arg PROFILE: --profile +required +takes_value "The publish profile to use for the deploy report")
+                (@arg OUT: --out +required +takes_value "The SQL file to generate")
+            )
             (@subcommand report =>
-                (about: "outputs a deployment report for a DACPAC to a the specified database")
+                (about: "outputs a JSON deployment report for what would be executed against the target")
                 (@arg SOURCE: --source +required +takes_value "The source dacpac to use for the deploy report")
                 (@arg TARGET: --target +required +takes_value "The target database to compare to")
                 (@arg PROFILE: --profile +required +takes_value "The publish profile to use for the deploy report")
@@ -68,6 +76,21 @@ fn main() {
         let target = String::from(publish.value_of("TARGET").unwrap());
         let profile = String::from(publish.value_of("PROFILE").unwrap());
         match Dacpac::publish(source, target, profile) {
+            Ok(_) => { },
+            Err(errors) => {
+                for error in errors {
+                    error.print();
+                }                
+            }
+        }
+    } else if let Some(sql) = matches.subcommand_matches("sql") {
+        action = "SQL File Generation";
+        // Source is the dacpac, target is the DB
+        let source = String::from(sql.value_of("SOURCE").unwrap());
+        let target = String::from(sql.value_of("TARGET").unwrap());
+        let profile = String::from(sql.value_of("PROFILE").unwrap());
+        let output_file = String::from(sql.value_of("OUT").unwrap());
+        match Dacpac::generate_sql(source, target, profile, output_file) {
             Ok(_) => { },
             Err(errors) => {
                 for error in errors {

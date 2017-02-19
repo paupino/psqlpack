@@ -1,7 +1,9 @@
 use ast::*;
 use lexer::{self};
 use lalrpop_util::ParseError;
+use postgres::{Connection, TlsMode};
 use serde_json::{self};
+use std::ascii::AsciiExt;
 use std::io::{self,Read};
 use std::io::prelude::*;
 use std::path::Path;
@@ -152,7 +154,24 @@ impl Dacpac {
         
         let project = try!(Dacpac::load_project(source_dacpac_file));
         let publish_profile = try!(Dacpac::load_publish_profile(publish_profile));
-        try!(Dacpac::test_connection(target_connection_string));
+        let connection_string = try!(Dacpac::test_connection(target_connection_string));
+
+        // Now we generate our instructions
+
+        // These instructions turn into SQL statements that get executed
+
+        Ok(())
+    }
+
+    pub fn generate_sql(source_dacpac_file: String, target_connection_string: String, publish_profile: String, output_file: String) -> StdResult<(), Vec<DacpacError>> {
+
+        let project = try!(Dacpac::load_project(source_dacpac_file));
+        let publish_profile = try!(Dacpac::load_publish_profile(publish_profile));
+        let connection_string = try!(Dacpac::test_connection(target_connection_string));
+
+        // Now we generate our instructions
+
+        // These instructions turn into a single SQL file
 
         Ok(())
     }
@@ -161,7 +180,11 @@ impl Dacpac {
 
         let project = try!(Dacpac::load_project(source_dacpac_file));
         let publish_profile = try!(Dacpac::load_publish_profile(publish_profile));
-        try!(Dacpac::test_connection(target_connection_string));
+        let connection_string = try!(Dacpac::test_connection(target_connection_string));
+
+        // Now we generate our instructions
+
+        // These instructions turn into a JSON report
 
         Ok(())
     }
@@ -207,11 +230,145 @@ impl Dacpac {
     }
 
     fn load_publish_profile(publish_profile: String) -> StdResult<PublishProfile, Vec<DacpacError>> {
-        Err(vec!())
+        // Load the publish profile
+        let path = Path::new(&publish_profile[..]);
+        if !path.is_file() {
+            return Err(vec!(DacpacError::IOError {
+                file: format!("{}", path.display()),
+                message: "Publish profile does not exist".to_owned(),
+            }));
+        }
+        let mut publish_profile_raw = String::new();
+        if let Err(err) = File::open(&path).and_then(|mut f| f.read_to_string(&mut publish_profile_raw)) {
+            return Err(vec!(DacpacError::IOError {
+                     file: format!("{}", path.display()),
+                     message: format!("Failed to read publish profile: {}", err)
+                 }));
+        }
+
+        // Deserialize
+        let publish_profile : PublishProfile = match serde_json::from_str(&publish_profile_raw) {
+            Ok(p) => p,
+            Err(e) => return Err(vec!(DacpacError::FormatError {
+                file: format!("{}", path.display()),
+                message: format!("Publish profile was not well formed: {}", e),
+            })),
+        };
+        Ok(publish_profile)
     }
 
-    fn test_connection(target_connection_string: String) -> StdResult<(), Vec<DacpacError>> {
-        Ok(())
+    fn test_connection(target_connection_string: String) -> StdResult<ConnectionString, Vec<DacpacError>> {
+
+        // Connection String
+        let mut connection_string = ConnectionString::new();
+
+        // First up, parse the connection string
+        let sections: Vec<&str> = target_connection_string.split(';').collect();
+        for section in sections {
+
+            if section.trim().len() == 0 {
+                continue;
+            }
+
+            // Get the parts
+            let parts: Vec<&str> = section.split('=').collect();
+            if parts.len() != 2 {
+                return Err(vec!(DacpacError::InvalidConnectionString {
+                    message: "Connection string was not well formed".to_owned(),
+                }));
+            }
+
+            match parts[0] {
+                "host" => connection_string.set_host(parts[1]),
+                "database" => connection_string.set_database(parts[1]),
+                "userid" => connection_string.set_user(parts[1]),
+                "password" => connection_string.set_password(parts[1]),
+                "tlsmode" => connection_string.set_tls_mode(parts[1]),
+                _ => {}
+            }
+        }
+
+        // Make sure we have enough for a connection string
+        try!(connection_string.validate());
+
+        Ok(connection_string)
+    }
+}
+
+struct ConnectionString {
+    database : Option<String>,
+    host : Option<String>,
+    user : Option<String>,
+    password : Option<String>,
+    tls_mode : bool,
+}
+
+macro_rules! assert_existance {
+    ($s:ident, $field:ident, $errors:ident) => {{ 
+        if $s.$field.is_none() {
+            let text = stringify!($field);
+            $errors.push(DacpacError::InvalidConnectionString { message: format!("No {} defined", text) }); 
+        }
+    }};
+}
+
+impl ConnectionString {
+    fn new() -> Self {
+        ConnectionString {
+            database: None,
+            host: None,
+            user: None,
+            password: None,
+            tls_mode: false
+        }
+    }
+
+    fn set_database(&mut self, value: &str) {
+        self.database = Some(value.to_owned());
+    }
+
+    fn set_host(&mut self, value: &str) {
+        self.host = Some(value.to_owned());
+    }
+
+    fn set_user(&mut self, value: &str) {
+        self.user = Some(value.to_owned());
+    }
+
+    fn set_password(&mut self, value: &str) {
+        self.password = Some(value.to_owned());
+    }
+
+    fn set_tls_mode(&mut self, value: &str) {
+        self.tls_mode = value.eq_ignore_ascii_case("true");
+    }
+
+    fn validate(&self) -> StdResult<(), Vec<DacpacError>> {
+        let mut errors = Vec::new();
+        assert_existance!(self, database, errors);
+        assert_existance!(self, host, errors);
+        assert_existance!(self, user, errors);
+        if self.tls_mode {
+            errors.push(DacpacError::InvalidConnectionString { message: "TLS not supported".to_owned() }); 
+        }
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors)
+        }
+    }
+
+    fn uri(&self) -> String {
+        // Assumes validate has been called
+        if self.password.is_none() {
+            format!("postgres://{}@{}/{}", self.user.clone().unwrap(), self.host.clone().unwrap(), self.database.clone().unwrap())
+        } else {
+            format!("postgres://{}:{}@{}/{}", self.user.clone().unwrap(), self.password.clone().unwrap(), self.host.clone().unwrap(), self.database.clone().unwrap())
+        }
+    }
+
+    fn tls_mode(&self) -> TlsMode {
+        TlsMode::None
     }
 }
 
@@ -253,13 +410,18 @@ impl Project {
     }
 }
 
-struct PublishProfile;
+#[derive(Deserialize)]
+struct PublishProfile {
+    version: String,
+}
 
 pub enum DacpacError {
     IOError { file: String, message: String },
     SyntaxError { file: String, line: String, line_number: i32, start_pos: i32, end_pos: i32 },
     ParseError { file: String, errors: Vec<ParseError<(), lexer::Token, ()>> },
     GenerationError { message: String },
+    FormatError { file: String, message: String },
+    InvalidConnectionString { message: String },
 }
 
 impl DacpacError {
@@ -267,6 +429,16 @@ impl DacpacError {
         match *self {
             DacpacError::IOError { ref file, ref message } => {
                 println!("IO Error when reading {}", file);
+                println!("  {}", message);
+                println!();
+            },
+            DacpacError::FormatError { ref file, ref message } => {
+                println!("Formatting Error when reading {}", file);
+                println!("  {}", message);
+                println!();
+            },
+            DacpacError::InvalidConnectionString { ref message } => {
+                println!("Invalid connection string");
                 println!("  {}", message);
                 println!();
             },
