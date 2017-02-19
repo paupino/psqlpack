@@ -1,5 +1,5 @@
 pub enum Statement {
-    Table
+    TableDefinition { name: TableName, columns: Vec<ColumnDefinition>, constraints: Option<Vec<Constraint>> }
 }
 
 pub enum SqlType {
@@ -32,4 +32,31 @@ pub enum SqlType {
     TimeWithTimeZone, // time with time zone
 
     Uuid, // uuid
+}
+
+pub enum Qualifier {
+    NotNull,
+    Null,
+    Unique,
+    PrimaryKey,
+}
+
+pub enum IndexOption {
+    FillFactor(u32),
+}
+
+pub enum Constraint {
+    Primary { name: String, columns: Vec<String>, options: Option<Vec<IndexOption>> },
+    Foreign { name: String, columns: Vec<String>, ref_table: TableName, ref_columns: Vec<String> },
+}
+
+pub struct TableName {
+    pub schema: Option<String>,
+    pub name: String,
+}
+
+pub struct ColumnDefinition {
+    pub name: String,
+    pub sql_type: SqlType,
+    pub qualifiers: Option<Vec<Qualifier>>,
 }

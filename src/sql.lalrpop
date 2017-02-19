@@ -1,4 +1,4 @@
-use ast::{SqlType,Statement};
+use ast::*;
 use lexer::{self};
 
 grammar<'input>;
@@ -75,43 +75,87 @@ pub statement_list: Vec<Statement> = {
 };
 
 statement: Statement = {
-    CREATE TABLE table_name "(" column_definition_list ("," constraint_list)? ")" ";"? => Statement::Table,
+    CREATE TABLE <name:table_name> "(" <columns:column_definition_list> "," <constraints:constraint_list> ")" ";"? => Statement::TableDefinition {
+        name: name,
+        columns: columns,
+        constraints: Some(constraints),
+    },
+    CREATE TABLE <name:table_name> "(" <columns:column_definition_list> ")" ";"? => Statement::TableDefinition {
+        name: name,
+        columns: columns,
+        constraints: None,
+    },
 };
 
-table_name: () = {
-    (Ident ".")? Ident
+table_name: TableName = {
+    <schema:Ident> "." <name:Ident> => TableName { schema: Some(schema), name: name },
+    <name:Ident> => TableName { schema: None, name: name },
 };
 
-column_definition_list: () = {
-    column_definition_list "," column_definition,
-    column_definition  
+column_definition_list: Vec<ColumnDefinition> = {
+    <v:column_definition_list> "," <c:column_definition> => {
+        let mut v = v;
+        v.push(c);
+        v
+    },
+    <column_definition> => vec!(<>)
 };
 
-column_definition: () = {
-    Ident sql_type qualifier_list,
+column_definition: ColumnDefinition = {
+    <name:Ident> <t:sql_type> <qualifiers:qualifier_list?> => ColumnDefinition {
+        name: name,
+        sql_type: t,
+        qualifiers: qualifiers,
+    },
 };
 
-constraint_list: () = {
-    constraint_list "," constraint,
-    constraint  
+column_list: Vec<String> = {
+    <v:column_list> "," <c:Ident> => {
+        let mut v = v;
+        v.push(c);
+        v
+    },
+    <Ident> => vec!(<>),
 };
 
-constraint: () = {
-    CONSTRAINT Ident PRIMARY KEY "(" Ident ")" with_qualifier?,
-    CONSTRAINT Ident FOREIGN KEY "(" Ident ")" REFERENCES table_name "(" Ident ")" 
+constraint_list: Vec<Constraint> = {
+    <v:constraint_list> "," <c:constraint> => {
+        let mut v = v;
+        v.push(c);
+        v
+    },
+    <constraint> => vec!(<>),
 };
 
-with_qualifier: () = {
-    WITH "(" with_option_list ")"
+constraint: Constraint = {
+    CONSTRAINT <name:Ident> PRIMARY KEY "(" <columns:column_list> ")" <options:index_options?> => Constraint::Primary { 
+        name: name, 
+        columns: columns, 
+        options: options 
+    },
+    CONSTRAINT <name:Ident> FOREIGN KEY "(" <columns:column_list> ")" REFERENCES <ref_table:table_name> "(" <ref_columns:column_list> ")" => Constraint::Foreign { 
+        name: name, 
+        columns: columns, 
+        ref_table: ref_table, 
+        ref_columns: ref_columns 
+    }, 
 };
 
-with_option_list: () = {
-    with_option_list "," with_option,  
-    with_option,
+index_options: Vec<IndexOption> = {
+    WITH "(" <index_option_list> ")" => <>,
 };
 
-with_option: () = {
-    FILLFACTOR "=" Digit  
+index_option_list: Vec<IndexOption> = {
+    <v:index_option_list> "," <i:index_option> => {
+        let mut v = v;
+        v.push(i);
+        v
+    },
+    <index_option> => vec!(<>),
+};
+
+index_option: IndexOption = {
+    FILLFACTOR "=" <Digit> => IndexOption::FillFactor(<> as u32),
 };
 
 sql_type: SqlType = {
@@ -159,14 +203,18 @@ sql_type: SqlType = {
     UUID => SqlType::Uuid,
 };
 
-qualifier_list: () = {
-    qualifier_list qualifier,
-    qualifier
+qualifier_list: Vec<Qualifier> = {
+    <v:qualifier_list> <q:qualifier> => {
+        let mut v = v;
+        v.push(q);
+        v
+    },
+    <qualifier> => vec!(<>),
 };
 
-qualifier: () = {
-    NULL,
-    NOT NULL,
-    UNIQUE,
-    PRIMARY KEY,
+qualifier: Qualifier = {
+    NULL => Qualifier::Null,
+    NOT NULL => Qualifier::NotNull,
+    UNIQUE => Qualifier::Unique,
+    PRIMARY KEY => Qualifier::PrimaryKey,
 };
