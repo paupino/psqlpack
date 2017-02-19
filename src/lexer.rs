@@ -64,6 +64,13 @@ pub enum Token {
     Equals,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum LexerState {
+    Normal,
+    Comment1,
+    Comment2,
+}
+
 #[derive(Debug)]
 pub struct LexicalError<'input> {
     pub line: &'input str,
@@ -180,6 +187,8 @@ pub fn tokenize(text: &str) -> Result<Vec<Token>, LexicalError> {
     let mut current_line = 0;
     let mut current_position;
     let mut buffer = Vec::new();
+    let mut state = LexerState::Normal;
+    let mut last_char : char;
 
     // Loop through each character, halting on whitespace
     // Our outer loop works by newline
@@ -187,45 +196,79 @@ pub fn tokenize(text: &str) -> Result<Vec<Token>, LexicalError> {
     for line in lines {
         current_line += 1;
         current_position = 0;
+        last_char = '\0'; // Start fresh
 
         for c in line.chars() {
-            // Simple check for whitespace
-            if c.is_whitespace() {
-                tokenize_buffer!(tokens, buffer, line, current_line, current_position);
-            } else {
+            match state {
+                LexerState::Normal => {
+                    // Check if we should be entering the comment state
+                    if last_char == '-' && c == '-' {
+                        // take off the previous item as it was a comment character and push the buffer
+                        if !buffer.is_empty() {
+                            buffer.pop();
+                        }
+                        tokenize_buffer!(tokens, buffer, line, current_line, current_position);
+                        state = LexerState::Comment1;
+                    } else if last_char == '/' && c == '*' {
+                        // take off the previous item as it was a comment character and push the buffer
+                        if !buffer.is_empty() {
+                            buffer.pop();                        
+                        }
+                        tokenize_buffer!(tokens, buffer, line, current_line, current_position);
+                        state = LexerState::Comment2;
+                    } else if c.is_whitespace() { // Simple check for whitespace
+                        tokenize_buffer!(tokens, buffer, line, current_line, current_position);
+                    } else {
 
-                // If it is a symbol then don't bother with the buffer
-                match c {
-                    '(' => {
-                        tokenize_buffer!(tokens, buffer, line, current_line, current_position);
-                        tokens.push(Token::LeftBracket);
-                    }, 
-                    ')' => {
-                        tokenize_buffer!(tokens, buffer, line, current_line, current_position);
-                        tokens.push(Token::RightBracket);
-                    },
-                    ',' => {
-                        tokenize_buffer!(tokens, buffer, line, current_line, current_position);
-                        tokens.push(Token::Comma);
-                    }, 
-                    ';' => {
-                        tokenize_buffer!(tokens, buffer, line, current_line, current_position);
-                        tokens.push(Token::Semicolon);
-                    },
-                    '=' => {
-                        tokenize_buffer!(tokens, buffer, line, current_line, current_position);
-                        tokens.push(Token::Equals);
-                    }, 
-                    '.' => {
-                        tokenize_buffer!(tokens, buffer, line, current_line, current_position);
-                        tokens.push(Token::Period);
-                    }, 
-                    _ => buffer.push(c),
-                }
+                        // If it is a symbol then don't bother with the buffer
+                        match c {
+                            '(' => {
+                                tokenize_buffer!(tokens, buffer, line, current_line, current_position);
+                                tokens.push(Token::LeftBracket);
+                            }, 
+                            ')' => {
+                                tokenize_buffer!(tokens, buffer, line, current_line, current_position);
+                                tokens.push(Token::RightBracket);
+                            },
+                            ',' => {
+                                tokenize_buffer!(tokens, buffer, line, current_line, current_position);
+                                tokens.push(Token::Comma);
+                            }, 
+                            ';' => {
+                                tokenize_buffer!(tokens, buffer, line, current_line, current_position);
+                                tokens.push(Token::Semicolon);
+                            },
+                            '=' => {
+                                tokenize_buffer!(tokens, buffer, line, current_line, current_position);
+                                tokens.push(Token::Equals);
+                            }, 
+                            '.' => {
+                                tokenize_buffer!(tokens, buffer, line, current_line, current_position);
+                                tokens.push(Token::Period);
+                            }, 
+                            _ => buffer.push(c),
+                        }
+                    }
+                },
+                LexerState::Comment1 => {
+                    // Ignore comments
+                },
+                LexerState::Comment2 => {
+                    if last_char == '*' && c == '/' {
+                        state = LexerState::Normal;
+                    }
+                    // Ignore comments
+                },
             }
 
             // Move the current_position
             current_position += 1;
+            last_char = c;
+        }
+
+        // If we were a single line comment, we go back to a normal state on a new line
+        if state == LexerState::Comment1 {
+            state = LexerState::Normal;
         }
 
         // We may also have a full buffer

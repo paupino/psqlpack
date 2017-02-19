@@ -472,6 +472,7 @@ impl ConnectionString {
 
 #[derive(Deserialize)]
 struct ProjectConfig {
+    version: String,
     default_schema: String,
     predeploy_scripts: Vec<String>,
     postdeploy_scripts: Vec<String>,
