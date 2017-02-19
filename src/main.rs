@@ -63,18 +63,32 @@ fn main() {
         }
     } else if let Some(publish) = matches.subcommand_matches("publish") {
         action = "Publishing";
-        // Source is the dacpac
-        //source = String::from(publish.value_of("SOURCE").unwrap());
-        // Target is the database
-        //target = Some(String::from(publish.value_of("TARGET").unwrap()));
-        //profile = Some(String::from(publish.value_of("PROFILE").unwrap()));
+        // Source is the dacpac, target is the DB
+        let source = String::from(publish.value_of("SOURCE").unwrap());
+        let target = String::from(publish.value_of("TARGET").unwrap());
+        let profile = String::from(publish.value_of("PROFILE").unwrap());
+        match Dacpac::publish(source, target, profile) {
+            Ok(_) => { },
+            Err(errors) => {
+                for error in errors {
+                    error.print();
+                }                
+            }
+        }
     } else if let Some(report) = matches.subcommand_matches("report") {
         action = "Report Generation";
-        // Source is the dacpac
-        //source = String::from(report.value_of("SOURCE").unwrap());
-        // Target is the database
-        //target = Some(String::from(report.value_of("TARGET").unwrap()));
-        //profile = Some(String::from(report.value_of("PROFILE").unwrap()));
+        // Source is the dacpac, target is the DB
+        let source = String::from(report.value_of("SOURCE").unwrap());
+        let target = String::from(report.value_of("TARGET").unwrap());
+        let profile = String::from(report.value_of("PROFILE").unwrap());
+        match Dacpac::generate_report(source, target, profile) {
+            Ok(_) => { },
+            Err(errors) => {
+                for error in errors {
+                    error.print();
+                }                
+            }
+        }
     } else {
         println!("Subcommand is required");
         std::process::exit(1);

@@ -9,15 +9,8 @@ use std::fs::{self,DirEntry,File};
 use std::result::Result as StdResult;
 use sql::{self};
 use walkdir::WalkDir;
-use zip::ZipWriter;
+use zip::{ZipArchive,ZipWriter};
 use zip::write::FileOptions;
-
-pub enum DacpacError {
-    IOError { file: String, message: String },
-    SyntaxError { file: String, line: String, line_number: i32, start_pos: i32, end_pos: i32 },
-    ParseError { file: String, errors: Vec<ParseError<(), lexer::Token, ()>> },
-    GenerationError { message: String },
-}
 
 macro_rules! ztry {
     ($expr:expr) => {{ 
@@ -30,14 +23,29 @@ macro_rules! ztry {
     }};
 }
 
+macro_rules! load_file {
+    ($file_type:ty, $coll:ident, $file:ident) => {{
+        let mut contents = String::new();
+        $file.read_to_string(&mut contents).unwrap();
+        let object : $file_type = serde_json::from_str(&contents).unwrap();
+        $coll.push(object);
+    }};
+}
+
 pub struct Dacpac;
 
 impl Dacpac {
     pub fn package_project(source_project_file: String, output_file: String) -> StdResult<(), Vec<DacpacError>> {
 
-        // Create a tax specification to populate via parsing
-        let mut project_source = String::new();
+        // Load the project file
         let project_path = Path::new(&source_project_file[..]);
+        if !project_path.is_file() {
+            return Err(vec!(DacpacError::IOError {
+                file: format!("{}", project_path.display()),
+                message: "Project file does not exist".to_owned(),
+            }));
+        }
+        let mut project_source = String::new();
         if let Err(err) = File::open(&project_path).and_then(|mut f| f.read_to_string(&mut project_source)) {
             return Err(vec!(DacpacError::IOError {
                      file: format!("{}", project_path.display()),
@@ -47,7 +55,7 @@ impl Dacpac {
 
         // Load the project
         let project_config : ProjectConfig = serde_json::from_str(&project_source).unwrap();
-        let mut project = Project::new(project_config);
+        let mut project = Project::new();
         let mut errors = Vec::new();
 
         // Enumerate the directory
@@ -106,7 +114,7 @@ impl Dacpac {
         }
 
         // First up validate the dacpac
-        project.set_defaults();
+        project.set_defaults(project_config);
         try!(project.validate());
 
         // Now generate the dacpac
@@ -139,6 +147,72 @@ impl Dacpac {
 
         Ok(())
     }
+
+    pub fn publish(source_dacpac_file: String, target_connection_string: String, publish_profile: String) -> StdResult<(), Vec<DacpacError>> {
+        
+        let project = try!(Dacpac::load_project(source_dacpac_file));
+        let publish_profile = try!(Dacpac::load_publish_profile(publish_profile));
+        try!(Dacpac::test_connection(target_connection_string));
+
+        Ok(())
+    }
+
+    pub fn generate_report(source_dacpac_file: String, target_connection_string: String, publish_profile: String) -> StdResult<(), Vec<DacpacError>> {
+
+        let project = try!(Dacpac::load_project(source_dacpac_file));
+        let publish_profile = try!(Dacpac::load_publish_profile(publish_profile));
+        try!(Dacpac::test_connection(target_connection_string));
+
+        Ok(())
+    }
+
+    fn load_project(source_dacpac_file: String) -> StdResult<Project, Vec<DacpacError>> {
+        // Load the DACPAC
+        let source_path = Path::new(&source_dacpac_file[..]);
+        if !source_path.is_file() {
+            return Err(vec!(DacpacError::IOError {
+                file: format!("{}", source_path.display()),
+                message: "DACPAC file does not exist".to_owned(),
+            }));
+        }
+        let file = match fs::File::open(&source_path) {
+            Ok(o) => o,
+            Err(e) => return Err(vec!(DacpacError::IOError {
+                file: format!("{}", source_path.display()),
+                message: format!("Failed to open DACPAC file: {}", e),
+            })),
+        };
+        let mut archive = match ZipArchive::new(file) {
+            Ok(o) => o,
+            Err(e) => return Err(vec!(DacpacError::IOError {
+                file: format!("{}", source_path.display()),
+                message: format!("Failed to open DACPAC file: {}", e),
+            })),
+        };
+
+        let mut tables = Vec::new();
+        for i in 0..archive.len()
+        {
+            let mut file = archive.by_index(i).unwrap();
+            if file.size() == 0 {
+                continue;
+            }
+            if file.name().starts_with("tables/") {
+                load_file!(TableDefinition, tables, file);
+            }
+        }
+        Ok(Project {
+            tables: tables
+        })
+    }
+
+    fn load_publish_profile(publish_profile: String) -> StdResult<PublishProfile, Vec<DacpacError>> {
+        Err(vec!())
+    }
+
+    fn test_connection(target_connection_string: String) -> StdResult<(), Vec<DacpacError>> {
+        Ok(())
+    }
 }
 
 #[derive(Deserialize)]
@@ -147,15 +221,13 @@ struct ProjectConfig {
 }
 
 struct Project {
-    config: ProjectConfig,
     tables: Vec<TableDefinition>,
 }
 
 impl Project {
 
-    fn new(config: ProjectConfig) -> Self {
+    fn new() -> Self {
         Project {
-            config: config,
             tables: Vec::new(),
         }
     }
@@ -164,12 +236,12 @@ impl Project {
         self.tables.push(table);
     }
 
-    fn set_defaults(&mut self) { 
+    fn set_defaults(&mut self, config: ProjectConfig) { 
 
         // Set default schema's
         for table in self.tables.iter_mut() {
             if table.name.schema.is_none() {
-                table.name.schema = Some(self.config.default_schema.clone());
+                table.name.schema = Some(config.default_schema.clone());
             }
         }
     }
@@ -179,6 +251,15 @@ impl Project {
         // TODO: Validate references etc
         Ok(())
     }
+}
+
+struct PublishProfile;
+
+pub enum DacpacError {
+    IOError { file: String, message: String },
+    SyntaxError { file: String, line: String, line_number: i32, start_pos: i32, end_pos: i32 },
+    ParseError { file: String, errors: Vec<ParseError<(), lexer::Token, ()>> },
+    GenerationError { message: String },
 }
 
 impl DacpacError {
