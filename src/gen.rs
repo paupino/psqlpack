@@ -26,6 +26,17 @@ macro_rules! ztry {
     }};
 }
 
+macro_rules! dbtry {
+    ($expr:expr) => { 
+        match $expr {
+            Ok(o) => o,
+            Err(e) => return Err(vec!(DacpacError::DatabaseError { 
+                message: format!("{}", e),
+            })),
+        }
+    };
+}
+
 macro_rules! load_file {
     ($file_type:ty, $coll:ident, $file:ident) => {{
         let mut contents = String::new();
@@ -162,22 +173,12 @@ impl Dacpac {
         let changeset = project.generate_changeset(&connection_string, publish_profile)?;
 
         // These instructions turn into SQL statements that get executed
-        let mut conn = match Connection::connect(connection_string.uri(false), connection_string.tls_mode()) {
-            Ok(conn) => conn,
-            Err(e) => return Err(vec!(DacpacError::DatabaseError {
-                message: format!("{}", e),
-            })),
-        };
+        let mut conn = dbtry!(Connection::connect(connection_string.uri(false), connection_string.tls_mode()));
         for change in changeset.iter() {
             match *change {
                 ChangeInstruction::UseDatabase(ref db) => {
                     conn.finish();
-                    conn = match Connection::connect(connection_string.uri(true), connection_string.tls_mode()) {
-                        Ok(conn) => conn,
-                        Err(e) => return Err(vec!(DacpacError::DatabaseError {
-                            message: format!("{}", e),
-                        })),
-                    };
+                    conn = dbtry!(Connection::connect(connection_string.uri(true), connection_string.tls_mode()));
                     continue;
                 },
                 _ => {}
@@ -185,12 +186,7 @@ impl Dacpac {
 
             // Execute SQL directly
             println!("{}", change.to_progress_message());
-            match conn.execute(&change.to_sql()[..], &[]) {
-                Ok(_) => {},
-                Err(e) => return Err(vec!(DacpacError::DatabaseError {
-                    message: format!("{}", e),
-                })),
-            }
+            dbtry!(conn.execute(&change.to_sql()[..], &[]));
         }
         // Close the connection
         conn.finish();
@@ -514,18 +510,8 @@ impl Project {
 
         // First up, detect if there is no database (or it needs to be recreated)
         // If so, we assume everything is new
-        let db_conn = match Connection::connect(connection_string.uri(false), connection_string.tls_mode()) {
-            Ok(conn) => conn,
-            Err(e) => return Err(vec!(DacpacError::DatabaseError {
-                message: format!("{}", e),
-            })),
-        };
-        let db_result = match db_conn.query("SELECT 1 from pg_database WHERE datname=$1;", &[ &connection_string.database.clone().unwrap() ]) {
-            Ok(r) => r,
-            Err(e) => return Err(vec!(DacpacError::DatabaseError {
-                message: format!("{}", e),
-            })),
-        };
+        let db_conn = dbtry!(Connection::connect(connection_string.uri(false), connection_string.tls_mode()));
+        let db_result = dbtry!(db_conn.query("SELECT 1 from pg_database WHERE datname=$1;", &[ &connection_string.database.clone().unwrap() ]));
         let mut has_db = false;
         if db_result.len() > 0 {
             has_db = true;
@@ -544,18 +530,27 @@ impl Project {
             changeset.push(ChangeInstruction::UseDatabase(connection_string.database.clone().unwrap()));
 
             // Connect to the database
-            let conn = Connection::connect(connection_string.uri(true), connection_string.tls_mode()).unwrap();
+            let conn = dbtry!(Connection::connect(connection_string.uri(true), connection_string.tls_mode()));
 
             // Go through each table
             for table in self.tables.iter() {
-                let result = &conn.query("SELECT EXISTS (
-                               SELECT 1 
-                               FROM   pg_catalog.pg_class c
-                               JOIN   pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-                               WHERE  n.nspname = $1
-                               AND    c.relname = $2
-                               AND    c.relkind = 'r'    -- only tables
-                               );", &[ &table.name.schema, &table.name.name ]).unwrap();
+                let mut table_exists = false;
+                for table in &conn.query("SELECT 1 
+                                          FROM   pg_catalog.pg_class c
+                                          JOIN   pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+                                          WHERE  n.nspname = $1
+                                          AND    c.relname = $2
+                                          AND    c.relkind = 'r';", &[ &table.name.schema, &table.name.name ]).unwrap() {
+                    table_exists = true;
+                    break;
+                }
+                if table_exists {
+                    // Check the columns
+
+                    // Check the constraints
+                } else {
+                    changeset.push(ChangeInstruction::AddTable(table));
+                }
             } 
         } else {
             changeset.push(ChangeInstruction::CreateDatabase(connection_string.database.clone().unwrap()));
