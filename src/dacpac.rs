@@ -78,7 +78,10 @@ impl Dacpac {
         }
 
         // Load the project
-        let project_config : ProjectConfig = serde_json::from_str(&project_source).unwrap();
+        let project_config : ProjectConfig = match serde_json::from_str(&project_source) {
+            Ok(c) => c,
+            Err(e) => return Err(vec!(DacpacError::ProjectError { message: format!("{}", e) })),
+        };
         let mut project = Project::new();
         let mut errors = Vec::new();
 
@@ -733,6 +736,7 @@ pub enum DacpacError {
     FormatError { file: String, message: String },
     InvalidConnectionString { message: String },
     DatabaseError { message: String },
+    ProjectError { message: String },
 }
 
 impl DacpacError {
@@ -807,6 +811,11 @@ impl DacpacError {
             },
             DacpacError::DatabaseError { ref message } => {
                 println!("Database error:");
+                println!("  {}", message);
+                println!();
+            },
+            DacpacError::ProjectError { ref message } => {
+                println!("Project format error:");
                 println!("  {}", message);
                 println!();
             },

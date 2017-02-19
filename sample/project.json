@@ -1,5 +1,5 @@
 {
     "default_schema": "public",
     "predeploy_scripts": [],
-    "postdeploy_scripts": [],
+    "postdeploy_scripts": []
 }
