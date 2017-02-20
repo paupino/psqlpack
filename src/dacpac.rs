@@ -643,6 +643,7 @@ impl<'input> ChangeInstruction<'input> {
                     if let Some(ref constraints) = column.constraints {
                         for constraint in constraints.iter() {
                             match *constraint {
+                                ColumnConstraint::Default(ref any_type) => instr.push_str(&format!(" DEFAULT {}", any_type)),
                                 ColumnConstraint::NotNull => instr.push_str(" NOT NULL"),
                                 ColumnConstraint::Null => instr.push_str(" NULL"),
                                 ColumnConstraint::Unique => instr.push_str(" UNIQUE"),
@@ -726,6 +727,16 @@ impl<'input> ChangeInstruction<'input> {
             _ => "TODO".to_owned(),
         }
         
+    }
+}
+
+impl fmt::Display for AnyValue {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            AnyValue::Boolean(ref b) => write!(f, "{}", b),
+            AnyValue::Integer(ref i) => write!(f, "{}", i),
+            AnyValue::String(ref s) => write!(f, "'{}'", s),
+        }
     }
 }
 

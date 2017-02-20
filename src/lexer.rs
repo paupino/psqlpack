@@ -69,6 +69,7 @@ pub enum Token {
 
     Identifier(String),
     Digit(i32),
+    Boolean(bool),
     StringValue(String),
 
     LeftBracket,
@@ -134,6 +135,13 @@ macro_rules! match_keyword {
 }
 
 fn create_token(value: String) -> Option<Token> {
+
+    if "true".eq_ignore_ascii_case(&value[..]) {
+        return Some(Token::Boolean(true));
+    }
+    if "false".eq_ignore_ascii_case(&value[..]) {
+        return Some(Token::Boolean(false));
+    }
 
     // Keywords
     match_keyword!(value, ACTION);

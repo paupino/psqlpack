@@ -76,6 +76,8 @@ extern {
         
         Ident => lexer::Token::Identifier(<String>),
         Digit => lexer::Token::Digit(<i32>),
+        Boolean => lexer::Token::Boolean(<bool>),
+        String => lexer::Token::StringValue(<String>),
     }
 }
 
@@ -262,8 +264,16 @@ column_constraint_list: Vec<ColumnConstraint> = {
 };
 
 column_constraint: ColumnConstraint = {
+    DEFAULT <any_value> => ColumnConstraint::Default(<>),
+    DEFAULT "(" <any_value> ")" => ColumnConstraint::Default(<>),
     NULL => ColumnConstraint::Null,
     NOT NULL => ColumnConstraint::NotNull,
     UNIQUE => ColumnConstraint::Unique,
     PRIMARY KEY => ColumnConstraint::PrimaryKey,
+};
+
+any_value: AnyValue = {
+    <Boolean> => AnyValue::Boolean(<>),
+    <Digit> => AnyValue::Integer(<>),
+    <String> => AnyValue::String(<>),
 };

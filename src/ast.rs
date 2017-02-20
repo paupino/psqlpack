@@ -42,10 +42,18 @@ pub enum SqlType {
 
 #[derive(Serialize,Deserialize)]
 pub enum ColumnConstraint {
+    Default(AnyValue),
     NotNull,
     Null,
     Unique,
     PrimaryKey,
+}
+
+#[derive(Serialize,Deserialize)]
+pub enum AnyValue {
+    Boolean(bool),
+    Integer(i32),
+    String(String),
 }
 
 #[derive(Serialize,Deserialize)]
