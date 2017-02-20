@@ -427,7 +427,8 @@ pub fn tokenize(text: &str) -> Result<Vec<Token>, LexicalError> {
                 });
             },
             LexerState::Literal => {
-                // Do nothing, these by definition are multi-line
+                // Add a new line onto the buffer
+                buffer.push('\n');
             },
         }
     }

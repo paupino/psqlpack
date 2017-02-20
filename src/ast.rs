@@ -10,6 +10,13 @@ pub enum Statement {
 
 #[derive(Serialize,Deserialize)]
 pub enum SqlType {
+    Simple(SimpleSqlType),
+    Array(SimpleSqlType, u32),
+    Custom(String, Option<String>),
+}
+
+#[derive(Serialize,Deserialize)]
+pub enum SimpleSqlType {
     FixedLengthString(u32), // char(size)
     VariableLengthString(u32), // varchar(size)
     Text, // text
@@ -39,8 +46,6 @@ pub enum SqlType {
     TimeWithTimeZone, // time with time zone
 
     Uuid, // uuid
-
-    Custom(String, Option<String>),
 }
 
 #[derive(Serialize,Deserialize)]
@@ -147,6 +152,7 @@ pub enum TypeDefinitionKind {
 
 #[derive(Serialize,Deserialize)]
 pub struct ScriptDefinition {
+    pub name: String,
     pub kind: ScriptKind,
     pub order: usize,
     pub contents: String,

@@ -147,9 +147,19 @@ impl Dacpac {
             // Figure out if it's a pre/post deployment script
             let abs_path = format!("{}", fs::canonicalize(path).unwrap().display());
             if let Some(pos) = predeploy_paths.iter().position(|ref x| abs_path.eq(*x)) {
-                project.push_script(ScriptKind::PreDeployment, pos, contents);
+                project.push_script(ScriptDefinition {
+                    name: format!("{}", path.file_name().unwrap().to_str().unwrap()),
+                    kind: ScriptKind::PreDeployment, 
+                    order: pos, 
+                    contents: contents
+                });
             } else if let Some(pos) = postdeploy_paths.iter().position(|ref x| abs_path.eq(*x)) {
-                project.push_script(ScriptKind::PostDeployment, pos, contents);
+                project.push_script(ScriptDefinition {
+                    name: format!("{}", path.file_name().unwrap().to_str().unwrap()),
+                    kind: ScriptKind::PostDeployment, 
+                    order: pos, 
+                    contents: contents
+                });
             } else {
                 let tokens = match lexer::tokenize(&contents[..]) {
                     Ok(t) => t,
@@ -220,6 +230,7 @@ impl Dacpac {
         zip_collection!(zip, project, extensions);
         zip_collection!(zip, project, functions);
         zip_collection!(zip, project, schemas);
+        zip_collection!(zip, project, scripts);
         zip_collection!(zip, project, tables);
         zip_collection!(zip, project, types);
 
@@ -577,12 +588,8 @@ impl Project {
         self.functions.push(function);
     }
 
-    fn push_script(&mut self, kind: ScriptKind, order: usize, contents: String) {
-        self.scripts.push(ScriptDefinition {
-            kind: kind,
-            order: order,
-            contents: contents,
-        });
+    fn push_script(&mut self, script: ScriptDefinition) {
+        self.scripts.push(script);
     }
 
     fn push_schema(&mut self, schema: SchemaDefinition) {
@@ -876,36 +883,12 @@ impl fmt::Display for ObjectName {
 impl fmt::Display for SqlType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            SqlType::FixedLengthString(size) => write!(f, "char({})", size),
-            SqlType::VariableLengthString(size) => write!(f, "varchar({})", size),
-            SqlType::Text => write!(f, "text"),
-            
-            SqlType::FixedLengthBitString(size) => write!(f, "bit({})", size),
-            SqlType::VariableLengthBitString(size) => write!(f, "varbit({})", size),
-
-            SqlType::SmallInteger => write!(f, "smallint"),
-            SqlType::Integer => write!(f, "int"),
-            SqlType::BigInteger => write!(f, "bigint"),
-
-            SqlType::SmallSerial => write!(f, "smallserial"),
-            SqlType::Serial => write!(f, "serial"),
-            SqlType::BigSerial => write!(f, "bigserial"),
-
-            SqlType::Numeric(m, d) => write!(f, "numeric({},{})", m, d),
-            SqlType::Double => write!(f, "double precision"),
-            SqlType::Single => write!(f, "real"),
-            SqlType::Money => write!(f, "money"),
-
-            SqlType::Boolean => write!(f, "bool"),
-
-            SqlType::Date => write!(f, "date"),
-            SqlType::DateTime => write!(f, "timestamp without time zone"),
-            SqlType::DateTimeWithTimeZone => write!(f, "timestamp with time zone"),
-            SqlType::Time => write!(f, "time"),
-            SqlType::TimeWithTimeZone => write!(f, "time with time zone"),
-
-            SqlType::Uuid => write!(f, "uuid"),
-
+            SqlType::Simple(ref simple_type) => {
+                write!(f, "{}", simple_type)
+            },
+            SqlType::Array(ref simple_type, dim) => {
+                write!(f, "{}{}", simple_type, (0..dim).map(|_| "[]").collect::<String>())
+            },
             SqlType::Custom(ref custom_type, ref options) => { 
                 if let Some(ref opt) = *options {
                     write!(f, "{}({})", custom_type, opt)
@@ -913,6 +896,42 @@ impl fmt::Display for SqlType {
                     write!(f, "{}", custom_type)
                 }
             },
+        }
+    }
+}
+
+impl fmt::Display for SimpleSqlType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            SimpleSqlType::FixedLengthString(size) => write!(f, "char({})", size),
+            SimpleSqlType::VariableLengthString(size) => write!(f, "varchar({})", size),
+            SimpleSqlType::Text => write!(f, "text"),
+            
+            SimpleSqlType::FixedLengthBitString(size) => write!(f, "bit({})", size),
+            SimpleSqlType::VariableLengthBitString(size) => write!(f, "varbit({})", size),
+
+            SimpleSqlType::SmallInteger => write!(f, "smallint"),
+            SimpleSqlType::Integer => write!(f, "int"),
+            SimpleSqlType::BigInteger => write!(f, "bigint"),
+
+            SimpleSqlType::SmallSerial => write!(f, "smallserial"),
+            SimpleSqlType::Serial => write!(f, "serial"),
+            SimpleSqlType::BigSerial => write!(f, "bigserial"),
+
+            SimpleSqlType::Numeric(m, d) => write!(f, "numeric({},{})", m, d),
+            SimpleSqlType::Double => write!(f, "double precision"),
+            SimpleSqlType::Single => write!(f, "real"),
+            SimpleSqlType::Money => write!(f, "money"),
+
+            SimpleSqlType::Boolean => write!(f, "bool"),
+
+            SimpleSqlType::Date => write!(f, "date"),
+            SimpleSqlType::DateTime => write!(f, "timestamp without time zone"),
+            SimpleSqlType::DateTimeWithTimeZone => write!(f, "timestamp with time zone"),
+            SimpleSqlType::Time => write!(f, "time"),
+            SimpleSqlType::TimeWithTimeZone => write!(f, "time with time zone"),
+
+            SimpleSqlType::Uuid => write!(f, "uuid"),
         }
     }  
 }

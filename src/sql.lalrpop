@@ -278,51 +278,60 @@ foreign_constraint_action: ForeignConstraintAction = {
 };
 
 sql_type: SqlType = {
-    CHAR "(" <Digit> ")" => SqlType::FixedLengthString(<> as u32),
-    CHARACTER "(" <Digit> ")" => SqlType::FixedLengthString(<> as u32),
-    VARCHAR "(" <Digit> ")" => SqlType::VariableLengthString(<> as u32),
-    CHARACTER VARYING "(" <Digit> ")" => SqlType::VariableLengthString(<> as u32),
-    TEXT => SqlType::Text,
-
-    BIT "(" <Digit> ")" => SqlType::FixedLengthBitString(<> as u32),
-    VARBIT "(" <Digit> ")" => SqlType::VariableLengthBitString(<> as u32),
-    BIT VARYING "(" <Digit> ")" => SqlType::VariableLengthBitString(<> as u32),
-    SMALLINT => SqlType::SmallInteger,
-    INT => SqlType::Integer,
-    INTEGER => SqlType::Integer,
-    BIGINT => SqlType::BigInteger,
-    INT2 => SqlType::SmallInteger,
-    INT4 => SqlType::Integer,
-    INT8 => SqlType::BigInteger,
-
-    SMALLSERIAL => SqlType::SmallSerial,
-    SERIAL => SqlType::Serial,
-    BIGSERIAL => SqlType::BigSerial,
-    SERIAL2 => SqlType::SmallSerial,
-    SERIAL4 => SqlType::Serial,
-    SERIAL8 => SqlType::BigSerial,
-
-    NUMERIC "(" <m:Digit> "," <d:Digit> ")" => SqlType::Numeric(m as u32, d as u32),
-    DOUBLE PRECISION => SqlType::Double,
-    REAL => SqlType::Single,
-    MONEY => SqlType::Money,
-    BOOL => SqlType::Boolean,
-    BOOLEAN => SqlType::Boolean,
-
-    DATE => SqlType::Date,
-    TIMESTAMP => SqlType::DateTime,
-    TIMESTAMP WITHOUT TIME ZONE => SqlType::DateTime,
-    TIMESTAMP WITH TIME ZONE => SqlType::DateTimeWithTimeZone,
-    TIMESTAMPTZ => SqlType::DateTimeWithTimeZone,
-    TIME => SqlType::Time,
-    TIME WITHOUT TIME ZONE => SqlType::Time,
-    TIME WITH TIME ZONE => SqlType::TimeWithTimeZone,
-    TIMETZ => SqlType::TimeWithTimeZone,
-    
-    UUID => SqlType::Uuid,
-
+    <simple_type> => SqlType::Simple(<>),
+    <simple:simple_type> <dim:array_dimension> => SqlType::Array(simple, dim),
     <Ident> => SqlType::Custom(<>, None),
     <name:Ident> "(" <options:Ident> ")" => SqlType::Custom(name, Some(options)),
+};
+
+simple_type: SimpleSqlType = {
+    CHAR "(" <Digit> ")" => SimpleSqlType::FixedLengthString(<> as u32),
+    CHARACTER "(" <Digit> ")" => SimpleSqlType::FixedLengthString(<> as u32),
+    VARCHAR "(" <Digit> ")" => SimpleSqlType::VariableLengthString(<> as u32),
+    CHARACTER VARYING "(" <Digit> ")" => SimpleSqlType::VariableLengthString(<> as u32),
+    TEXT => SimpleSqlType::Text,
+
+    BIT "(" <Digit> ")" => SimpleSqlType::FixedLengthBitString(<> as u32),
+    VARBIT "(" <Digit> ")" => SimpleSqlType::VariableLengthBitString(<> as u32),
+    BIT VARYING "(" <Digit> ")" => SimpleSqlType::VariableLengthBitString(<> as u32),
+    SMALLINT => SimpleSqlType::SmallInteger,
+    INT => SimpleSqlType::Integer,
+    INTEGER => SimpleSqlType::Integer,
+    BIGINT => SimpleSqlType::BigInteger,
+    INT2 => SimpleSqlType::SmallInteger,
+    INT4 => SimpleSqlType::Integer,
+    INT8 => SimpleSqlType::BigInteger,
+
+    SMALLSERIAL => SimpleSqlType::SmallSerial,
+    SERIAL => SimpleSqlType::Serial,
+    BIGSERIAL => SimpleSqlType::BigSerial,
+    SERIAL2 => SimpleSqlType::SmallSerial,
+    SERIAL4 => SimpleSqlType::Serial,
+    SERIAL8 => SimpleSqlType::BigSerial,
+
+    NUMERIC "(" <m:Digit> "," <d:Digit> ")" => SimpleSqlType::Numeric(m as u32, d as u32),
+    DOUBLE PRECISION => SimpleSqlType::Double,
+    REAL => SimpleSqlType::Single,
+    MONEY => SimpleSqlType::Money,
+    BOOL => SimpleSqlType::Boolean,
+    BOOLEAN => SimpleSqlType::Boolean,
+
+    DATE => SimpleSqlType::Date,
+    TIMESTAMP => SimpleSqlType::DateTime,
+    TIMESTAMP WITHOUT TIME ZONE => SimpleSqlType::DateTime,
+    TIMESTAMP WITH TIME ZONE => SimpleSqlType::DateTimeWithTimeZone,
+    TIMESTAMPTZ => SimpleSqlType::DateTimeWithTimeZone,
+    TIME => SimpleSqlType::Time,
+    TIME WITHOUT TIME ZONE => SimpleSqlType::Time,
+    TIME WITH TIME ZONE => SimpleSqlType::TimeWithTimeZone,
+    TIMETZ => SimpleSqlType::TimeWithTimeZone,
+    
+    UUID => SimpleSqlType::Uuid,
+};
+
+array_dimension: u32 = {
+    "[" "]" => 1u32,
+    <dim:array_dimension> "[" "]" => dim + 1u32,
 };
 
 column_constraint_list: Vec<ColumnConstraint> = {
