@@ -37,7 +37,7 @@ pub enum SqlType {
 
     Uuid, // uuid
 
-    Custom(String),
+    Custom(String, Option<String>),
 }
 
 #[derive(Serialize,Deserialize)]

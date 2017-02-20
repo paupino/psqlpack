@@ -251,7 +251,8 @@ sql_type: SqlType = {
     
     UUID => SqlType::Uuid,
 
-    <Ident> => SqlType::Custom(<>),
+    <Ident> => SqlType::Custom(<>, None),
+    <name:Ident> "(" <options:Ident> ")" => SqlType::Custom(name, Some(options)),
 };
 
 column_constraint_list: Vec<ColumnConstraint> = {

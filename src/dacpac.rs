@@ -804,7 +804,13 @@ impl fmt::Display for SqlType {
 
             SqlType::Uuid => write!(f, "uuid"),
 
-            SqlType::Custom(ref custom_type) => write!(f, "{}", custom_type),
+            SqlType::Custom(ref custom_type, ref options) => { 
+                if let Some(ref opt) = *options {
+                    write!(f, "{}({})", custom_type, opt)
+                } else {
+                    write!(f, "{}", custom_type)
+                }
+            },
         }
     }  
 }
