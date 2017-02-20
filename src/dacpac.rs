@@ -94,11 +94,35 @@ impl Dacpac {
                  }));
         }
 
-        // Load the project
+        // Load the project config
         let project_config : ProjectConfig = match serde_json::from_str(&project_source) {
             Ok(c) => c,
             Err(e) => return Err(vec!(DacpacError::ProjectError { message: format!("{}", e) })),
         };
+        // Turn the pre/post into paths to quickly check
+        let mut predeploy_paths = Vec::new();
+        let mut postdeploy_paths = Vec::new();
+        let parent = project_path.parent().unwrap();
+        for script in &project_config.predeploy_scripts {
+            let path = match fs::canonicalize(Path::new(&format!("{}/{}", parent.display(), script)[..])) {
+                Ok(p) => p,
+                Err(e) => return Err(vec!(DacpacError::ProjectError {
+                    message: format!("Invalid script found for pre-deployment: {} ({})", script, e)
+                 })),
+            };
+            predeploy_paths.push(format!("{}", path.display()));
+        }
+        for script in &project_config.postdeploy_scripts {
+            let path = match fs::canonicalize(Path::new(&format!("{}/{}", parent.display(), script)[..])) {
+                Ok(p) => p,
+                Err(e) => return Err(vec!(DacpacError::ProjectError {
+                    message: format!("Invalid script found for post-deployment: {} ({})", script, e)
+                 })),
+            };
+            postdeploy_paths.push(format!("{}", path.display()));
+        }
+        
+        // Start the project
         let mut project = Project::new();
         let mut errors = Vec::new();
 
@@ -120,39 +144,47 @@ impl Dacpac {
                 continue;
             }
 
-            let tokens = match lexer::tokenize(&contents[..]) {
-                Ok(t) => t,
-                Err(e) => {
-                    errors.push(DacpacError::SyntaxError { 
-                        file: format!("{}", path.display()), 
-                        line: e.line.to_owned(), 
-                        line_number: e.line_number, 
-                        start_pos: e.start_pos, 
-                        end_pos: e.end_pos 
-                    });
-                    continue;
-                },
-            };
+            // Figure out if it's a pre/post deployment script
+            let abs_path = format!("{}", fs::canonicalize(path).unwrap().display());
+            if let Some(pos) = predeploy_paths.iter().position(|ref x| abs_path.eq(*x)) {
+                project.push_script(ScriptKind::PreDeployment, pos, contents);
+            } else if let Some(pos) = postdeploy_paths.iter().position(|ref x| abs_path.eq(*x)) {
+                project.push_script(ScriptKind::PostDeployment, pos, contents);
+            } else {
+                let tokens = match lexer::tokenize(&contents[..]) {
+                    Ok(t) => t,
+                    Err(e) => {
+                        errors.push(DacpacError::SyntaxError { 
+                            file: format!("{}", path.display()), 
+                            line: e.line.to_owned(), 
+                            line_number: e.line_number, 
+                            start_pos: e.start_pos, 
+                            end_pos: e.end_pos 
+                        });
+                        continue;
+                    },
+                };
 
-            match sql::parse_statement_list(tokens) {
-                Ok(statement_list) => { 
-                    for statement in statement_list {
-                        match statement {
-                            Statement::Extension(extension_definition) => project.push_extension(extension_definition),
-                            Statement::Schema(schema_definition) => project.push_schema(schema_definition),
-                            Statement::Table(table_definition) => project.push_table(table_definition),
-                            Statement::Type(type_definition) => project.push_type(type_definition),
+                match sql::parse_statement_list(tokens) {
+                    Ok(statement_list) => { 
+                        for statement in statement_list {
+                            match statement {
+                                Statement::Extension(extension_definition) => project.push_extension(extension_definition),
+                                Statement::Schema(schema_definition) => project.push_schema(schema_definition),
+                                Statement::Table(table_definition) => project.push_table(table_definition),
+                                Statement::Type(type_definition) => project.push_type(type_definition),
+                            }
                         }
+                    },
+                    Err(err) => { 
+                        errors.push(DacpacError::ParseError { 
+                            file: format!("{}", path.display()), 
+                            errors: vec!(err), 
+                        });
+                        continue;
                     }
-                },
-                Err(err) => { 
-                    errors.push(DacpacError::ParseError { 
-                        file: format!("{}", path.display()), 
-                        errors: vec!(err), 
-                    });
-                    continue;
-                }
-            }            
+                }  
+            }          
         }
 
         // Early exit if errors
@@ -161,7 +193,7 @@ impl Dacpac {
         }
 
         // First up validate the dacpac
-        project.set_defaults(project_config);
+        project.set_defaults(&project_config);
         try!(project.validate());
         project.update_dependency_graph();
 
@@ -318,6 +350,7 @@ impl Dacpac {
 
         let mut extensions = Vec::new();
         let mut schemas = Vec::new();
+        let mut scripts = Vec::new();
         let mut tables = Vec::new();
         let mut types = Vec::new();
 
@@ -331,6 +364,8 @@ impl Dacpac {
                 load_file!(ExtensionDefinition, extensions, file);
             } else if file.name().starts_with("schemas/") {
                 load_file!(SchemaDefinition, schemas, file);
+            } else if file.name().starts_with("schemas/") {
+                load_file!(ScriptDefinition, scripts, file);
             } else if file.name().starts_with("tables/") {
                 load_file!(TableDefinition, tables, file);
             } else if file.name().starts_with("types/") {
@@ -341,6 +376,7 @@ impl Dacpac {
         Ok(Project {
             extensions: extensions,
             schemas: schemas,
+            scripts: scripts,
             tables: tables,
             types: types,
         })
@@ -508,6 +544,7 @@ struct ProjectConfig {
 struct Project {
     extensions: Vec<ExtensionDefinition>,
     schemas: Vec<SchemaDefinition>,
+    scripts: Vec<ScriptDefinition>,
     tables: Vec<TableDefinition>,
     types: Vec<TypeDefinition>,
 }
@@ -518,6 +555,7 @@ impl Project {
         Project {
             extensions: Vec::new(),
             schemas: Vec::new(),
+            scripts: Vec::new(),
             tables: Vec::new(),
             types: Vec::new(),
         }
@@ -525,6 +563,14 @@ impl Project {
 
     fn push_extension(&mut self, extension: ExtensionDefinition) {
         self.extensions.push(extension);
+    }
+
+    fn push_script(&mut self, kind: ScriptKind, order: usize, contents: String) {
+        self.scripts.push(ScriptDefinition {
+            kind: kind,
+            order: order,
+            contents: contents,
+        });
     }
 
     fn push_schema(&mut self, schema: SchemaDefinition) {
@@ -539,7 +585,7 @@ impl Project {
         self.types.push(def);
     }
 
-    fn set_defaults(&mut self, config: ProjectConfig) { 
+    fn set_defaults(&mut self, config: &ProjectConfig) { 
 
         // Make sure the public schema exists
         let mut has_public = false;

@@ -143,3 +143,16 @@ pub enum TypeDefinitionKind {
     Alias(SqlType),
     Enum(Vec<String>),
 }
+
+#[derive(Serialize,Deserialize)]
+pub struct ScriptDefinition {
+    pub kind: ScriptKind,
+    pub order: usize,
+    pub contents: String,
+}
+
+#[derive(Serialize,Deserialize)]
+pub enum ScriptKind {
+    PreDeployment,
+    PostDeployment
+}
