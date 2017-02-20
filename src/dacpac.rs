@@ -46,6 +46,23 @@ macro_rules! load_file {
     }};
 }
 
+macro_rules! zip_collection {
+    ($zip:ident, $project:ident, $collection:ident) => {{
+        let collection_name = stringify!($collection);
+        ztry!($zip.add_directory(format!("{}/", collection_name), FileOptions::default()));
+        for item in $project.$collection {
+            ztry!($zip.start_file(format!("{}/{}.json", collection_name, item.name), FileOptions::default()));
+            let json = match serde_json::to_string_pretty(&item) {
+                Ok(j) => j,
+                Err(e) => return Err(vec!(DacpacError::GenerationError {
+                    message: format!("Failed to write DACPAC: {}", e),
+                })),
+            };
+            ztry!($zip.write_all(json.as_bytes()));
+        }
+    }};
+}
+
 static Q_DATABASE_EXISTS : &'static str = "SELECT 1 from pg_database WHERE datname=$1;";
 static Q_TABLE_EXISTS : &'static str = "SELECT 1 
                                         FROM pg_catalog.pg_class c
@@ -121,8 +138,9 @@ impl Dacpac {
                 Ok(statement_list) => { 
                     for statement in statement_list {
                         match statement {
-                            Statement::Table(table_definition) => project.push_table(table_definition),
+                            Statement::Extension(extension_definition) => project.push_extension(extension_definition),
                             Statement::Schema(schema_definition) => project.push_schema(schema_definition),
+                            Statement::Table(table_definition) => project.push_table(table_definition),
                         }
                     }
                 },
@@ -165,18 +183,10 @@ impl Dacpac {
         };
         let mut zip = ZipWriter::new(output_file);
 
-        ztry!(zip.add_directory("tables/", FileOptions::default()));
+        zip_collection!(zip, project, extensions);
+        zip_collection!(zip, project, schemas);
+        zip_collection!(zip, project, tables);
 
-        for table in project.tables {
-            ztry!(zip.start_file(format!("tables/{}.json", table.name), FileOptions::default()));
-            let json = match serde_json::to_string_pretty(&table) {
-                Ok(j) => j,
-                Err(e) => return Err(vec!(DacpacError::GenerationError {
-                    message: format!("Failed to write DACPAC: {}", e),
-                })),
-            };
-            ztry!(zip.write_all(json.as_bytes()));
-        }
         ztry!(zip.finish());
 
         Ok(())
@@ -304,8 +314,9 @@ impl Dacpac {
             })),
         };
 
-        let mut tables = Vec::new();
+        let mut extensions = Vec::new();
         let mut schemas = Vec::new();
+        let mut tables = Vec::new();
 
         for i in 0..archive.len()
         {
@@ -313,14 +324,17 @@ impl Dacpac {
             if file.size() == 0 {
                 continue;
             }
-            if file.name().starts_with("tables/") {
-                load_file!(TableDefinition, tables, file);
+            if file.name().starts_with("extensions/") {
+                load_file!(ExtensionDefinition, extensions, file);
             } else if file.name().starts_with("schemas/") {
                 load_file!(SchemaDefinition, schemas, file);
+            } else if file.name().starts_with("tables/") {
+                load_file!(TableDefinition, tables, file);
             }
         }
 
         Ok(Project {
+            extensions: extensions,
             schemas: schemas,
             tables: tables,
         })
@@ -486,17 +500,23 @@ struct ProjectConfig {
 }
 
 struct Project {
-    tables: Vec<TableDefinition>,
+    extensions: Vec<ExtensionDefinition>,
     schemas: Vec<SchemaDefinition>,
+    tables: Vec<TableDefinition>,
 }
 
 impl Project {
 
     fn new() -> Self {
         Project {
+            extensions: Vec::new(),
             schemas: Vec::new(),
             tables: Vec::new(),
         }
+    }
+
+    fn push_extension(&mut self, extension: ExtensionDefinition) {
+        self.extensions.push(extension);
     }
 
     fn push_table(&mut self, table: TableDefinition) {
@@ -508,6 +528,18 @@ impl Project {
     }
 
     fn set_defaults(&mut self, config: ProjectConfig) { 
+
+        // Make sure the public schema exists
+        let mut has_public = false;
+        for schema in &mut self.schemas {
+            if "public".eq_ignore_ascii_case(&schema.name[..]) {
+                has_public = true;
+                break;
+            }
+        }
+        if !has_public {
+            self.schemas.push(SchemaDefinition { name: "public".to_owned() });
+        }
 
         // Set default schema's
         for table in &mut self.tables {

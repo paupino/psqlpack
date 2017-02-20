@@ -27,6 +27,7 @@ extern {
         DEFAULT => lexer::Token::DEFAULT,
         DELETE => lexer::Token::DELETE,
         DOUBLE => lexer::Token::DOUBLE,
+        EXTENSION => lexer::Token::EXTENSION,
         FILLFACTOR => lexer::Token::FILLFACTOR,
         FOREIGN => lexer::Token::FOREIGN,
         FULL => lexer::Token::FULL,
@@ -102,6 +103,9 @@ statement: Statement = {
         constraints: None,
     }),
     CREATE SCHEMA <name:Ident> ";"? => Statement::Schema(SchemaDefinition {
+        name: name,
+    }),
+    CREATE EXTENSION <name:Ident> ";"? => Statement::Extension(ExtensionDefinition {
         name: name,
     }),
 };

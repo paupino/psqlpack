@@ -3,6 +3,7 @@ use std::fmt::{self};
 pub enum Statement {
     Table(TableDefinition),
     Schema(SchemaDefinition),
+    Extension(ExtensionDefinition),
 }
 
 #[derive(Serialize,Deserialize)]
@@ -122,5 +123,10 @@ pub struct ColumnDefinition {
 
 #[derive(Serialize,Deserialize)]
 pub struct SchemaDefinition {
+    pub name: String,
+}
+
+#[derive(Serialize,Deserialize)]
+pub struct ExtensionDefinition {
     pub name: String,
 }

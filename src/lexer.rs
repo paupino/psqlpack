@@ -20,6 +20,7 @@ pub enum Token {
     DEFAULT,
     DELETE,
     DOUBLE,
+    EXTENSION,
     FILLFACTOR,
     FOREIGN,
     FULL,
@@ -159,6 +160,7 @@ fn create_token(value: String) -> Option<Token> {
     match_keyword!(value, DEFAULT);
     match_keyword!(value, DELETE);
     match_keyword!(value, DOUBLE);
+    match_keyword!(value, EXTENSION);
     match_keyword!(value, FILLFACTOR);
     match_keyword!(value, FOREIGN);
     match_keyword!(value, FULL);
