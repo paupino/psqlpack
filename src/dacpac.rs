@@ -141,6 +141,7 @@ impl Dacpac {
                             Statement::Extension(extension_definition) => project.push_extension(extension_definition),
                             Statement::Schema(schema_definition) => project.push_schema(schema_definition),
                             Statement::Table(table_definition) => project.push_table(table_definition),
+                            Statement::Type(type_definition) => project.push_type(type_definition),
                         }
                     }
                 },
@@ -186,6 +187,7 @@ impl Dacpac {
         zip_collection!(zip, project, extensions);
         zip_collection!(zip, project, schemas);
         zip_collection!(zip, project, tables);
+        zip_collection!(zip, project, types);
 
         ztry!(zip.finish());
 
@@ -317,6 +319,7 @@ impl Dacpac {
         let mut extensions = Vec::new();
         let mut schemas = Vec::new();
         let mut tables = Vec::new();
+        let mut types = Vec::new();
 
         for i in 0..archive.len()
         {
@@ -330,6 +333,8 @@ impl Dacpac {
                 load_file!(SchemaDefinition, schemas, file);
             } else if file.name().starts_with("tables/") {
                 load_file!(TableDefinition, tables, file);
+            } else if file.name().starts_with("types/") {
+                load_file!(TypeDefinition, types, file);
             }
         }
 
@@ -337,6 +342,7 @@ impl Dacpac {
             extensions: extensions,
             schemas: schemas,
             tables: tables,
+            types: types,
         })
     }
 
@@ -503,6 +509,7 @@ struct Project {
     extensions: Vec<ExtensionDefinition>,
     schemas: Vec<SchemaDefinition>,
     tables: Vec<TableDefinition>,
+    types: Vec<TypeDefinition>,
 }
 
 impl Project {
@@ -512,6 +519,7 @@ impl Project {
             extensions: Vec::new(),
             schemas: Vec::new(),
             tables: Vec::new(),
+            types: Vec::new(),
         }
     }
 
@@ -519,12 +527,16 @@ impl Project {
         self.extensions.push(extension);
     }
 
+    fn push_schema(&mut self, schema: SchemaDefinition) {
+        self.schemas.push(schema);
+    }
+
     fn push_table(&mut self, table: TableDefinition) {
         self.tables.push(table);
     }
 
-    fn push_schema(&mut self, schema: SchemaDefinition) {
-        self.schemas.push(schema);
+    fn push_type(&mut self, def: TypeDefinition) {
+        self.types.push(def);
     }
 
     fn set_defaults(&mut self, config: ProjectConfig) { 

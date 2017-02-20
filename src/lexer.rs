@@ -6,6 +6,7 @@ use std::iter::FromIterator;
 pub enum Token {
     
     ACTION,
+    AS,
     BIGINT,
     BIGSERIAL,
     BIT,
@@ -20,6 +21,7 @@ pub enum Token {
     DEFAULT,
     DELETE,
     DOUBLE,
+    ENUM,
     EXTENSION,
     FILLFACTOR,
     FOREIGN,
@@ -58,6 +60,7 @@ pub enum Token {
     TIMESTAMP,
     TIMESTAMPTZ,
     TIMETZ,
+    TYPE,
     UNIQUE,
     UPDATE,
     UUID,
@@ -75,6 +78,9 @@ pub enum Token {
 
     LeftBracket,
     RightBracket,
+    LeftSquare,
+    RightSquare,
+    
     Comma,
     Period,
     Semicolon,
@@ -146,6 +152,7 @@ fn create_token(value: String) -> Option<Token> {
 
     // Keywords
     match_keyword!(value, ACTION);
+    match_keyword!(value, AS);
     match_keyword!(value, BIGINT);
     match_keyword!(value, BIGSERIAL);
     match_keyword!(value, BIT);
@@ -160,6 +167,7 @@ fn create_token(value: String) -> Option<Token> {
     match_keyword!(value, DEFAULT);
     match_keyword!(value, DELETE);
     match_keyword!(value, DOUBLE);
+    match_keyword!(value, ENUM);
     match_keyword!(value, EXTENSION);
     match_keyword!(value, FILLFACTOR);
     match_keyword!(value, FOREIGN);
@@ -198,6 +206,7 @@ fn create_token(value: String) -> Option<Token> {
     match_keyword!(value, TIMESTAMP);
     match_keyword!(value, TIMESTAMPTZ);
     match_keyword!(value, TIMETZ);
+    match_keyword!(value, TYPE);
     match_keyword!(value, UNIQUE);
     match_keyword!(value, UPDATE);
     match_keyword!(value, UUID);
@@ -297,7 +306,15 @@ pub fn tokenize(text: &str) -> Result<Vec<Token>, LexicalError> {
                             '.' => {
                                 tokenize_buffer!(tokens, buffer, line, current_line, current_position);
                                 tokens.push(Token::Period);
-                            }, 
+                            },
+                            '[' => {
+                                tokenize_buffer!(tokens, buffer, line, current_line, current_position);
+                                tokens.push(Token::LeftSquare);
+                            },
+                            ']' => {
+                                tokenize_buffer!(tokens, buffer, line, current_line, current_position);
+                                tokens.push(Token::RightSquare);
+                            },
                             _ => buffer.push(c),
                         }
                     }

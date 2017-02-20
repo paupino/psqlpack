@@ -1,9 +1,10 @@
 use std::fmt::{self};
 
 pub enum Statement {
-    Table(TableDefinition),
-    Schema(SchemaDefinition),
     Extension(ExtensionDefinition),
+    Schema(SchemaDefinition),
+    Table(TableDefinition),
+    Type(TypeDefinition),
 }
 
 #[derive(Serialize,Deserialize)]
@@ -129,4 +130,16 @@ pub struct SchemaDefinition {
 #[derive(Serialize,Deserialize)]
 pub struct ExtensionDefinition {
     pub name: String,
+}
+
+#[derive(Serialize,Deserialize)]
+pub struct TypeDefinition {
+    pub name: String,
+    pub kind: TypeDefinitionKind,
+}
+
+#[derive(Serialize,Deserialize)]
+pub enum TypeDefinitionKind {
+    Alias(SqlType),
+    Enum(Vec<String>),
 }

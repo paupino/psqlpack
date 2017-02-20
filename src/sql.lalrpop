@@ -7,12 +7,16 @@ extern {
     enum lexer::Token {
         "(" => lexer::Token::LeftBracket,
         ")" => lexer::Token::RightBracket,
+        "[" => lexer::Token::LeftSquare,
+        "]" => lexer::Token::RightSquare,
+
         "," => lexer::Token::Comma,
         ";" => lexer::Token::Semicolon,
         "=" => lexer::Token::Equals,
         "." => lexer::Token::Period,
 
         ACTION => lexer::Token::ACTION,
+        AS => lexer::Token::AS,
         BIGINT => lexer::Token::BIGINT,
         BIGSERIAL => lexer::Token::BIGSERIAL,
         BIT => lexer::Token::BIT,
@@ -27,6 +31,7 @@ extern {
         DEFAULT => lexer::Token::DEFAULT,
         DELETE => lexer::Token::DELETE,
         DOUBLE => lexer::Token::DOUBLE,
+        ENUM => lexer::Token::ENUM,
         EXTENSION => lexer::Token::EXTENSION,
         FILLFACTOR => lexer::Token::FILLFACTOR,
         FOREIGN => lexer::Token::FOREIGN,
@@ -65,6 +70,7 @@ extern {
         TIMESTAMP => lexer::Token::TIMESTAMP,
         TIMESTAMPTZ => lexer::Token::TIMESTAMPTZ,
         TIMETZ => lexer::Token::TIMETZ,
+        TYPE => lexer::Token::TYPE,
         UNIQUE => lexer::Token::UNIQUE,
         UPDATE => lexer::Token::UPDATE,
         UUID => lexer::Token::UUID,
@@ -92,6 +98,12 @@ pub statement_list: Vec<Statement> = {
 };
 
 statement: Statement = {
+    CREATE EXTENSION <name:Ident> ";"? => Statement::Extension(ExtensionDefinition {
+        name: name,
+    }),
+    CREATE SCHEMA <name:Ident> ";"? => Statement::Schema(SchemaDefinition {
+        name: name,
+    }),
     CREATE TABLE <name:table_name> "(" <columns:column_definition_list> "," <table_constraints:table_constraint_list> ")" ";"? => Statement::Table(TableDefinition {
         name: name,
         columns: columns,
@@ -102,11 +114,13 @@ statement: Statement = {
         columns: columns,
         constraints: None,
     }),
-    CREATE SCHEMA <name:Ident> ";"? => Statement::Schema(SchemaDefinition {
+    CREATE TYPE <name:Ident> AS ENUM "(" <values:enum_value_list> ")" ";"? => Statement::Type(TypeDefinition {
         name: name,
+        kind: TypeDefinitionKind::Enum(values),
     }),
-    CREATE EXTENSION <name:Ident> ";"? => Statement::Extension(ExtensionDefinition {
+    CREATE TYPE <name:Ident> AS <sql_type:sql_type> ";"? => Statement::Type(TypeDefinition {
         name: name,
+        kind: TypeDefinitionKind::Alias(sql_type),
     }),
 };
 
@@ -281,4 +295,13 @@ any_value: AnyValue = {
     <Boolean> => AnyValue::Boolean(<>),
     <Digit> => AnyValue::Integer(<>),
     <String> => AnyValue::String(<>),
+};
+
+enum_value_list: Vec<String> = {
+    <v:enum_value_list> "," <e:String> => {
+        let mut v = v;
+        v.push(e);
+        v
+    },
+    <String> => vec!(<>),
 };
