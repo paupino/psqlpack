@@ -22,6 +22,7 @@ extern {
         BIT => lexer::Token::BIT,
         BOOL => lexer::Token::BOOL,
         BOOLEAN => lexer::Token::BOOLEAN,
+        C => lexer::Token::C,
         CASCADE => lexer::Token::CASCADE,
         CONSTRAINT => lexer::Token::CONSTRAINT,
         CHAR => lexer::Token::CHAR,
@@ -36,12 +37,15 @@ extern {
         FILLFACTOR => lexer::Token::FILLFACTOR,
         FOREIGN => lexer::Token::FOREIGN,
         FULL => lexer::Token::FULL,
+        FUNCTION => lexer::Token::FUNCTION,
         INT => lexer::Token::INT,
         INT2 => lexer::Token::INT2,
         INT4 => lexer::Token::INT4,
         INT8 => lexer::Token::INT8,
         INTEGER => lexer::Token::INTEGER,
+        INTERNAL => lexer::Token::INTERNAL,
         KEY => lexer::Token::KEY,
+        LANGUAGE => lexer::Token::LANGUAGE,
         MATCH => lexer::Token::MATCH,
         MONEY => lexer::Token::MONEY,
         NO => lexer::Token::NO,
@@ -49,12 +53,16 @@ extern {
         NULL => lexer::Token::NULL,
         NUMERIC => lexer::Token::NUMERIC,
         ON => lexer::Token::ON,
+        OR => lexer::Token::OR,
         PARTIAL => lexer::Token::PARTIAL,
+        PLPGSQL => lexer::Token::PLPGSQL,
         PRECISION => lexer::Token::PRECISION,
         PRIMARY => lexer::Token::PRIMARY,
         REAL => lexer::Token::REAL,
         REFERENCES => lexer::Token::REFERENCES,
+        REPLACE => lexer::Token::REPLACE,
         RESTRICT => lexer::Token::RESTRICT,
+        RETURNS => lexer::Token::RETURNS,
         SCHEMA => lexer::Token::SCHEMA,
         SERIAL => lexer::Token::SERIAL,
         SERIAL2 => lexer::Token::SERIAL2,
@@ -64,6 +72,7 @@ extern {
         SIMPLE => lexer::Token::SIMPLE,
         SMALLINT => lexer::Token::SMALLINT,
         SMALLSERIAL => lexer::Token::SMALLSERIAL,
+        SQL => lexer::Token::SQL,
         TABLE => lexer::Token::TABLE,
         TEXT => lexer::Token::TEXT,
         TIME => lexer::Token::TIME,
@@ -85,6 +94,7 @@ extern {
         Digit => lexer::Token::Digit(<i32>),
         Boolean => lexer::Token::Boolean(<bool>),
         String => lexer::Token::StringValue(<String>),
+        Literal => lexer::Token::Literal(<String>),
     }
 }
 
@@ -101,15 +111,29 @@ statement: Statement = {
     CREATE EXTENSION <name:Ident> ";"? => Statement::Extension(ExtensionDefinition {
         name: name,
     }),
+    CREATE (OR REPLACE)? FUNCTION <name:object_name> "(" ")" RETURNS <return_type:function_return_type> AS <body:Literal> LANGUAGE <lang:function_type> ";"? => Statement::Function(FunctionDefinition {
+        name: name,
+        arguments: Vec::new(),
+        return_type: return_type,
+        body: body,
+        language: lang,
+    }),
+    CREATE (OR REPLACE)? FUNCTION <name:object_name> "(" <args:function_argument_list> ")" RETURNS <return_type:function_return_type> AS <body:Literal> LANGUAGE <lang:function_type> ";"? => Statement::Function(FunctionDefinition {
+        name: name,
+        arguments: args,
+        return_type: return_type,
+        body: body,
+        language: lang,
+    }),
     CREATE SCHEMA <name:Ident> ";"? => Statement::Schema(SchemaDefinition {
         name: name,
     }),
-    CREATE TABLE <name:table_name> "(" <columns:column_definition_list> "," <table_constraints:table_constraint_list> ")" ";"? => Statement::Table(TableDefinition {
+    CREATE TABLE <name:object_name> "(" <columns:column_definition_list> "," <table_constraints:table_constraint_list> ")" ";"? => Statement::Table(TableDefinition {
         name: name,
         columns: columns,
         constraints: Some(table_constraints),
     }),
-    CREATE TABLE <name:table_name> "(" <columns:column_definition_list> ")" ";"? => Statement::Table(TableDefinition {
+    CREATE TABLE <name:object_name> "(" <columns:column_definition_list> ")" ";"? => Statement::Table(TableDefinition {
         name: name,
         columns: columns,
         constraints: None,
@@ -124,9 +148,9 @@ statement: Statement = {
     }),
 };
 
-table_name: TableName = {
-    <schema:Ident> "." <name:Ident> => TableName { schema: Some(schema), name: name },
-    <name:Ident> => TableName { schema: None, name: name },
+object_name: ObjectName = {
+    <schema:Ident> "." <name:Ident> => ObjectName { schema: Some(schema), name: name },
+    <name:Ident> => ObjectName { schema: None, name: name },
 };
 
 column_definition_list: Vec<ColumnDefinition> = {
@@ -155,6 +179,34 @@ column_list: Vec<String> = {
     <Ident> => vec!(<>),
 };
 
+function_argument_list: Vec<FunctionArgument> = {
+    <v:function_argument_list> "," <a:function_argument> => {
+        let mut v = v;
+        v.push(a);
+        v
+    },
+    <function_argument> => vec!(<>)
+};
+
+function_argument: FunctionArgument = {
+    <name:Ident> <t:sql_type> => FunctionArgument {
+        name: name,
+        sql_type: t,
+    }    
+};
+
+function_return_type: FunctionReturnType = {
+    TABLE "(" <columns:column_definition_list> ")" => FunctionReturnType::Table(columns),
+    <t:sql_type> => FunctionReturnType::SqlType(t),
+};
+
+function_type: FunctionLanguage = {
+    C => FunctionLanguage::C,
+    INTERNAL => FunctionLanguage::Internal,
+    PLPGSQL => FunctionLanguage::PostgreSQL,
+    SQL => FunctionLanguage::SQL,  
+};
+
 table_constraint_list: Vec<TableConstraint> = {
     <v:table_constraint_list> "," <c:table_constraint> => {
         let mut v = v;
@@ -170,7 +222,7 @@ table_constraint: TableConstraint = {
         columns: columns, 
         parameters: parameters 
     },
-    CONSTRAINT <name:Ident> FOREIGN KEY "(" <columns:column_list> ")" REFERENCES <ref_table:table_name> "(" <ref_columns:column_list> ")" <match_type:match_type?> <events:constraint_events?> => TableConstraint::Foreign { 
+    CONSTRAINT <name:Ident> FOREIGN KEY "(" <columns:column_list> ")" REFERENCES <ref_table:object_name> "(" <ref_columns:column_list> ")" <match_type:match_type?> <events:constraint_events?> => TableConstraint::Foreign { 
         name: name, 
         columns: columns, 
         ref_table: ref_table, 

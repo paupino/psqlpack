@@ -12,6 +12,7 @@ pub enum Token {
     BIT,
     BOOL,
     BOOLEAN,
+    C,
     CASCADE,
     CONSTRAINT,
     CHAR,
@@ -26,12 +27,15 @@ pub enum Token {
     FILLFACTOR,
     FOREIGN,
     FULL,
+    FUNCTION,
     INT,
     INT2,
     INT4,
     INT8,
     INTEGER,
+    INTERNAL,
     KEY,
+    LANGUAGE,
     MATCH,
     MONEY,
     NO,
@@ -39,12 +43,16 @@ pub enum Token {
     NULL,
     NUMERIC,
     ON,
+    OR,
     PARTIAL,
+    PLPGSQL,
     PRECISION,
     PRIMARY,
     REAL,
     REFERENCES,
+    REPLACE,
     RESTRICT,
+    RETURNS,
     SCHEMA,
     SERIAL,
     SERIAL2,
@@ -54,6 +62,7 @@ pub enum Token {
     SIMPLE,
     SMALLINT,
     SMALLSERIAL,
+    SQL,
     TABLE,
     TEXT,
     TIME,
@@ -75,6 +84,7 @@ pub enum Token {
     Digit(i32),
     Boolean(bool),
     StringValue(String),
+    Literal(String),
 
     LeftBracket,
     RightBracket,
@@ -93,6 +103,9 @@ enum LexerState {
     Comment1,
     Comment2,
     String,
+
+    MaybeLiteral,
+    Literal,
 }
 
 #[derive(Debug)]
@@ -158,6 +171,7 @@ fn create_token(value: String) -> Option<Token> {
     match_keyword!(value, BIT);
     match_keyword!(value, BOOL);
     match_keyword!(value, BOOLEAN);
+    match_keyword!(value, C);
     match_keyword!(value, CASCADE);
     match_keyword!(value, CONSTRAINT);
     match_keyword!(value, CHAR);
@@ -172,12 +186,15 @@ fn create_token(value: String) -> Option<Token> {
     match_keyword!(value, FILLFACTOR);
     match_keyword!(value, FOREIGN);
     match_keyword!(value, FULL);
+    match_keyword!(value, FUNCTION);
     match_keyword!(value, INT);
     match_keyword!(value, INT2);
     match_keyword!(value, INT4);
     match_keyword!(value, INT8);
     match_keyword!(value, INTEGER);
+    match_keyword!(value, INTERNAL);
     match_keyword!(value, KEY);
+    match_keyword!(value, LANGUAGE);
     match_keyword!(value, MATCH);
     match_keyword!(value, MONEY);
     match_keyword!(value, NO);
@@ -185,12 +202,16 @@ fn create_token(value: String) -> Option<Token> {
     match_keyword!(value, NULL);
     match_keyword!(value, NUMERIC);
     match_keyword!(value, ON);
+    match_keyword!(value, OR);
     match_keyword!(value, PARTIAL);
+    match_keyword!(value, PLPGSQL);
     match_keyword!(value, PRECISION);
     match_keyword!(value, PRIMARY);
     match_keyword!(value, REAL);
     match_keyword!(value, REFERENCES);
+    match_keyword!(value, REPLACE);
     match_keyword!(value, RESTRICT);
+    match_keyword!(value, RETURNS);
     match_keyword!(value, SCHEMA);
     match_keyword!(value, SERIAL);
     match_keyword!(value, SERIAL2);
@@ -200,6 +221,7 @@ fn create_token(value: String) -> Option<Token> {
     match_keyword!(value, SIMPLE);
     match_keyword!(value, SMALLINT);
     match_keyword!(value, SMALLSERIAL);
+    match_keyword!(value, SQL);
     match_keyword!(value, TABLE);
     match_keyword!(value, TEXT);
     match_keyword!(value, TIME);
@@ -277,6 +299,18 @@ pub fn tokenize(text: &str) -> Result<Vec<Token>, LexicalError> {
                                 end_pos: current_position as i32
                             });
                         }
+                    } else if c == '$' {
+                        if buffer.is_empty() {
+                            state = LexerState::MaybeLiteral;
+                        } else {
+                            // Unsupported state in our lexer
+                            return Err(LexicalError {
+                                line: line,
+                                line_number: current_line,
+                                start_pos: current_position as i32,
+                                end_pos: current_position as i32
+                            });
+                        }
                     } else if c.is_whitespace() { // Simple check for whitespace
                         tokenize_buffer!(tokens, buffer, line, current_line, current_position);
                     } else {
@@ -337,6 +371,31 @@ pub fn tokenize(text: &str) -> Result<Vec<Token>, LexicalError> {
                         buffer.push(c);
                     }
                 },
+                LexerState::MaybeLiteral => {
+                    if c == '$' {
+                        state = LexerState::Literal;
+                    } else {
+                        // There may be a future case where a single dollar sign is valid but for now let's 
+                        // just assume it's an error
+                        return Err(LexicalError {
+                            line: line,
+                            line_number: current_line,
+                            start_pos: current_position as i32,
+                            end_pos: current_position as i32
+                        });
+                    }
+                },
+                LexerState::Literal => {
+                    if last_char == '$' && c == '$' {
+                        // We should pop off the buffer as it was a $ sign
+                        buffer.pop();
+                        tokens.push(Token::Literal(String::from_iter(buffer.clone())));
+                        buffer.clear();
+                        state = LexerState::Normal;
+                    } else {
+                        buffer.push(c);
+                    }
+                },
             }
 
             // Move the current_position
@@ -345,12 +404,32 @@ pub fn tokenize(text: &str) -> Result<Vec<Token>, LexicalError> {
         }
 
         // If we were a single line comment, we go back to a normal state on a new line
-        if state == LexerState::Comment1 {
-            state = LexerState::Normal;
+        match state {
+            LexerState::Normal => {
+                // We may also have a full buffer
+                tokenize_buffer!(tokens, buffer, line, current_line, current_position);
+            },
+            LexerState::Comment1 => {
+                // End of a line finishes the comment
+                state = LexerState::Normal;    
+            },
+            LexerState::Comment2 => {
+                // Do nothing at the end of a line - it's a multi-line comment
+            },
+            LexerState::String | LexerState::MaybeLiteral => {
+                // If we're in these states at the end of a line it's an error
+                // (e.g. at the moment we don't support multi-line strings)
+                return Err(LexicalError {
+                    line: line,
+                    line_number: current_line,
+                    start_pos: current_position as i32,
+                    end_pos: current_position as i32
+                });
+            },
+            LexerState::Literal => {
+                // Do nothing, these by definition are multi-line
+            },
         }
-
-        // We may also have a full buffer
-        tokenize_buffer!(tokens, buffer, line, current_line, current_position);
     }
 
     Ok(tokens)

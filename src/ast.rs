@@ -2,6 +2,7 @@ use std::fmt::{self};
 
 pub enum Statement {
     Extension(ExtensionDefinition),
+    Function(FunctionDefinition),
     Schema(SchemaDefinition),
     Table(TableDefinition),
     Type(TypeDefinition),
@@ -73,7 +74,7 @@ pub enum TableConstraint {
     Foreign { 
         name: String, 
         columns: Vec<String>, 
-        ref_table: TableName, 
+        ref_table: ObjectName, 
         ref_columns: Vec<String>,
         match_type: Option<ForeignConstraintMatchType>,
         events: Option<Vec<ForeignConstraintEvent>>,
@@ -104,13 +105,13 @@ pub enum ForeignConstraintAction {
 
 #[derive(Serialize,Deserialize)]
 pub struct TableDefinition {
-    pub name: TableName, 
+    pub name: ObjectName, 
     pub columns: Vec<ColumnDefinition>, 
     pub constraints: Option<Vec<TableConstraint>>,
 }
 
 #[derive(Serialize,Deserialize)]
-pub struct TableName {
+pub struct ObjectName {
     pub schema: Option<String>,
     pub name: String,
 }
@@ -155,4 +156,33 @@ pub struct ScriptDefinition {
 pub enum ScriptKind {
     PreDeployment,
     PostDeployment
+}
+
+#[derive(Serialize,Deserialize)]
+pub struct FunctionDefinition {
+    pub name: ObjectName,
+    pub arguments: Vec<FunctionArgument>,
+    pub return_type: FunctionReturnType,
+    pub body: String,
+    pub language: FunctionLanguage,
+}
+
+#[derive(Serialize,Deserialize)]
+pub struct FunctionArgument {
+    pub name: String,
+    pub sql_type: SqlType,
+}
+
+#[derive(Serialize,Deserialize)]
+pub enum FunctionReturnType {
+    Table(Vec<ColumnDefinition>),
+    SqlType(SqlType),
+}
+
+#[derive(Serialize,Deserialize)]
+pub enum FunctionLanguage {
+    C,
+    Internal,
+    PostgreSQL,
+    SQL,
 }

@@ -170,6 +170,7 @@ impl Dacpac {
                         for statement in statement_list {
                             match statement {
                                 Statement::Extension(extension_definition) => project.push_extension(extension_definition),
+                                Statement::Function(function_definition) => project.push_function(function_definition),
                                 Statement::Schema(schema_definition) => project.push_schema(schema_definition),
                                 Statement::Table(table_definition) => project.push_table(table_definition),
                                 Statement::Type(type_definition) => project.push_type(type_definition),
@@ -217,6 +218,7 @@ impl Dacpac {
         let mut zip = ZipWriter::new(output_file);
 
         zip_collection!(zip, project, extensions);
+        zip_collection!(zip, project, functions);
         zip_collection!(zip, project, schemas);
         zip_collection!(zip, project, tables);
         zip_collection!(zip, project, types);
@@ -349,6 +351,7 @@ impl Dacpac {
         };
 
         let mut extensions = Vec::new();
+        let mut functions = Vec::new();
         let mut schemas = Vec::new();
         let mut scripts = Vec::new();
         let mut tables = Vec::new();
@@ -362,6 +365,8 @@ impl Dacpac {
             }
             if file.name().starts_with("extensions/") {
                 load_file!(ExtensionDefinition, extensions, file);
+            } else if file.name().starts_with("functions/") {
+                load_file!(FunctionDefinition, functions, file);
             } else if file.name().starts_with("schemas/") {
                 load_file!(SchemaDefinition, schemas, file);
             } else if file.name().starts_with("schemas/") {
@@ -375,6 +380,7 @@ impl Dacpac {
 
         Ok(Project {
             extensions: extensions,
+            functions: functions,
             schemas: schemas,
             scripts: scripts,
             tables: tables,
@@ -543,6 +549,7 @@ struct ProjectConfig {
 
 struct Project {
     extensions: Vec<ExtensionDefinition>,
+    functions: Vec<FunctionDefinition>,
     schemas: Vec<SchemaDefinition>,
     scripts: Vec<ScriptDefinition>,
     tables: Vec<TableDefinition>,
@@ -554,6 +561,7 @@ impl Project {
     fn new() -> Self {
         Project {
             extensions: Vec::new(),
+            functions: Vec::new(),
             schemas: Vec::new(),
             scripts: Vec::new(),
             tables: Vec::new(),
@@ -563,6 +571,10 @@ impl Project {
 
     fn push_extension(&mut self, extension: ExtensionDefinition) {
         self.extensions.push(extension);
+    }
+
+    fn push_function(&mut self, function: FunctionDefinition) {
+        self.functions.push(function);
     }
 
     fn push_script(&mut self, kind: ScriptKind, order: usize, contents: String) {
@@ -852,7 +864,7 @@ impl fmt::Display for ForeignConstraintAction {
     }
 }
 
-impl fmt::Display for TableName {
+impl fmt::Display for ObjectName {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.schema {
             Some(ref s) => write!(f, "{}.{}", s, self.name),
