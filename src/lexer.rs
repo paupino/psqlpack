@@ -69,6 +69,7 @@ pub enum Token {
 
     Identifier(String),
     Digit(i32),
+    StringValue(String),
 
     LeftBracket,
     RightBracket,
@@ -83,6 +84,7 @@ enum LexerState {
     Normal,
     Comment1,
     Comment2,
+    String,
 }
 
 #[derive(Debug)]
@@ -244,6 +246,18 @@ pub fn tokenize(text: &str) -> Result<Vec<Token>, LexicalError> {
                         }
                         tokenize_buffer!(tokens, buffer, line, current_line, current_position);
                         state = LexerState::Comment2;
+                    } else if c == '\'' {
+                        if buffer.is_empty() {
+                            state = LexerState::String;
+                        } else {
+                            // Invalid state! Must be something like xx'dd
+                            return Err(LexicalError {
+                                line: line,
+                                line_number: current_line,
+                                start_pos: current_position as i32,
+                                end_pos: current_position as i32
+                            });
+                        }
                     } else if c.is_whitespace() { // Simple check for whitespace
                         tokenize_buffer!(tokens, buffer, line, current_line, current_position);
                     } else {
@@ -286,6 +300,15 @@ pub fn tokenize(text: &str) -> Result<Vec<Token>, LexicalError> {
                         state = LexerState::Normal;
                     }
                     // Ignore comments
+                },
+                LexerState::String => {
+                    if c == '\'' {
+                        tokens.push(Token::StringValue(String::from_iter(buffer.clone())));
+                        buffer.clear();
+                        state = LexerState::Normal;
+                    } else {
+                        buffer.push(c);
+                    }
                 },
             }
 
