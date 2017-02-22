@@ -68,12 +68,12 @@ We define a number of custom file formats to help drive the DACPAC process.
 
 The project file is what defines the representative database schema. It is currently defined by the following variables:
 
-| Property           | Required   | Type              | Default  | Description |
-|--------------------|------------|-------------------|----------|-------------|
-| version            | Yes        | `string`          |          | Must be version 1.0. |
-| defaultSchema      | Yes        | `string`          |          | The default schema to be assumed for the database (if none specified). |
-| preDeployScripts   | Yes        | `arrayOf(string)` |          | An array of relative paths to scripts set to be used before deployment begins. |
-| postDeployScripts  | Yes        | `arrayOf(string)` |          | An array of relative paths to scripts set to be used after deployment finishes. |
+| Property           | Required   | Type       | Default  | Description |
+|--------------------|------------|------------|----------|-------------|
+| version            | Yes        | `string`   |          | Must be version 1.0. |
+| defaultSchema      | Yes        | `string`   |          | The default schema to be assumed for the database (if none specified). |
+| preDeployScripts   | Yes        | `[string]` |          | An array of relative paths to scripts set to be used before deployment begins. |
+| postDeployScripts  | Yes        | `[string]` |          | An array of relative paths to scripts set to be used after deployment finishes. |
 
 ## Publish Profile file format
 
@@ -84,7 +84,7 @@ The publish profile file helps define properties/values that define how we gener
 | version                | Yes        | `string`                                |          | Must be version 1.0. |
 | targetConnectionString | No         | [ConnectionString](#connectionstring)   |          | Optional target for publish actions to use. If provided as a command line argument will override this value. | 
 | generationOptions      | Yes        | [GenerationOptions](#generationoptions) |          | An object specifying various options to configure how publish actions are generated. |
-| commandVariables       | No         | [arrayOf(Pair)](#pair)                  |          | Command variables allow you to specify dynamic variables per script. e.g. for Shard deployments. |
+| commandVariables       | No         | [[Pair]](#pair)                         |          | Command variables allow you to specify dynamic variables per script. e.g. for Shard deployments. |
 
 ### Pair
 
