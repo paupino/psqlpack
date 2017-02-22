@@ -20,12 +20,19 @@ psqlpackage {action} {options}
 
 ## Package action
 
-| Parameter  | Required   | Type            | Default | Description |
-|------------|------------|-----------------|---------|-------------|
-| --source   | Yes        | `string`        |         | The path to the project file that defines our database schema to package. |
-| --out      | Yes        | `string`        |         | The path of the DACPAC file (or folder) that should be generated. |
-| --type     | No         | "file"|"folder" | "file"  | Useful for debugging; allows you to optionally output a folder representation of the DACPAC. |
-| --verbose  | No         | true|false      | false   | Outputs lexer output during scan phase. |
+| Parameter  | Required   | Type                        | Default | Description |
+|------------|------------|-----------------------------|---------|-------------|
+| --source   | Yes        | `string`                    |         | The path to the project file that defines our database schema to package. |
+| --out      | Yes        | `string`                    |         | The path of the DACPAC file (or folder) that should be generated. |
+| --type     | No         | [PackageType](#packagetype) | "file"  | Useful for debugging; allows you to optionally output a folder representation of the DACPAC. |
+| --verbose  | No         | `boolean`                   | false   | Outputs lexer output during scan phase. |
+
+### PackageType
+
+Package type is an enum type which can either be one of the following values:
+
+* `file`: Output to a file format
+* `folder`: Output to a folder format
 
 ## Publish action
 
