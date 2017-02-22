@@ -21,7 +21,7 @@ case $1 in
         action="Publishing '$db'"
         cargo run -- publish --source ./out/$db.dacpac --target "host=localhost;database=$db;userid=paul;tlsmode=none;" --profile ./projects/$db/publish_profile.json
         ;;
-    sql)
+    script)
         action="Generating SQL for '$db'"
         cargo run -- sql --source ./out/$db.dacpac --target "host=localhost;database=$db;userid=paul;tlsmode=none;" --profile ./projects/$db/publish_profile.json --out ./out/$db.sql
         ;;

@@ -1,8 +1,8 @@
 {
     "version": "1.0",
-    "default_schema": "public",
-    "predeploy_scripts": [],
-    "postdeploy_scripts": [
+    "defaultSchema": "public",
+    "preDeployScripts": [],
+    "postDeployScripts": [
         "scripts/seed/data.constant_values.sql",
         "scripts/seed/data.constant_versions.sql",
         "scripts/seed/data.idents.sql",
