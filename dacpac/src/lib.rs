@@ -1,6 +1,8 @@
 #[macro_use]
 extern crate lazy_static;
 extern crate lalrpop_util;
+#[macro_use]
+extern crate log;
 extern crate postgres;
 extern crate regex;
 #[macro_use]
@@ -14,4 +16,5 @@ mod dacpac;
 mod lexer;
 mod sql;
 
-pub use dacpac::Dacpac;
+pub use dacpac::{Dacpac,DacpacError};
+pub use lalrpop_util::ParseError;

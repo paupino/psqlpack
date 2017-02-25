@@ -147,7 +147,6 @@ macro_rules! tokenize_buffer {
 macro_rules! match_keyword {
     ($value:ident, $enum_value:ident) => {{
         let raw = stringify!($enum_value);
-        //println!("Match {}, Value: {}", raw.eq_ignore_ascii_case(&$value[..]), $value);
         if raw.eq_ignore_ascii_case(&$value[..]) {
             return Some(Token::$enum_value);
         }

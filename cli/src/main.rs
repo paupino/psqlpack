@@ -4,7 +4,7 @@ extern crate clap;
 extern crate pg_dacpac;
 
 use std::time::Instant;
-use pg_dacpac::Dacpac;
+use pg_dacpac::{Dacpac,DacpacError,ParseError};
 
 fn main() {
     let matches = clap_app!(myapp =>
@@ -52,7 +52,7 @@ fn main() {
             Ok(_) => { },
             Err(errors) => { 
                 for error in errors {
-                    error.print();
+                    print_error(&error);
                 }
             }
         }
@@ -66,7 +66,7 @@ fn main() {
             Ok(_) => { },
             Err(errors) => {
                 for error in errors {
-                    error.print();
+                    print_error(&error);
                 }                
             }
         }
@@ -81,7 +81,7 @@ fn main() {
             Ok(_) => { },
             Err(errors) => {
                 for error in errors {
-                    error.print();
+                    print_error(&error);
                 }                
             }
         }
@@ -96,7 +96,7 @@ fn main() {
             Ok(_) => { },
             Err(errors) => {
                 for error in errors {
-                    error.print();
+                    print_error(&error);
                 }                
             }
         }
@@ -109,4 +109,86 @@ fn main() {
     let elapsed = time_stamp.elapsed();
     let elapsed = elapsed.as_secs() as f64 + elapsed.subsec_nanos() as f64 / 1000_000_000.0;
     println!("{} took {}s", action, elapsed);
+}
+
+pub fn print_error(error: &DacpacError) {
+    match *error {
+        DacpacError::IOError { ref file, ref message } => {
+            println!("IO Error when reading {}", file);
+            println!("  {}", message);
+            println!();
+        },
+        DacpacError::FormatError { ref file, ref message } => {
+            println!("Formatting Error when reading {}", file);
+            println!("  {}", message);
+            println!();
+        },
+        DacpacError::InvalidConnectionString { ref message } => {
+            println!("Invalid connection string");
+            println!("  {}", message);
+            println!();
+        },
+        DacpacError::SyntaxError { ref file, ref line, line_number, start_pos, end_pos } => {
+            println!("Syntax error in {} on line {}", file, line_number);
+            println!("  {}", line);
+            print!("  ");
+            for _ in 0..start_pos {
+                print!(" ");
+            }
+            for _ in start_pos..end_pos {
+                print!("^");
+            }
+            println!();
+        },
+        DacpacError::ParseError { ref file, ref errors } => {
+            println!("Error in {}", file);
+            for e in errors.iter() {
+                match *e {
+                    ParseError::InvalidToken { .. } => { 
+                        println!("  Invalid token");
+                    },
+                    ParseError::UnrecognizedToken { ref token, ref expected } => {
+                        if let Some(ref x) = *token {
+                            println!("  Unexpected {:?}.", x.1);
+                        } else {
+                            println!("  Unexpected end of file");
+                        }
+                        print!("  Expected one of: ");
+                        let mut first = true;
+                        for expect in expected {
+                            if first {
+                                first = false;
+                            } else {
+                                print!(", ");
+                            }
+                            print!("{}", expect);
+                        }
+                        println!();
+                    },
+                    ParseError::ExtraToken { ref token } => {
+                        println!("  Extra token detectd: {:?}", token);
+                    },
+                    ParseError::User { ref error } => {
+                        println!("  {:?}", error);
+                    },
+                }
+            }
+            println!();                            
+        },
+        DacpacError::GenerationError { ref message } => {
+            println!("Error generating DACPAC");
+            println!("  {}", message);
+            println!();
+        },
+        DacpacError::DatabaseError { ref message } => {
+            println!("Database error:");
+            println!("  {}", message);
+            println!();
+        },
+        DacpacError::ProjectError { ref message } => {
+            println!("Project format error:");
+            println!("  {}", message);
+            println!();
+        },
+    }        
 }
