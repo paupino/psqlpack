@@ -73,6 +73,7 @@ The project file is what defines the representative database schema. It is curre
 | version            | Yes        | `string`   |          | Must be version 1.0. |
 | defaultSchema      | Yes        | `string`   |          | The default schema to be assumed for the database (if none specified). |
 | include            | Yes        | `[string]` |          | An array of relative paths to files (or alternatively file patterns to match) to be included in the project definition. |
+| extensions         | Yes        | `[string]` |          | An array of relative paths to files (or alternatively file patterns to match) that are PostgreSQL extensions. |
 | preDeployScripts   | Yes        | `[string]` |          | An array of relative paths to scripts (or alternatively file patterns to match) set to be used before deployment begins. |
 | postDeployScripts  | Yes        | `[string]` |          | An array of relative paths to scripts (or alternatively file patterns to match) set to be used after deployment finishes. |
 
@@ -84,6 +85,9 @@ The project file is what defines the representative database schema. It is curre
     "defaultSchema": "public",
     "include": [
         "./**/*.sql"
+    ],
+    "extensions": [
+        "./extensions/postgis.sql"
     ],
     "preDeployScripts": [],
     "postDeployScripts": [
