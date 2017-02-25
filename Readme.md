@@ -76,6 +76,22 @@ The project file is what defines the representative database schema. It is curre
 | preDeployScripts   | Yes        | `[string]` |          | An array of relative paths to scripts (or alternatively file patterns to match) set to be used before deployment begins. |
 | postDeployScripts  | Yes        | `[string]` |          | An array of relative paths to scripts (or alternatively file patterns to match) set to be used after deployment finishes. |
 
+### Example
+
+```
+{
+    "version": "1.0",
+    "defaultSchema": "public",
+    "include": [
+        "./**/*.sql"
+    ],
+    "preDeployScripts": [],
+    "postDeployScripts": [
+        "./scripts/seed/*.sql"
+    ]
+}
+```
+
 ## Publish Profile file format
 
 The publish profile file helps define properties/values that define how we generate DACPAC outputs.
@@ -84,7 +100,7 @@ The publish profile file helps define properties/values that define how we gener
 |------------------------|------------|-----------------------------------------|----------|-------------|
 | version                | Yes        | `string`                                |          | Must be version 1.0. |
 | targetConnectionString | No         | [ConnectionString](#connectionstring)   |          | Optional target for publish actions to use. If provided as a command line argument will override this value. | 
-| generationOptions      | Yes        | [GenerationOptions](#generationoptions) |          | An object specifying various options to configure how publish actions are generated. |
+| generationOptions      | No         | [GenerationOptions](#generationoptions) | Object Defaults | An object specifying various options to configure how publish actions are generated. |
 | commandVariables       | No         | [[Pair]](#pair)                         |          | Command variables allow you to specify dynamic variables per script. e.g. for Shard deployments. |
 
 ### Pair
@@ -111,8 +127,8 @@ The publish profile file helps define properties/values that define how we gener
 |-------------------------|------------|---------------------------|-----------------|-------------|
 | alwaysRecreateDatabase  | No         | `boolean`                 | false           | Set to true to always recreate the database. |
 | blockOnPossibleDataLoss | No         | `boolean`                 | false           | Set to true to block deployment if data loss is detected. |
-| tableChangeMode         | No         | [ChangeMode](#changemode) | Object Defaults | Sets the change mode to use for all table comparisons. |
 | dropObjectsNotInSource  | No         | `boolean`                 | false           | If set to true, any objects not found in the source DACPAC will be dropped. |
+| tableChangeMode         | No         | [ChangeMode](#changemode) | Object Defaults | Sets the change mode to use for all table comparisons. |
 
 ### ChangeMode
 
@@ -121,6 +137,42 @@ The publish profile file helps define properties/values that define how we gener
 | create   | No       | `boolean` | true     | Set to true to create the object when it is not detected. |
 | modify   | No       | `boolean` | true     | Set to true to modify the object when it is detected to have been changed. |
 | drop     | No       | `boolean` | true     | Set to true to drop the object when it is detected on the target and not in the source. |
+
+### Example
+
+A minimal profile:
+```
+{
+    "version": "1.0"
+}
+```
+
+A full profile which drops objects such as functions but not tables:
+```
+{
+    "version": "1.0",
+    "targetConnectionString": {
+        "database": "my_db",
+        "server": "localhost",
+        "user": "paul",
+        "password": "somepassword"
+    },
+    "generationOptions": {
+        "alwaysRecreateDatabase": false,
+        "blockOnPossibleDataLoss": true,
+        "dropObjectsNotInSource": true,
+        "tableChangeMode": {
+            "create": true,
+            "modify": true,
+            "drop": false,
+        }
+    },
+    "commandVariables": [
+        { "name": "AUDIT_DB", "value": "audit_db" }
+    ]
+}
+```
+
 
 ## DACPAC project structure
 
