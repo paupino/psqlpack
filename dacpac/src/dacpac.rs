@@ -258,7 +258,7 @@ impl Dacpac {
             }
 
             // Execute SQL directly
-            println!("{}", change.to_progress_message());
+            info!("{}", change.to_progress_message());
             dbtry!(conn.execute(&change.to_sql()[..], &[]));
         }
         // Close the connection
@@ -948,88 +948,4 @@ pub enum DacpacError {
     InvalidConnectionString { message: String },
     DatabaseError { message: String },
     ProjectError { message: String },
-}
-
-impl DacpacError {
-    pub fn print(&self) {
-        match *self {
-            DacpacError::IOError { ref file, ref message } => {
-                println!("IO Error when reading {}", file);
-                println!("  {}", message);
-                println!();
-            },
-            DacpacError::FormatError { ref file, ref message } => {
-                println!("Formatting Error when reading {}", file);
-                println!("  {}", message);
-                println!();
-            },
-            DacpacError::InvalidConnectionString { ref message } => {
-                println!("Invalid connection string");
-                println!("  {}", message);
-                println!();
-            },
-            DacpacError::SyntaxError { ref file, ref line, line_number, start_pos, end_pos } => {
-                println!("Syntax error in {} on line {}", file, line_number);
-                println!("  {}", line);
-                print!("  ");
-                for _ in 0..start_pos {
-                    print!(" ");
-                }
-                for _ in start_pos..end_pos {
-                    print!("^");
-                }
-                println!();
-            },
-            DacpacError::ParseError { ref file, ref errors } => {
-                println!("Error in {}", file);
-                for e in errors.iter() {
-                    match *e {
-                        ParseError::InvalidToken { .. } => { 
-                            println!("  Invalid token");
-                        },
-                        ParseError::UnrecognizedToken { ref token, ref expected } => {
-                            if let Some(ref x) = *token {
-                                println!("  Unexpected {:?}.", x.1);
-                            } else {
-                                println!("  Unexpected end of file");
-                            }
-                            print!("  Expected one of: ");
-                            let mut first = true;
-                            for expect in expected {
-                                if first {
-                                    first = false;
-                                } else {
-                                    print!(", ");
-                                }
-                                print!("{}", expect);
-                            }
-                            println!();
-                        },
-                        ParseError::ExtraToken { ref token } => {
-                            println!("  Extra token detectd: {:?}", token);
-                        },
-                        ParseError::User { ref error } => {
-                            println!("  {:?}", error);
-                        },
-                    }
-                }
-                println!();                            
-            },
-            DacpacError::GenerationError { ref message } => {
-                println!("Error generating DACPAC");
-                println!("  {}", message);
-                println!();
-            },
-            DacpacError::DatabaseError { ref message } => {
-                println!("Database error:");
-                println!("  {}", message);
-                println!();
-            },
-            DacpacError::ProjectError { ref message } => {
-                println!("Project format error:");
-                println!("  {}", message);
-                println!();
-            },
-        }        
-    }
 }
