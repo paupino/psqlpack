@@ -133,6 +133,8 @@ The publish profile file helps define properties/values that define how we gener
 | blockOnPossibleDataLoss | No         | `boolean`                 | false           | Set to true to block deployment if data loss is detected. |
 | dropObjectsNotInSource  | No         | `boolean`                 | false           | If set to true, any objects not found in the source DACPAC will be dropped. |
 | tableChangeMode         | No         | [ChangeMode](#changemode) | Object Defaults | Sets the change mode to use for all table comparisons. |
+| functionChangeMode      | No         | [ChangeMode](#changemode) | Object Defaults | Sets the change mode to use for all function comparisons. |
+
 
 ### ChangeMode
 
