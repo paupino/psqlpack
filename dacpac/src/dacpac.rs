@@ -148,14 +148,14 @@ impl Dacpac {
             let abs_path = format!("{}", fs::canonicalize(path).unwrap().display());
             if let Some(pos) = predeploy_paths.iter().position(|x| abs_path.eq(x)) {
                 project.push_script(ScriptDefinition {
-                    name: path.file_name().unwrap().to_str().unwrap(),
+                    name: path.file_name().unwrap().to_str().unwrap().to_owned(),
                     kind: ScriptKind::PreDeployment, 
                     order: pos, 
                     contents: contents
                 });
             } else if let Some(pos) = postdeploy_paths.iter().position(|x| abs_path.eq(x)) {
                 project.push_script(ScriptDefinition {
-                    name: path.file_name().unwrap().to_str().unwrap(),
+                    name: path.file_name().unwrap().to_str().unwrap().to_owned(),
                     kind: ScriptKind::PostDeployment, 
                     order: pos, 
                     contents: contents
