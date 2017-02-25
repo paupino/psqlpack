@@ -1,24 +1,10 @@
 extern crate chrono;
 #[macro_use] 
 extern crate clap;
-#[macro_use]
-extern crate lazy_static;
-extern crate lalrpop_util;
-extern crate postgres;
-extern crate regex;
-#[macro_use]
-extern crate serde_derive;
-extern crate serde_json;
-extern crate walkdir;
-extern crate zip;
-
-mod ast;
-mod dacpac;
-mod lexer;
-mod sql;
+extern crate pg_dacpac;
 
 use std::time::Instant;
-use dacpac::Dacpac;
+use pg_dacpac::Dacpac;
 
 fn main() {
     let matches = clap_app!(myapp =>
@@ -84,13 +70,13 @@ fn main() {
                 }                
             }
         }
-    } else if let Some(sql) = matches.subcommand_matches("sql") {
+    } else if let Some(script) = matches.subcommand_matches("script") {
         action = "SQL File Generation";
         // Source is the dacpac, target is the DB
-        let source = String::from(sql.value_of("SOURCE").unwrap());
-        let target = String::from(sql.value_of("TARGET").unwrap());
-        let profile = String::from(sql.value_of("PROFILE").unwrap());
-        let output_file = String::from(sql.value_of("OUT").unwrap());
+        let source = String::from(script.value_of("SOURCE").unwrap());
+        let target = String::from(script.value_of("TARGET").unwrap());
+        let profile = String::from(script.value_of("PROFILE").unwrap());
+        let output_file = String::from(script.value_of("OUT").unwrap());
         match Dacpac::generate_sql(source, target, profile, output_file) {
             Ok(_) => { },
             Err(errors) => {

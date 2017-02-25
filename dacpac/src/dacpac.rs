@@ -11,9 +11,9 @@ use std::path::Path;
 use std::fs::{self,File};
 use std::result::Result as StdResult;
 use sql::{self};
-use walkdir::WalkDir;
 use zip::{ZipArchive,ZipWriter};
 use zip::write::FileOptions;
+use walkdir::WalkDir;
 
 macro_rules! ztry {
     ($expr:expr) => {{ 

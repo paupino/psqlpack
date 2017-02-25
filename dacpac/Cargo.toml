@@ -1,12 +1,10 @@
 [package]
-name = "psqlpackage"
+name = "pg-dacpac"
 version = "0.1.0"
 authors = ["Paul Mason <paul@form1.co.nz>"]
 build = "build.rs"
 
 [dependencies]
-chrono = { version = "0.2", features = ["serde"] }
-clap = "2.20.0"
 lazy_static = "0.1.*"
 lalrpop-util = "0.12.5"
 postgres = "0.13"
