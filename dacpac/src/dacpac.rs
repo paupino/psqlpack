@@ -146,16 +146,16 @@ impl Dacpac {
 
             // Figure out if it's a pre/post deployment script
             let abs_path = format!("{}", fs::canonicalize(path).unwrap().display());
-            if let Some(pos) = predeploy_paths.iter().position(|ref x| abs_path.eq(*x)) {
+            if let Some(pos) = predeploy_paths.iter().position(|x| abs_path.eq(x)) {
                 project.push_script(ScriptDefinition {
-                    name: format!("{}", path.file_name().unwrap().to_str().unwrap()),
+                    name: path.file_name().unwrap().to_str().unwrap(),
                     kind: ScriptKind::PreDeployment, 
                     order: pos, 
                     contents: contents
                 });
-            } else if let Some(pos) = postdeploy_paths.iter().position(|ref x| abs_path.eq(*x)) {
+            } else if let Some(pos) = postdeploy_paths.iter().position(|x| abs_path.eq(x)) {
                 project.push_script(ScriptDefinition {
-                    name: format!("{}", path.file_name().unwrap().to_str().unwrap()),
+                    name: path.file_name().unwrap().to_str().unwrap(),
                     kind: ScriptKind::PostDeployment, 
                     order: pos, 
                     contents: contents

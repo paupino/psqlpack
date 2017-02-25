@@ -1,5 +1,3 @@
-use std::fmt::{self};
-
 pub enum Statement {
     Extension(ExtensionDefinition),
     Function(FunctionDefinition),
