@@ -36,7 +36,7 @@ fn main() {
                 (@arg TARGET: --target +required +takes_value "The target database to publish to")
                 (@arg PROFILE: --profile +required +takes_value "The publish profile to use for publishing")
             )
-            (@subcommand sql =>
+            (@subcommand script =>
                 (about: "outputs the SQL file that would be executed against the target")
                 (@arg SOURCE: --source +required +takes_value "The source dacpac to use for the deploy report")
                 (@arg TARGET: --target +required +takes_value "The target database to compare to")

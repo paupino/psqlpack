@@ -103,7 +103,7 @@ impl Dacpac {
         let mut predeploy_paths = Vec::new();
         let mut postdeploy_paths = Vec::new();
         let parent = project_path.parent().unwrap();
-        for script in &project_config.predeploy_scripts {
+        for script in &project_config.pre_deploy_scripts {
             let path = match fs::canonicalize(Path::new(&format!("{}/{}", parent.display(), script)[..])) {
                 Ok(p) => p,
                 Err(e) => return Err(vec!(DacpacError::ProjectError {
@@ -112,7 +112,7 @@ impl Dacpac {
             };
             predeploy_paths.push(format!("{}", path.display()));
         }
-        for script in &project_config.postdeploy_scripts {
+        for script in &project_config.post_deploy_scripts {
             let path = match fs::canonicalize(Path::new(&format!("{}/{}", parent.display(), script)[..])) {
                 Ok(p) => p,
                 Err(e) => return Err(vec!(DacpacError::ProjectError {
@@ -553,9 +553,12 @@ impl ConnectionString {
 #[derive(Deserialize)]
 struct ProjectConfig {
     version: String,
+    #[serde(rename = "defaultSchema")]
     default_schema: String,
-    predeploy_scripts: Vec<String>,
-    postdeploy_scripts: Vec<String>,
+    #[serde(rename = "preDeployScripts")]
+    pre_deploy_scripts: Vec<String>,
+    #[serde(rename = "postDeployScripts")]
+    post_deploy_scripts: Vec<String>,
 }
 
 struct Project {
