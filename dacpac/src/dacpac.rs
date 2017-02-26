@@ -1,4 +1,5 @@
 use ast::*;
+use std::path::MAIN_SEPARATOR as PATH_SEPARATOR;
 use std::fmt::{self};
 use lexer::{self};
 use lalrpop_util::ParseError;
@@ -104,7 +105,7 @@ impl Dacpac {
         let mut postdeploy_paths = Vec::new();
         let parent = project_path.parent().unwrap();
         for script in &project_config.pre_deploy_scripts {
-            let path = match fs::canonicalize(Path::new(&format!("{}/{}", parent.display(), script)[..])) {
+            let path = match fs::canonicalize(Path::new(&format!("{}{}{}", parent.display(), PATH_SEPARATOR, script)[..])) {
                 Ok(p) => p,
                 Err(e) => return Err(vec!(DacpacError::ProjectError {
                     message: format!("Invalid script found for pre-deployment: {} ({})", script, e)
@@ -113,7 +114,7 @@ impl Dacpac {
             predeploy_paths.push(format!("{}", path.display()));
         }
         for script in &project_config.post_deploy_scripts {
-            let path = match fs::canonicalize(Path::new(&format!("{}/{}", parent.display(), script)[..])) {
+            let path = match fs::canonicalize(Path::new(&format!("{}{}{}", parent.display(), PATH_SEPARATOR, script)[..])) {
                 Ok(p) => p,
                 Err(e) => return Err(vec!(DacpacError::ProjectError {
                     message: format!("Invalid script found for post-deployment: {} ({})", script, e)
