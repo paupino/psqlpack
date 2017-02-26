@@ -1,52 +1,113 @@
 extern crate chrono;
-#[macro_use] 
 extern crate clap;
 extern crate pg_dacpac;
 
+use clap::{Arg, App, SubCommand};
+use std::env;
 use std::time::Instant;
 use pg_dacpac::{Dacpac,DacpacError,ParseError};
 
 fn main() {
-    let matches = clap_app!(myapp =>
-            (version: "1.0")
-            (author: "Paul Mason <paul.mason@xero.com>")
-            (about: "DACPAC for PostgreSQL")
-            (@subcommand package =>
-                (about: "creates a DACPAC from the specified target")
-                (@arg SOURCE: --source +required +takes_value "The source project JSON file")
-                (@arg OUT: --out +required +takes_value "The location of the folder to export the dacpac to")
-            )
-            (@subcommand publish =>
-                (about: "publishes a DACPAC to target")
-                (@arg SOURCE: --source +required +takes_value "The source dacpac to use for publishing")
-                (@arg TARGET: --target +required +takes_value "The target database to publish to")
-                (@arg PROFILE: --profile +required +takes_value "The publish profile to use for publishing")
-            )
-            (@subcommand script =>
-                (about: "outputs the SQL file that would be executed against the target")
-                (@arg SOURCE: --source +required +takes_value "The source dacpac to use for the deploy report")
-                (@arg TARGET: --target +required +takes_value "The target database to compare to")
-                (@arg PROFILE: --profile +required +takes_value "The publish profile to use for the deploy report")
-                (@arg OUT: --out +required +takes_value "The SQL file to generate")
-            )
-            (@subcommand report =>
-                (about: "outputs a JSON deployment report for what would be executed against the target")
-                (@arg SOURCE: --source +required +takes_value "The source dacpac to use for the deploy report")
-                (@arg TARGET: --target +required +takes_value "The target database to compare to")
-                (@arg PROFILE: --profile +required +takes_value "The publish profile to use for the deploy report")
-                (@arg OUT: --out +required +takes_value "The report file to generate")
-            )
-        ).get_matches();
+    let matches = App::new("DACPAC for PostgreSQL")
+                          .version("1.0")
+                          .author("Paul Mason <paul.mason@xero.com>")
+                          .subcommand(SubCommand::with_name("package")
+                                      .about("creates a DACPAC from the specified target")
+                                      .arg(Arg::with_name("SOURCE")
+                                          .long("source")
+                                          .required(false)
+                                          .takes_value(true)
+                                          .help("The source project JSON file"))
+                                      .arg(Arg::with_name("OUT")
+                                          .long("out")
+                                          .required(true)
+                                          .takes_value(true)
+                                          .help("The location of the folder to export the dacpac to"))
+                                     )
+                          .subcommand(SubCommand::with_name("publish")
+                                      .about("publishes a DACPAC to target")
+                                      .arg(Arg::with_name("SOURCE")
+                                          .long("source")
+                                          .required(true)
+                                          .takes_value(true)
+                                          .help("The source dacpac to use for publishing"))
+                                      .arg(Arg::with_name("TARGET")
+                                          .long("target")
+                                          .required(true)
+                                          .takes_value(true)
+                                          .help("The target database to publish to"))
+                                      .arg(Arg::with_name("PROFILE")
+                                          .long("profile")
+                                          .required(true)
+                                          .takes_value(true)
+                                          .help("The publish profile to use for publishing"))
+                                     )
+                          .subcommand(SubCommand::with_name("script")
+                                      .about("outputs the SQL file that would be executed against the target")
+                                      .arg(Arg::with_name("SOURCE")
+                                          .long("source")
+                                          .required(false)
+                                          .takes_value(true)
+                                          .help("The source dacpac to use for the deploy report"))
+                                      .arg(Arg::with_name("TARGET")
+                                          .long("target")
+                                          .required(true)
+                                          .takes_value(true)
+                                          .help("The target database to compare to"))
+                                      .arg(Arg::with_name("PROFILE")
+                                          .long("profile")
+                                          .required(true)
+                                          .takes_value(true)
+                                          .help("The publish profile to use for the deploy report"))
+                                      .arg(Arg::with_name("OUT")
+                                          .long("out")
+                                          .required(true)
+                                          .takes_value(true)
+                                          .help("The SQL file to generate"))
+                                     )
+                          .subcommand(SubCommand::with_name("report")
+                                      .about("outputs a JSON deployment report for what would be executed against the target")
+                                      .arg(Arg::with_name("SOURCE")
+                                          .long("source")
+                                          .required(true)
+                                          .takes_value(true)
+                                          .help("The source dacpac to use for the deploy report"))
+                                      .arg(Arg::with_name("TARGET")
+                                          .long("target")
+                                          .required(true)
+                                          .takes_value(true)
+                                          .help("The target database to compare to"))
+                                      .arg(Arg::with_name("PROFILE")
+                                          .long("profile")
+                                          .required(true)
+                                          .takes_value(true)
+                                          .help("The publish profile to use for the deploy report"))
+                                      .arg(Arg::with_name("OUT")
+                                          .long("out")
+                                          .required(true)
+                                          .takes_value(true)
+                                          .help("The report file to generate"))
+                                     )
+                          .get_matches();
 
     // Time how long this takes
     let time_stamp = Instant::now();
 
     // Parse the subcommand
+    // TODO: do some validation
     let action;
     if let Some(package) = matches.subcommand_matches("package") {
         // Source is a directory to begin with
         action = "Packaging";
-        let source = String::from(package.value_of("SOURCE").unwrap());
+        
+        // If the source is provided, use that, else use the current dir + project.json
+        let source;
+        if let Some(cmd_source) = package.value_of("SOURCE") {
+            source = cmd_source.to_owned();
+        } else {
+            let current_dir = env::current_dir().unwrap();
+            source = format!("{}/project.json", current_dir.display());
+        }
         let output = String::from(package.value_of("OUT").unwrap());
         match Dacpac::package_project(source, output) {
             Ok(_) => { },
