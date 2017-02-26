@@ -106,7 +106,7 @@ fn main() {
             source = cmd_source.to_owned();
         } else {
             let current_dir = env::current_dir().unwrap();
-            source = format!("{}/project.json", current_dir.display());
+            source = format!("{}{}project.json", current_dir.display(), std::path::MAIN_SEPARATOR);
         }
         let output = String::from(package.value_of("OUT").unwrap());
         match Dacpac::package_project(source, output) {
