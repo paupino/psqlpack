@@ -314,14 +314,16 @@ fn it_generates_a_topological_graph() {
     // Now, order it.
     let ordered = graph.topological_graph();
 
+    //TODO: Need to make this edge weighted as a constraint on a table defines that the other table has to exist first 
+    // (i.e. versions before coefficient)
     // The expected order:
     let expected = [
         schema_data, // Schema is first, nothing can exist without it
+        table_versions, // Versions must be second as coefficients has a constraint against it
         table_coefficients,
-        table_versions,
+        column_versions_id,
         column_coefficients_id,
         column_coefficients_version_id,
-        column_versions_id,
         constraint_coefficients_version_id,
     ];
     assert_eq!(expected.len(), ordered.len());
