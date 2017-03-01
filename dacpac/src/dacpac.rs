@@ -204,10 +204,10 @@ impl Dacpac {
             return Err(errors);
         }
 
-        // First up validate the dacpac
+        // Update any missing faults, create a dependency graph and then try to validate the project
         project.set_defaults(&project_config);
+        try!(project.generate_dependency_graph());
         try!(project.validate());
-        project.update_dependency_graph();
 
         // Now generate the dacpac
         let output_path = Path::new(&output_file[..]);
@@ -639,8 +639,13 @@ impl Project {
         }
     }
 
-    fn update_dependency_graph(&mut self) {
+    fn generate_dependency_graph(&mut self) -> Result<(), Vec<DacpacError>> {
 
+        // The general idea is that we go through each object and add it as a node as well as direct dependencies.
+        // This is a simple graph to begin with - from which I build a dependency graph with ordering.
+        // Please note, that schema is relevant when naming however schema is still a dependency.
+
+        Ok(())
     }
 
     fn validate(&self) -> Result<(), Vec<DacpacError>> {

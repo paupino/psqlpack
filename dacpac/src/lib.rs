@@ -13,6 +13,7 @@ extern crate zip;
 
 mod ast;
 mod dacpac;
+mod graph;
 mod lexer;
 mod sql;
 
