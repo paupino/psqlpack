@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::collections::{HashMap,HashSet};
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -9,8 +10,23 @@ pub enum Node {
     Function(String),
 }
 
+#[derive(Clone, Debug)]
+pub struct Edge {
+    pub node: Node,
+    pub weight: f32,
+}
+
+impl Edge {
+    pub fn new(node: &Node, weight: f32) -> Self {
+        Edge {
+            node: node.clone(),
+            weight: weight,
+        }
+    }
+}
+
 pub struct DependencyGraph {
-    edges: HashMap<Node, Vec<Node>>,
+    edges: HashMap<Node, Vec<Edge>>,
     unresolved: HashSet<Node>,
 }
 
@@ -34,14 +50,22 @@ struct DepthFirstSearchState {
 impl DepthFirstSearchState {
     fn new(size: usize) -> Self {
         DepthFirstSearchState {
-            pre : DependencyGraph::fixed_len::<usize>(size, 0),
-            post : DependencyGraph::fixed_len::<usize>(size, 0),
+            pre : DepthFirstSearchState::fixed_len::<usize>(size, 0),
+            post : DepthFirstSearchState::fixed_len::<usize>(size, 0),
             pre_order : Vec::new(),
             post_order : Vec::new(),
-            marked : DependencyGraph::fixed_len::<bool>(size, false),
+            marked : DepthFirstSearchState::fixed_len::<bool>(size, false),
             pre_counter : 0,
             post_counter : 0,
         }
+    }
+
+    fn fixed_len<T>(size: usize, def: T) -> Vec<T> where T: Copy {
+        let mut zero_vec: Vec<T> = Vec::with_capacity(size);
+        for _ in 0..size {
+            zero_vec.push(def);
+        }
+        zero_vec
     }
 
     fn update_pre_order(&mut self, v: usize) {
@@ -81,6 +105,13 @@ impl DepthFirstSearchState {
     }    
 }
 
+/*
+ * Our dependency graph is edge weighted. This is a multiplier and bubbled up.
+ * e.g. assume we have a FK constaint. This will weight the reference column over
+ *      the FK as it is more important for that table to be deployed first.
+ * This approach could back fire if we have circular references, however we try
+ * to eliminate those during validation.
+ */
 impl DependencyGraph {
 
     pub fn new() -> Self {
@@ -91,28 +122,28 @@ impl DependencyGraph {
     }
 
     pub fn add_node(&mut self, node: &Node) {
-        self.add_node_with_dependencies(node, Vec::new());
+        self.add_node_with_edges(node, Vec::new());
     }
 
-    pub fn add_node_with_dependencies(&mut self, node: &Node, dependencies: Vec<Node>) {
+    pub fn add_node_with_edges(&mut self, node: &Node, edges: Vec<Edge>) {
         // If it has already been added then panic
         if self.edges.contains_key(node) {
             panic!("Node has already been registered: {:?}", node);
         }
         // Remove it from unresolved if it exists
         self.unresolved.remove(node);
-        self.edges.insert(node.clone(), dependencies);
+        self.edges.insert(node.clone(), edges);
     }
 
-    pub fn add_dependency(&mut self, node: &Node, dependency: &Node) {
-        let dependency_known = self.edges.contains_key(dependency);
+    pub fn add_edge(&mut self, node: &Node, edge: Edge) {
+        let dependency_known = self.edges.contains_key(&edge.node);
         if let Some(n) = self.edges.get_mut(node) {
-            // Clone instead of copy, perhaps an optimization here later on
-            n.push(dependency.clone());
             // Only add the dependency if necessary
             if !dependency_known {
-                self.unresolved.insert(dependency.clone());
+                self.unresolved.insert(edge.node.clone());
             }
+            // Clone instead of copy, perhaps an optimization here later on
+            n.push(edge);
         } else {
             panic!("Cannot add dependencies as node not known: {:?}", *node);
         }
@@ -124,8 +155,8 @@ impl DependencyGraph {
         } 
 
         // Check for circular references. It's only circular if the root edge is seen twice.
-        for edge in self.edges.keys() {
-            if self.visit_dependency(edge, edge) {
+        for node in self.edges.keys() {
+            if self.visit_node(node, node) {
                 return ValidationResult::CircularReference;
             }
         }
@@ -138,18 +169,35 @@ impl DependencyGraph {
     }
 
     pub fn topological_graph(&self) -> Vec<Node> {
-        // First of all, put the keys into a vec that we can use to build a directed acyclic graph
-        let mut graph : Vec<Node> = Vec::new();
-        for edge in self.edges.keys() {
-            graph.push(edge.clone());
+        // Create a graph vec to track state for directed acyclic graph
+        // First, we need to sort it according it edge weight
+        let mut table = HashMap::new();
+        // Set up the hash map first 
+        for node in self.edges.keys() {
+            table.insert(node.clone(), 1.0);
         }
-        graph.sort();
+        // Now recursively do this again applying the weight rules
+        for node in self.edges.keys() {
+            self.calculate_weight(&mut table, node, 1.0);
+        }
+
+        let mut weighted_graph : Vec<(Node, f32)> = table.into_iter().collect();;
+        weighted_graph.sort_by(|a,b| { 
+            let c = (b.1 - a.1).abs();
+            if c <= 0.00000000000001 {
+                a.0.cmp(&b.0)
+            } else if b.1 < a.1 {
+                Ordering::Less
+            } else {
+                Ordering::Greater
+            }
+        });
+        let graph : Vec<Node> = weighted_graph.iter().map(|k| k.0.clone()).collect();
 
         // Create the state
         let mut state = DepthFirstSearchState::new(graph.len());
 
         // Do a DFS and compute preorder/postorder
-        println!();
         for v in 0..graph.len() {
             if !state.marked[v] {
                 self.dfs(&graph, v, &mut state);
@@ -171,10 +219,10 @@ impl DependencyGraph {
     fn dfs(&self, graph: &Vec<Node>, v: usize, state: &mut DepthFirstSearchState) {
         state.marked[v] = true;
         state.update_pre_order(v);
-        if let Some(dependencies) = self.edges.get(&graph[v]) {
-            for dependency in dependencies {
+        if let Some(edges) = self.edges.get(&graph[v]) {
+            for edge in edges {
                 // Look up location in graph
-                if let Ok(w) = graph.binary_search(dependency) {
+                if let Ok(w) = graph.binary_search(&edge.node) {
                     if !state.marked[w] {
                         self.dfs(graph, w, state);
                     }
@@ -184,22 +232,26 @@ impl DependencyGraph {
         state.update_post_order(v);
     }
 
-    fn fixed_len<T>(size: usize, def: T) -> Vec<T> where T: Copy {
-        let mut zero_vec: Vec<T> = Vec::with_capacity(size);
-        for _ in 0..size {
-            zero_vec.push(def);
+    fn calculate_weight(&self, table: &mut HashMap<Node,f32>, current_node: &Node, weight: f32) {
+        if let Some(edges) = self.edges.get(current_node) {
+            for edge in edges {
+                let new_weight = edge.weight * weight;
+                if let Some(x) = table.get_mut(&edge.node) {
+                    *x = *x * new_weight;
+                }
+                self.calculate_weight(table, &edge.node, new_weight);
+            }
         }
-        zero_vec
     }
 
-    fn visit_dependency(&self, edge: &Node, lookup: &Node) -> bool {
-        if let Some(dependencies) = self.edges.get(lookup) {
-            for dependency in dependencies {
-                if dependency.eq(edge) {
+    fn visit_node(&self, root: &Node, lookup: &Node) -> bool {
+        if let Some(edges) = self.edges.get(lookup) {
+            for edge in edges {
+                if edge.node.eq(root) {
                     return true;
                 }
 
-                if self.visit_dependency(edge, dependency) {
+                if self.visit_node(root, &edge.node) {
                     return true;
                 }
             }
@@ -225,7 +277,7 @@ fn it_panics_if_adding_a_dependency_to_a_node_that_doesnt_exist() {
     let schema_public = Node::Schema("public".to_owned());
     let table_org = Node::Table("public.org".to_owned());
     graph.add_node(&schema_public);
-    graph.add_dependency(&table_org, &schema_public);    
+    graph.add_edge(&table_org, Edge::new(&schema_public, 1.0));    
 }
 
 #[test]
@@ -237,8 +289,8 @@ fn it_tracks_dependencies() {
     graph.add_node(&table_org);
     graph.add_node(&table_user);
     assert_eq!(ValidationResult::Valid, graph.validate());
-    graph.add_dependency(&table_org, &schema_public);
-    graph.add_dependency(&table_user, &schema_public);
+    graph.add_edge(&table_org, Edge::new(&schema_public, 1.0));
+    graph.add_edge(&table_user, Edge::new(&schema_public, 1.0));
     assert_eq!(ValidationResult::UnresolvedDependencies, graph.validate());
     let unresolved = graph.unresolved();
     assert_eq!(1, unresolved.len());
@@ -257,11 +309,11 @@ fn it_detects_circular_dependencies() {
     graph.add_node(&schema_public);
     graph.add_node(&table_org);
     graph.add_node(&table_user);
-    graph.add_dependency(&table_org, &schema_public);
-    graph.add_dependency(&table_user, &schema_public);
+    graph.add_edge(&table_org, Edge::new(&schema_public, 1.0));
+    graph.add_edge(&table_user, Edge::new(&schema_public, 1.0));
     // Not realistic, but testing circular references nevertheless
-    graph.add_dependency(&table_org, &table_user);
-    graph.add_dependency(&table_user, &table_org);
+    graph.add_edge(&table_org, Edge::new(&table_user, 1.0));
+    graph.add_edge(&table_user, Edge::new(&table_org, 1.0));
     assert_eq!(ValidationResult::CircularReference, graph.validate());
 }
 
@@ -290,20 +342,30 @@ fn it_generates_a_topological_graph() {
     // Note: We do this in an unordered way purposely
 
     // Coefficients table - needs the schema
-    graph.add_node_with_dependencies(&table_coefficients, vec!(schema_data.clone()));
+    graph.add_node_with_edges(&table_coefficients, vec!(
+        Edge::new(&schema_data, 1.0)
+        ));
     // Add each column for this table, each column needs the table to exist
-    graph.add_node_with_dependencies(&column_coefficients_id, vec!(table_coefficients.clone())); 
-    graph.add_node_with_dependencies(&column_coefficients_version_id, vec!(table_coefficients.clone())); 
+    graph.add_node_with_edges(&column_coefficients_id, vec!(
+        Edge::new(&table_coefficients, 1.0)
+        )); 
+    graph.add_node_with_edges(&column_coefficients_version_id, vec!(
+        Edge::new(&table_coefficients, 1.0)
+        )); 
     // Add constraint - the constraint needs the columns created
-    graph.add_node_with_dependencies(&constraint_coefficients_version_id, vec!(
-        column_coefficients_version_id.clone(), // FK
-        column_versions_id.clone(), // Reference
+    graph.add_node_with_edges(&constraint_coefficients_version_id, vec!(
+        Edge::new(&column_coefficients_version_id, 1.0), // FK
+        Edge::new(&column_versions_id, 1.1), // Reference
         ));
 
     // Versions table - needs the schema
-    graph.add_node_with_dependencies(&table_versions, vec!(schema_data.clone()));
+    graph.add_node_with_edges(&table_versions, vec!(
+        Edge::new(&schema_data, 1.0)
+        ));
     // The column needs the table
-    graph.add_node_with_dependencies(&column_versions_id, vec!(table_versions.clone()));
+    graph.add_node_with_edges(&column_versions_id, vec!(
+        Edge::new(&table_versions, 1.0)
+        ));
 
     // Add the schema also - no dependencies
     graph.add_node(&schema_data);
@@ -320,8 +382,8 @@ fn it_generates_a_topological_graph() {
     let expected = [
         schema_data, // Schema is first, nothing can exist without it
         table_versions, // Versions must be second as coefficients has a constraint against it
-        table_coefficients,
         column_versions_id,
+        table_coefficients,
         column_coefficients_id,
         column_coefficients_version_id,
         constraint_coefficients_version_id,
