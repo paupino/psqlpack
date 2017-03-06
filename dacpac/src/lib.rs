@@ -1,4 +1,6 @@
 #[macro_use]
+extern crate error_chain;
+#[macro_use]
 extern crate lazy_static;
 extern crate lalrpop_util;
 #[macro_use]
@@ -12,9 +14,11 @@ extern crate walkdir;
 extern crate zip;
 
 mod ast;
+mod errors;
 mod dacpac;
 mod lexer;
 mod sql;
 
-pub use dacpac::{Dacpac,DacpacError};
+pub use errors::*;
+pub use dacpac::Dacpac;
 pub use lalrpop_util::ParseError;
