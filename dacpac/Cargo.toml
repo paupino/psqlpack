@@ -5,7 +5,8 @@ authors = ["Paul Mason <paul@form1.co.nz>"]
 build = "build.rs"
 
 [dependencies]
-lazy_static = "0.1.*"
+error-chain = "0.10"
+lazy_static = "0.1"
 lalrpop-util = "0.12.5"
 log = "0.3.6"
 postgres = "0.13"

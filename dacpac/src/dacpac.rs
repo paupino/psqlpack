@@ -2,7 +2,6 @@ use ast::*;
 use std::path::MAIN_SEPARATOR as PATH_SEPARATOR;
 use std::fmt::{self};
 use lexer::{self};
-use lalrpop_util::ParseError;
 use postgres::{Connection, TlsMode};
 use serde_json::{self};
 use std::ascii::AsciiExt;
@@ -10,30 +9,27 @@ use std::io::Read;
 use std::io::prelude::*;
 use std::path::Path;
 use std::fs::{self,File};
-use std::result::Result as StdResult;
 use sql::{self};
 use zip::{ZipArchive,ZipWriter};
 use zip::write::FileOptions;
 use walkdir::WalkDir;
 
+use errors::*;
+
 macro_rules! ztry {
-    ($expr:expr) => {{ 
+    ($expr:expr) => {{
         match $expr {
             Ok(_) => {},
-            Err(e) => return Err(vec!(DacpacError::GenerationError { 
-                message: format!("Failed to write DACPAC: {}", e),
-            })),
+            Err(e) => return Err(DacpacErrorKind::GenerationError(format!("Failed to write DACPAC: {}", e)).into()),
         }
     }};
 }
 
 macro_rules! dbtry {
-    ($expr:expr) => { 
+    ($expr:expr) => {
         match $expr {
             Ok(o) => o,
-            Err(e) => return Err(vec!(DacpacError::DatabaseError { 
-                message: format!("{}", e),
-            })),
+            Err(e) => return Err(DacpacErrorKind::DatabaseError(format!("{}", e)).into()),
         }
     };
 }
@@ -55,9 +51,7 @@ macro_rules! zip_collection {
             ztry!($zip.start_file(format!("{}/{}.json", collection_name, item.name), FileOptions::default()));
             let json = match serde_json::to_string_pretty(&item) {
                 Ok(j) => j,
-                Err(e) => return Err(vec!(DacpacError::GenerationError {
-                    message: format!("Failed to write DACPAC: {}", e),
-                })),
+                Err(e) => return Err(DacpacErrorKind::GenerationError(format!("Failed to write DACPAC: {}", e)).into()),
             };
             ztry!($zip.write_all(json.as_bytes()));
         }
@@ -65,7 +59,7 @@ macro_rules! zip_collection {
 }
 
 static Q_DATABASE_EXISTS : &'static str = "SELECT 1 from pg_database WHERE datname=$1;";
-static Q_TABLE_EXISTS : &'static str = "SELECT 1 
+static Q_TABLE_EXISTS : &'static str = "SELECT 1
                                         FROM pg_catalog.pg_class c
                                         JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
                                         WHERE n.nspname = $1 AND c.relname = $2 AND c.relkind = 'r';";
@@ -77,28 +71,22 @@ static Q_DESCRIBE_COLUMNS : &'static str = "SELECT ordinal_position, column_name
 pub struct Dacpac;
 
 impl Dacpac {
-    pub fn package_project(source_project_file: String, output_file: String) -> StdResult<(), Vec<DacpacError>> {
+    pub fn package_project(source_project_file: String, output_file: String) -> DacpacResult<()> {
 
         // Load the project file
         let project_path = Path::new(&source_project_file[..]);
         if !project_path.is_file() {
-            return Err(vec!(DacpacError::IOError {
-                file: format!("{}", project_path.display()),
-                message: "Project file does not exist".to_owned(),
-            }));
+            return Err(DacpacErrorKind::IOError(format!("{}", project_path.display()),"Project file does not exist".to_owned()).into());
         }
         let mut project_source = String::new();
         if let Err(err) = File::open(&project_path).and_then(|mut f| f.read_to_string(&mut project_source)) {
-            return Err(vec!(DacpacError::IOError {
-                     file: format!("{}", project_path.display()),
-                     message: format!("Failed to read project file: {}", err)
-                 }));
+            return Err(DacpacErrorKind::IOError(format!("{}", project_path.display()), format!("Failed to read project file: {}", err)).into());
         }
 
         // Load the project config
         let project_config : ProjectConfig = match serde_json::from_str(&project_source) {
             Ok(c) => c,
-            Err(e) => return Err(vec!(DacpacError::ProjectError { message: format!("{}", e) })),
+            Err(e) => return Err(DacpacErrorKind::ProjectError(format!("{}", e)).into()),
         };
         // Turn the pre/post into paths to quickly check
         let mut predeploy_paths = Vec::new();
@@ -107,22 +95,18 @@ impl Dacpac {
         for script in &project_config.pre_deploy_scripts {
             let path = match fs::canonicalize(Path::new(&format!("{}{}{}", parent.display(), PATH_SEPARATOR, script)[..])) {
                 Ok(p) => p,
-                Err(e) => return Err(vec!(DacpacError::ProjectError {
-                    message: format!("Invalid script found for pre-deployment: {} ({})", script, e)
-                 })),
+                Err(e) => return Err(DacpacErrorKind::ProjectError(format!("Invalid script found for pre-deployment: {} ({})", script, e)).into()),
             };
             predeploy_paths.push(format!("{}", path.display()));
         }
         for script in &project_config.post_deploy_scripts {
             let path = match fs::canonicalize(Path::new(&format!("{}{}{}", parent.display(), PATH_SEPARATOR, script)[..])) {
                 Ok(p) => p,
-                Err(e) => return Err(vec!(DacpacError::ProjectError {
-                    message: format!("Invalid script found for post-deployment: {} ({})", script, e)
-                 })),
+                Err(e) => return Err(DacpacErrorKind::ProjectError(format!("Invalid script found for post-deployment: {} ({})", script, e)).into())
             };
             postdeploy_paths.push(format!("{}", path.display()));
         }
-        
+
         // Start the project
         let mut project = Project::new();
         let mut errors = Vec::new();
@@ -138,10 +122,7 @@ impl Dacpac {
 
             let mut contents = String::new();
             if let Err(err) = File::open(&path).and_then(|mut f| f.read_to_string(&mut contents)) {
-                errors.push(DacpacError::IOError { 
-                    file: format!("{}", path.display()), 
-                    message: format!("{}", err) 
-                });
+                errors.push(DacpacErrorKind::IOError(format!("{}", path.display()), format!("{}", err)));
                 continue;
             }
 
@@ -150,34 +131,34 @@ impl Dacpac {
             if let Some(pos) = predeploy_paths.iter().position(|x| abs_path.eq(x)) {
                 project.push_script(ScriptDefinition {
                     name: path.file_name().unwrap().to_str().unwrap().to_owned(),
-                    kind: ScriptKind::PreDeployment, 
-                    order: pos, 
+                    kind: ScriptKind::PreDeployment,
+                    order: pos,
                     contents: contents
                 });
             } else if let Some(pos) = postdeploy_paths.iter().position(|x| abs_path.eq(x)) {
                 project.push_script(ScriptDefinition {
                     name: path.file_name().unwrap().to_str().unwrap().to_owned(),
-                    kind: ScriptKind::PostDeployment, 
-                    order: pos, 
+                    kind: ScriptKind::PostDeployment,
+                    order: pos,
                     contents: contents
                 });
             } else {
                 let tokens = match lexer::tokenize(&contents[..]) {
                     Ok(t) => t,
                     Err(e) => {
-                        errors.push(DacpacError::SyntaxError { 
-                            file: format!("{}", path.display()), 
-                            line: e.line.to_owned(), 
-                            line_number: e.line_number, 
-                            start_pos: e.start_pos, 
-                            end_pos: e.end_pos 
-                        });
+                        errors.push(DacpacErrorKind::SyntaxError(
+                            format!("{}", path.display()),
+                            e.line.to_owned(),
+                            e.line_number,
+                            e.start_pos,
+                            e.end_pos
+                        ));
                         continue;
                     },
                 };
 
                 match sql::parse_statement_list(tokens) {
-                    Ok(statement_list) => { 
+                    Ok(statement_list) => {
                         for statement in statement_list {
                             match statement {
                                 Statement::Extension(extension_definition) => project.push_extension(extension_definition),
@@ -188,20 +169,17 @@ impl Dacpac {
                             }
                         }
                     },
-                    Err(err) => { 
-                        errors.push(DacpacError::ParseError { 
-                            file: format!("{}", path.display()), 
-                            errors: vec!(err), 
-                        });
+                    Err(err) => {
+                        errors.push(DacpacErrorKind::ParseError(format!("{}", path.display()), vec!(err)));
                         continue;
                     }
-                }  
-            }          
+                }
+            }
         }
 
         // Early exit if errors
         if !errors.is_empty() {
-            return Err(errors);
+            return Err(DacpacErrorKind::MultipleErrors(errors).into());
         }
 
         // First up validate the dacpac
@@ -214,17 +192,13 @@ impl Dacpac {
         if output_path.parent().is_some() {
             match fs::create_dir_all(format!("{}", output_path.parent().unwrap().display())) {
                 Ok(_) => {},
-                Err(e) => return Err(vec!(DacpacError::GenerationError { 
-                    message: format!("Failed to create DACPAC directory: {}", e),
-                })),
+                Err(e) => return Err(DacpacErrorKind::GenerationError(format!("Failed to create DACPAC directory: {}", e)).into()),
             }
         }
 
         let output_file = match File::create(&output_path) {
             Ok(f) => f,
-            Err(e) => return Err(vec!(DacpacError::GenerationError { 
-                message: format!("Failed to write DACPAC: {}", e),
-            })),
+            Err(e) => return Err(DacpacErrorKind::GenerationError(format!("Failed to write DACPAC: {}", e)).into())
         };
         let mut zip = ZipWriter::new(output_file);
 
@@ -240,8 +214,8 @@ impl Dacpac {
         Ok(())
     }
 
-    pub fn publish(source_dacpac_file: String, target_connection_string: String, publish_profile: String) -> StdResult<(), Vec<DacpacError>> {
-        
+    pub fn publish(source_dacpac_file: String, target_connection_string: String, publish_profile: String) -> DacpacResult<()> {
+
         let project = try!(Dacpac::load_project(source_dacpac_file));
         let publish_profile = try!(Dacpac::load_publish_profile(publish_profile));
         let connection_string = try!(Dacpac::test_connection(target_connection_string));
@@ -268,7 +242,7 @@ impl Dacpac {
         Ok(())
     }
 
-    pub fn generate_sql(source_dacpac_file: String, target_connection_string: String, publish_profile: String, output_file: String) -> StdResult<(), Vec<DacpacError>> {
+    pub fn generate_sql(source_dacpac_file: String, target_connection_string: String, publish_profile: String, output_file: String) -> DacpacResult<()> {
 
         let project = try!(Dacpac::load_project(source_dacpac_file));
         let publish_profile = try!(Dacpac::load_publish_profile(publish_profile));
@@ -280,9 +254,7 @@ impl Dacpac {
         // These instructions turn into a single SQL file
         let mut out = match File::create(&output_file[..]) {
             Ok(o) => o,
-            Err(e) => return Err(vec!(DacpacError::GenerationError {
-                message: format!("Failed to generate SQL file: {}", e),
-            })),
+            Err(e) => return Err(DacpacErrorKind::GenerationError(format!("Failed to generate SQL file: {}", e)).into())
         };
 
         for change in changeset {
@@ -291,21 +263,17 @@ impl Dacpac {
                     // New line
                     match out.write(&[59u8, 10u8, 10u8]) {
                         Ok(_) => {},
-                        Err(e) => return Err(vec!(DacpacError::GenerationError {
-                            message: format!("Failed to generate SQL file: {}", e),
-                        })),
+                        Err(e) => return Err(DacpacErrorKind::GenerationError(format!("Failed to generate SQL file: {}", e)).into())
                     }
                 },
-                Err(e) => return Err(vec!(DacpacError::GenerationError {
-                    message: format!("Failed to generate SQL file: {}", e),
-                })),
+                Err(e) => return Err(DacpacErrorKind::GenerationError(format!("Failed to generate SQL file: {}", e)).into())
             }
         }
 
         Ok(())
     }
 
-    pub fn generate_report(source_dacpac_file: String, target_connection_string: String, publish_profile: String, output_file: String) -> StdResult<(), Vec<DacpacError>> {
+    pub fn generate_report(source_dacpac_file: String, target_connection_string: String, publish_profile: String, output_file: String) -> DacpacResult<()> {
 
         let project = try!(Dacpac::load_project(source_dacpac_file));
         let publish_profile = try!(Dacpac::load_publish_profile(publish_profile));
@@ -317,49 +285,34 @@ impl Dacpac {
         // These instructions turn into a JSON report
         let json = match serde_json::to_string_pretty(&changeset) {
             Ok(j) => j,
-            Err(e) => return Err(vec!(DacpacError::GenerationError {
-                message: format!("Failed to generate report: {}", e),
-            })),
+            Err(e) => return Err(DacpacErrorKind::GenerationError(format!("Failed to generate report: {}", e)).into())
         };
 
         let mut out = match File::create(&output_file[..]) {
             Ok(o) => o,
-            Err(e) => return Err(vec!(DacpacError::GenerationError {
-                message: format!("Failed to generate report: {}", e),
-            })),
+            Err(e) => return Err(DacpacErrorKind::GenerationError(format!("Failed to generate report: {}", e)).into())
         };
         match out.write_all(json.as_bytes()) {
             Ok(_) => {},
-            Err(e) => return Err(vec!(DacpacError::GenerationError {
-                message: format!("Failed to generate report: {}", e),
-            })),
+            Err(e) => return Err(DacpacErrorKind::GenerationError(format!("Failed to generate report: {}", e)).into())
         }
 
         Ok(())
     }
 
-    fn load_project(source_dacpac_file: String) -> StdResult<Project, Vec<DacpacError>> {
+    fn load_project(source_dacpac_file: String) -> DacpacResult<Project> {
         // Load the DACPAC
         let source_path = Path::new(&source_dacpac_file[..]);
         if !source_path.is_file() {
-            return Err(vec!(DacpacError::IOError {
-                file: format!("{}", source_path.display()),
-                message: "DACPAC file does not exist".to_owned(),
-            }));
+            return Err(DacpacErrorKind::IOError(format!("{}", source_path.display()), "DACPAC file does not exist".to_owned()).into())
         }
         let file = match fs::File::open(&source_path) {
             Ok(o) => o,
-            Err(e) => return Err(vec!(DacpacError::IOError {
-                file: format!("{}", source_path.display()),
-                message: format!("Failed to open DACPAC file: {}", e),
-            })),
+            Err(e) => return Err(DacpacErrorKind::IOError(format!("{}", source_path.display()), format!("Failed to open DACPAC file: {}", e)).into())
         };
         let mut archive = match ZipArchive::new(file) {
             Ok(o) => o,
-            Err(e) => return Err(vec!(DacpacError::IOError {
-                file: format!("{}", source_path.display()),
-                message: format!("Failed to open DACPAC file: {}", e),
-            })),
+            Err(e) => return Err(DacpacErrorKind::IOError(format!("{}", source_path.display()), format!("Failed to open DACPAC file: {}", e)).into())
         };
 
         let mut extensions = Vec::new();
@@ -400,35 +353,26 @@ impl Dacpac {
         })
     }
 
-    fn load_publish_profile(publish_profile: String) -> StdResult<PublishProfile, Vec<DacpacError>> {
+    fn load_publish_profile(publish_profile: String) -> DacpacResult<PublishProfile> {
         // Load the publish profile
         let path = Path::new(&publish_profile[..]);
         if !path.is_file() {
-            return Err(vec!(DacpacError::IOError {
-                file: format!("{}", path.display()),
-                message: "Publish profile does not exist".to_owned(),
-            }));
+            return Err(DacpacErrorKind::IOError(format!("{}", path.display()), "Publish profile does not exist".to_owned()).into());
         }
         let mut publish_profile_raw = String::new();
         if let Err(err) = File::open(&path).and_then(|mut f| f.read_to_string(&mut publish_profile_raw)) {
-            return Err(vec!(DacpacError::IOError {
-                     file: format!("{}", path.display()),
-                     message: format!("Failed to read publish profile: {}", err)
-                 }));
+            return Err(DacpacErrorKind::IOError(format!("{}", path.display()), format!("Failed to read publish profile: {}", err)).into());
         }
 
         // Deserialize
         let publish_profile : PublishProfile = match serde_json::from_str(&publish_profile_raw) {
             Ok(p) => p,
-            Err(e) => return Err(vec!(DacpacError::FormatError {
-                file: format!("{}", path.display()),
-                message: format!("Publish profile was not well formed: {}", e),
-            })),
+            Err(e) => return Err(DacpacErrorKind::FormatError(format!("{}", path.display()), format!("Publish profile was not well formed: {}", e)).into())
         };
         Ok(publish_profile)
     }
 
-    fn test_connection(target_connection_string: String) -> StdResult<ConnectionString, Vec<DacpacError>> {
+    fn test_connection(target_connection_string: String) -> DacpacResult<ConnectionString> {
 
         // Connection String
         let mut connection_string = ConnectionString::new();
@@ -444,9 +388,7 @@ impl Dacpac {
             // Get the parts
             let parts: Vec<&str> = section.split('=').collect();
             if parts.len() != 2 {
-                return Err(vec!(DacpacError::InvalidConnectionString {
-                    message: "Connection string was not well formed".to_owned(),
-                }));
+                return Err(DacpacErrorKind::InvalidConnectionString("Connection string was not well formed".to_owned()).into());
             }
 
             match parts[0] {
@@ -475,10 +417,10 @@ struct ConnectionString {
 }
 
 macro_rules! assert_existance {
-    ($s:ident, $field:ident, $errors:ident) => {{ 
+    ($s:ident, $field:ident, $errors:ident) => {{
         if $s.$field.is_none() {
             let text = stringify!($field);
-            $errors.push(DacpacError::InvalidConnectionString { message: format!("No {} defined", text) }); 
+            $errors.push(DacpacErrorKind::InvalidConnectionString(format!("No {} defined", text)));
         }
     }};
 }
@@ -514,18 +456,18 @@ impl ConnectionString {
         self.tls_mode = value.eq_ignore_ascii_case("true");
     }
 
-    fn validate(&self) -> StdResult<(), Vec<DacpacError>> {
+    fn validate(&self) -> DacpacResult<()> {
         let mut errors = Vec::new();
         assert_existance!(self, database, errors);
         assert_existance!(self, host, errors);
         assert_existance!(self, user, errors);
         if self.tls_mode {
-            errors.push(DacpacError::InvalidConnectionString { message: "TLS not supported".to_owned() }); 
+            errors.push(DacpacErrorKind::InvalidConnectionString("TLS not supported".to_owned()));
         }
         if errors.is_empty() {
             Ok(())
         } else {
-            Err(errors)
+            Err(DacpacErrorKind::MultipleErrors(errors).into())
         }
     }
 
@@ -533,7 +475,7 @@ impl ConnectionString {
         // Assumes validate has been called
         if self.password.is_none() {
             if with_database {
-                format!("postgres://{}@{}/{}", self.user.clone().unwrap(), self.host.clone().unwrap(), self.database.clone().unwrap())                
+                format!("postgres://{}@{}/{}", self.user.clone().unwrap(), self.host.clone().unwrap(), self.database.clone().unwrap())
             } else {
                 format!("postgres://{}@{}", self.user.clone().unwrap(), self.host.clone().unwrap())
             }
@@ -608,7 +550,7 @@ impl Project {
         self.types.push(def);
     }
 
-    fn set_defaults(&mut self, config: &ProjectConfig) { 
+    fn set_defaults(&mut self, config: &ProjectConfig) {
 
         // Make sure the public schema exists
         let mut has_public = false;
@@ -643,13 +585,13 @@ impl Project {
 
     }
 
-    fn validate(&self) -> Result<(), Vec<DacpacError>> {
+    fn validate(&self) -> DacpacResult<()> {
 
         // TODO: Validate references etc
         Ok(())
     }
 
-    fn generate_changeset(&self, connection_string: &ConnectionString, publish_profile: PublishProfile) -> StdResult<Vec<ChangeInstruction>, Vec<DacpacError>> {
+    fn generate_changeset(&self, connection_string: &ConnectionString, publish_profile: PublishProfile) -> DacpacResult<Vec<ChangeInstruction>> {
 
         // Start the changeset
         let mut changeset = Vec::new();
@@ -692,7 +634,7 @@ impl Project {
                 } else {
                     changeset.push(ChangeInstruction::AddTable(table));
                 }
-            } 
+            }
         } else {
             changeset.push(ChangeInstruction::CreateDatabase(connection_string.database.clone().unwrap()));
             changeset.push(ChangeInstruction::UseDatabase(connection_string.database.clone().unwrap()));
@@ -711,6 +653,7 @@ struct PublishProfile {
     always_recreate_database: bool,
 }
 
+#[allow(dead_code)]
 #[derive(Serialize)]
 enum ChangeInstruction<'input> {
 
@@ -748,7 +691,7 @@ impl<'input> ChangeInstruction<'input> {
                 let mut instr = String::new();
                 instr.push_str(&format!("CREATE TABLE {} (\n", def.name)[..]);
                 for (index, column) in def.columns.iter().enumerate() {
-                    if index > 0 { 
+                    if index > 0 {
                         instr.push_str(",\n");
                     }
                     instr.push_str(&format!("  {} {}", column.name, column.sql_type)[..]);
@@ -768,17 +711,17 @@ impl<'input> ChangeInstruction<'input> {
                 if let Some(ref constraints) = def.constraints {
                     instr.push_str(",\n");
                     for (index, constraint) in constraints.iter().enumerate() {
-                        if index > 0 { 
+                        if index > 0 {
                             instr.push_str(",\n");
                         }
                         match *constraint {
-                            TableConstraint::Primary { 
-                                ref name, 
-                                ref columns, 
-                                ref parameters 
+                            TableConstraint::Primary {
+                                ref name,
+                                ref columns,
+                                ref parameters
                             } => {
                                 instr.push_str(&format!("  CONSTRAINT {} PRIMARY KEY ({})", name, columns.join(", "))[..]);
-                                
+
                                 // Do the WITH options too
                                 if let Some(ref unwrapped) = *parameters {
                                     instr.push_str(" WITH (");
@@ -793,10 +736,10 @@ impl<'input> ChangeInstruction<'input> {
                                     instr.push_str(")");
                                 }
                             },
-                            TableConstraint::Foreign { 
-                                ref name, 
-                                ref columns, 
-                                ref ref_table, 
+                            TableConstraint::Foreign {
+                                ref name,
+                                ref columns,
+                                ref ref_table,
                                 ref ref_columns,
                                 ref match_type,
                                 ref events,
@@ -821,11 +764,11 @@ impl<'input> ChangeInstruction<'input> {
                 instr.push_str("\n)");
                 instr
             }
-            _ => { 
+            _ => {
                 "TODO".to_owned()
             }
         }
-        
+
     }
 
     fn to_progress_message(&self) -> String {
@@ -839,7 +782,7 @@ impl<'input> ChangeInstruction<'input> {
             ChangeInstruction::AddTable(def) => format!("Adding table {}", def.name),
             _ => "TODO".to_owned(),
         }
-        
+
     }
 }
 
@@ -893,7 +836,7 @@ impl fmt::Display for SqlType {
             SqlType::Array(ref simple_type, dim) => {
                 write!(f, "{}{}", simple_type, (0..dim).map(|_| "[]").collect::<String>())
             },
-            SqlType::Custom(ref custom_type, ref options) => { 
+            SqlType::Custom(ref custom_type, ref options) => {
                 if let Some(ref opt) = *options {
                     write!(f, "{}({})", custom_type, opt)
                 } else {
@@ -910,7 +853,7 @@ impl fmt::Display for SimpleSqlType {
             SimpleSqlType::FixedLengthString(size) => write!(f, "char({})", size),
             SimpleSqlType::VariableLengthString(size) => write!(f, "varchar({})", size),
             SimpleSqlType::Text => write!(f, "text"),
-            
+
             SimpleSqlType::FixedLengthBitString(size) => write!(f, "bit({})", size),
             SimpleSqlType::VariableLengthBitString(size) => write!(f, "varbit({})", size),
 
@@ -937,16 +880,5 @@ impl fmt::Display for SimpleSqlType {
 
             SimpleSqlType::Uuid => write!(f, "uuid"),
         }
-    }  
-}
-
-pub enum DacpacError {
-    IOError { file: String, message: String },
-    SyntaxError { file: String, line: String, line_number: i32, start_pos: i32, end_pos: i32 },
-    ParseError { file: String, errors: Vec<ParseError<(), lexer::Token, ()>> },
-    GenerationError { message: String },
-    FormatError { file: String, message: String },
-    InvalidConnectionString { message: String },
-    DatabaseError { message: String },
-    ProjectError { message: String },
+    }
 }
