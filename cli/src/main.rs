@@ -165,6 +165,11 @@ fn main() {
 
 pub fn print_error(error: &DacpacErrorKind) {
     match *error {
+        DacpacErrorKind::Connection(ref inner) => {
+            println!("Invalid connection string");
+            println!("  {}", inner);
+            println!();
+        }
         DacpacErrorKind::Msg(ref message) => {
             println!("Unknown Error");
             println!("  {}", message);
@@ -177,11 +182,6 @@ pub fn print_error(error: &DacpacErrorKind) {
         }
         DacpacErrorKind::FormatError(ref file, ref message) => {
             println!("Formatting Error when reading {}", file);
-            println!("  {}", message);
-            println!();
-        }
-        DacpacErrorKind::InvalidConnectionString(ref message) => {
-            println!("Invalid connection string");
             println!("  {}", message);
             println!();
         }
