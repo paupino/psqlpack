@@ -1,20 +1,22 @@
-use ast::*;
-use std::path::MAIN_SEPARATOR as PATH_SEPARATOR;
-use std::fmt::{self};
-use lexer::{self};
-use postgres::{Connection, TlsMode};
-use serde_json::{self};
 use std::ascii::AsciiExt;
+use std::fmt;
+use std::fs::{self,File};
 use std::io::Read;
 use std::io::prelude::*;
 use std::path::Path;
-use std::fs::{self,File};
-use sql::{self};
+use std::path::MAIN_SEPARATOR as PATH_SEPARATOR;
+
+use serde_json;
+use postgres::Connection;
+use walkdir::WalkDir;
 use zip::{ZipArchive,ZipWriter};
 use zip::write::FileOptions;
-use walkdir::WalkDir;
 
+use ast::*;
 use errors::*;
+use connection::ConnectionString;
+use lexer;
+use sql;
 
 macro_rules! ztry {
     ($expr:expr) => {{
@@ -405,91 +407,6 @@ impl Dacpac {
         try!(connection_string.validate());
 
         Ok(connection_string)
-    }
-}
-
-struct ConnectionString {
-    database : Option<String>,
-    host : Option<String>,
-    user : Option<String>,
-    password : Option<String>,
-    tls_mode : bool,
-}
-
-macro_rules! assert_existance {
-    ($s:ident, $field:ident, $errors:ident) => {{
-        if $s.$field.is_none() {
-            let text = stringify!($field);
-            $errors.push(DacpacErrorKind::InvalidConnectionString(format!("No {} defined", text)));
-        }
-    }};
-}
-
-impl ConnectionString {
-    fn new() -> Self {
-        ConnectionString {
-            database: None,
-            host: None,
-            user: None,
-            password: None,
-            tls_mode: false
-        }
-    }
-
-    fn set_database(&mut self, value: &str) {
-        self.database = Some(value.to_owned());
-    }
-
-    fn set_host(&mut self, value: &str) {
-        self.host = Some(value.to_owned());
-    }
-
-    fn set_user(&mut self, value: &str) {
-        self.user = Some(value.to_owned());
-    }
-
-    fn set_password(&mut self, value: &str) {
-        self.password = Some(value.to_owned());
-    }
-
-    fn set_tls_mode(&mut self, value: &str) {
-        self.tls_mode = value.eq_ignore_ascii_case("true");
-    }
-
-    fn validate(&self) -> DacpacResult<()> {
-        let mut errors = Vec::new();
-        assert_existance!(self, database, errors);
-        assert_existance!(self, host, errors);
-        assert_existance!(self, user, errors);
-        if self.tls_mode {
-            errors.push(DacpacErrorKind::InvalidConnectionString("TLS not supported".to_owned()));
-        }
-        if errors.is_empty() {
-            Ok(())
-        } else {
-            Err(DacpacErrorKind::MultipleErrors(errors).into())
-        }
-    }
-
-    fn uri(&self, with_database: bool) -> String {
-        // Assumes validate has been called
-        if self.password.is_none() {
-            if with_database {
-                format!("postgres://{}@{}/{}", self.user.clone().unwrap(), self.host.clone().unwrap(), self.database.clone().unwrap())
-            } else {
-                format!("postgres://{}@{}", self.user.clone().unwrap(), self.host.clone().unwrap())
-            }
-        } else {
-            if with_database {
-                format!("postgres://{}:{}@{}/{}", self.user.clone().unwrap(), self.password.clone().unwrap(), self.host.clone().unwrap(), self.database.clone().unwrap())
-            } else {
-                format!("postgres://{}:{}@{}", self.user.clone().unwrap(), self.password.clone().unwrap(), self.host.clone().unwrap())
-            }
-        }
-    }
-
-    fn tls_mode(&self) -> TlsMode {
-        TlsMode::None
     }
 }
 
