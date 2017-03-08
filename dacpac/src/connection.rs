@@ -181,8 +181,27 @@ mod tests {
     }
 
     #[test]
+    fn parse_with_password_works() {
+        let connection: Connection = "host=localhost;database=db1;userid=user;password=secret;".parse().unwrap();
+        assert_eq!("db1", connection.database());
+        assert_eq!("postgres://user:secret@localhost", connection.uri);
+    }
+
+    #[test]
     fn parse_without_host_fails() {
         let error = "database=db1;userid=user;".parse::<Connection>().unwrap_err();
+        assert_error_kind!(error, ConnectionErrorKind::RequiredPartMissing(_));
+    }
+
+    #[test]
+    fn parse_without_database_fails() {
+        let error = "host=localhost;userid=user;".parse::<Connection>().unwrap_err();
+        assert_error_kind!(error, ConnectionErrorKind::RequiredPartMissing(_));
+    }
+
+    #[test]
+    fn parse_without_user_fails() {
+        let error = "host=localhost;database=db1".parse::<Connection>().unwrap_err();
         assert_error_kind!(error, ConnectionErrorKind::RequiredPartMissing(_));
     }
 }
