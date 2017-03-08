@@ -1,20 +1,21 @@
-use ast::*;
-use std::path::MAIN_SEPARATOR as PATH_SEPARATOR;
-use std::fmt::{self};
-use lexer::{self};
-use postgres::{Connection, TlsMode};
-use serde_json::{self};
 use std::ascii::AsciiExt;
+use std::fmt;
+use std::fs::{self,File};
 use std::io::Read;
 use std::io::prelude::*;
 use std::path::Path;
-use std::fs::{self,File};
-use sql::{self};
+use std::path::MAIN_SEPARATOR as PATH_SEPARATOR;
+
+use serde_json;
+use walkdir::WalkDir;
 use zip::{ZipArchive,ZipWriter};
 use zip::write::FileOptions;
-use walkdir::WalkDir;
 
+use ast::*;
 use errors::*;
+use connection::Connection;
+use lexer;
+use sql;
 
 macro_rules! ztry {
     ($expr:expr) => {{
@@ -218,17 +219,17 @@ impl Dacpac {
 
         let project = try!(Dacpac::load_project(source_dacpac_file));
         let publish_profile = try!(Dacpac::load_publish_profile(publish_profile));
-        let connection_string = try!(Dacpac::test_connection(target_connection_string));
+        let connection = try!(target_connection_string.parse());
 
         // Now we generate our instructions
-        let changeset = project.generate_changeset(&connection_string, publish_profile)?;
+        let changeset = project.generate_changeset(&connection, publish_profile)?;
 
         // These instructions turn into SQL statements that get executed
-        let mut conn = dbtry!(Connection::connect(connection_string.uri(false), connection_string.tls_mode()));
+        let mut conn = dbtry!(connection.connect_host());
         for change in &changeset {
             if let ChangeInstruction::UseDatabase(..) = *change {
                 dbtry!(conn.finish());
-                conn = dbtry!(Connection::connect(connection_string.uri(true), connection_string.tls_mode()));
+                conn = dbtry!(connection.connect_database());
                 continue;
             }
 
@@ -246,10 +247,10 @@ impl Dacpac {
 
         let project = try!(Dacpac::load_project(source_dacpac_file));
         let publish_profile = try!(Dacpac::load_publish_profile(publish_profile));
-        let connection_string = try!(Dacpac::test_connection(target_connection_string));
+        let connection = try!(target_connection_string.parse());
 
         // Now we generate our instructions
-        let changeset = project.generate_changeset(&connection_string, publish_profile)?;
+        let changeset = project.generate_changeset(&connection, publish_profile)?;
 
         // These instructions turn into a single SQL file
         let mut out = match File::create(&output_file[..]) {
@@ -277,10 +278,10 @@ impl Dacpac {
 
         let project = try!(Dacpac::load_project(source_dacpac_file));
         let publish_profile = try!(Dacpac::load_publish_profile(publish_profile));
-        let connection_string = try!(Dacpac::test_connection(target_connection_string));
+        let connection = try!(target_connection_string.parse());
 
         // Now we generate our instructions
-        let changeset = project.generate_changeset(&connection_string, publish_profile)?;
+        let changeset = project.generate_changeset(&connection, publish_profile)?;
 
         // These instructions turn into a JSON report
         let json = match serde_json::to_string_pretty(&changeset) {
@@ -370,126 +371,6 @@ impl Dacpac {
             Err(e) => return Err(DacpacErrorKind::FormatError(format!("{}", path.display()), format!("Publish profile was not well formed: {}", e)).into())
         };
         Ok(publish_profile)
-    }
-
-    fn test_connection(target_connection_string: String) -> DacpacResult<ConnectionString> {
-
-        // Connection String
-        let mut connection_string = ConnectionString::new();
-
-        // First up, parse the connection string
-        let sections: Vec<&str> = target_connection_string.split(';').collect();
-        for section in sections {
-
-            if section.trim().is_empty() {
-                continue;
-            }
-
-            // Get the parts
-            let parts: Vec<&str> = section.split('=').collect();
-            if parts.len() != 2 {
-                return Err(DacpacErrorKind::InvalidConnectionString("Connection string was not well formed".to_owned()).into());
-            }
-
-            match parts[0] {
-                "host" => connection_string.set_host(parts[1]),
-                "database" => connection_string.set_database(parts[1]),
-                "userid" => connection_string.set_user(parts[1]),
-                "password" => connection_string.set_password(parts[1]),
-                "tlsmode" => connection_string.set_tls_mode(parts[1]),
-                _ => {}
-            }
-        }
-
-        // Make sure we have enough for a connection string
-        try!(connection_string.validate());
-
-        Ok(connection_string)
-    }
-}
-
-struct ConnectionString {
-    database : Option<String>,
-    host : Option<String>,
-    user : Option<String>,
-    password : Option<String>,
-    tls_mode : bool,
-}
-
-macro_rules! assert_existance {
-    ($s:ident, $field:ident, $errors:ident) => {{
-        if $s.$field.is_none() {
-            let text = stringify!($field);
-            $errors.push(DacpacErrorKind::InvalidConnectionString(format!("No {} defined", text)));
-        }
-    }};
-}
-
-impl ConnectionString {
-    fn new() -> Self {
-        ConnectionString {
-            database: None,
-            host: None,
-            user: None,
-            password: None,
-            tls_mode: false
-        }
-    }
-
-    fn set_database(&mut self, value: &str) {
-        self.database = Some(value.to_owned());
-    }
-
-    fn set_host(&mut self, value: &str) {
-        self.host = Some(value.to_owned());
-    }
-
-    fn set_user(&mut self, value: &str) {
-        self.user = Some(value.to_owned());
-    }
-
-    fn set_password(&mut self, value: &str) {
-        self.password = Some(value.to_owned());
-    }
-
-    fn set_tls_mode(&mut self, value: &str) {
-        self.tls_mode = value.eq_ignore_ascii_case("true");
-    }
-
-    fn validate(&self) -> DacpacResult<()> {
-        let mut errors = Vec::new();
-        assert_existance!(self, database, errors);
-        assert_existance!(self, host, errors);
-        assert_existance!(self, user, errors);
-        if self.tls_mode {
-            errors.push(DacpacErrorKind::InvalidConnectionString("TLS not supported".to_owned()));
-        }
-        if errors.is_empty() {
-            Ok(())
-        } else {
-            Err(DacpacErrorKind::MultipleErrors(errors).into())
-        }
-    }
-
-    fn uri(&self, with_database: bool) -> String {
-        // Assumes validate has been called
-        if self.password.is_none() {
-            if with_database {
-                format!("postgres://{}@{}/{}", self.user.clone().unwrap(), self.host.clone().unwrap(), self.database.clone().unwrap())
-            } else {
-                format!("postgres://{}@{}", self.user.clone().unwrap(), self.host.clone().unwrap())
-            }
-        } else {
-            if with_database {
-                format!("postgres://{}:{}@{}/{}", self.user.clone().unwrap(), self.password.clone().unwrap(), self.host.clone().unwrap(), self.database.clone().unwrap())
-            } else {
-                format!("postgres://{}:{}@{}", self.user.clone().unwrap(), self.password.clone().unwrap(), self.host.clone().unwrap())
-            }
-        }
-    }
-
-    fn tls_mode(&self) -> TlsMode {
-        TlsMode::None
     }
 }
 
@@ -591,20 +472,20 @@ impl Project {
         Ok(())
     }
 
-    fn generate_changeset(&self, connection_string: &ConnectionString, publish_profile: PublishProfile) -> DacpacResult<Vec<ChangeInstruction>> {
+    fn generate_changeset(&self, connection: &Connection, publish_profile: PublishProfile) -> DacpacResult<Vec<ChangeInstruction>> {
 
         // Start the changeset
         let mut changeset = Vec::new();
 
         // First up, detect if there is no database (or it needs to be recreated)
         // If so, we assume everything is new
-        let db_conn = dbtry!(Connection::connect(connection_string.uri(false), connection_string.tls_mode()));
-        let db_result = dbtry!(db_conn.query(Q_DATABASE_EXISTS, &[ &connection_string.database.clone().unwrap() ]));
+        let db_conn = dbtry!(connection.connect_host());
+        let db_result = dbtry!(db_conn.query(Q_DATABASE_EXISTS, &[ &connection.database() ]));
         let mut has_db = !db_result.is_empty();
 
         // If we always recreate then add a drop and set to false
         if has_db && publish_profile.always_recreate_database {
-            changeset.push(ChangeInstruction::DropDatabase(connection_string.database.clone().unwrap()));
+            changeset.push(ChangeInstruction::DropDatabase(connection.database().to_owned()));
             has_db = false;
         }
 
@@ -612,10 +493,10 @@ impl Project {
         if has_db {
 
             // Set the connection instruction
-            changeset.push(ChangeInstruction::UseDatabase(connection_string.database.clone().unwrap()));
+            changeset.push(ChangeInstruction::UseDatabase(connection.database().to_owned()));
 
             // Connect to the database
-            let conn = dbtry!(Connection::connect(connection_string.uri(true), connection_string.tls_mode()));
+            let conn = dbtry!(connection.connect_database());
 
             // Go through each table
             for table in &self.tables {
@@ -636,8 +517,8 @@ impl Project {
                 }
             }
         } else {
-            changeset.push(ChangeInstruction::CreateDatabase(connection_string.database.clone().unwrap()));
-            changeset.push(ChangeInstruction::UseDatabase(connection_string.database.clone().unwrap()));
+            changeset.push(ChangeInstruction::CreateDatabase(connection.database().to_owned()));
+            changeset.push(ChangeInstruction::UseDatabase(connection.database().to_owned()));
             for table in &self.tables {
                 changeset.push(ChangeInstruction::AddTable(table));
             }

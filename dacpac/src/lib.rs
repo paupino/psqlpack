@@ -15,6 +15,7 @@ extern crate zip;
 
 mod ast;
 mod errors;
+mod connection;
 mod dacpac;
 mod lexer;
 mod sql;
