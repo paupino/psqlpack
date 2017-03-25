@@ -12,8 +12,9 @@ use zip::{ZipArchive,ZipWriter};
 use zip::write::FileOptions;
 
 use ast::*;
-use errors::*;
 use connection::Connection;
+use errors::*;
+use graph::{DependencyGraph,Edge,Node,ValidationResult as DependencyGraphValidationResult};
 use lexer;
 use sql;
 
@@ -210,6 +211,16 @@ impl Dacpac {
         zip_collection!(zip, project, tables);
         zip_collection!(zip, project, types);
 
+        // Also, do the order if we have it defined
+        if project.order.is_some() {
+            ztry!(zip.start_file("order.json", FileOptions::default()));
+            let json = match serde_json::to_string_pretty(&project.order.unwrap()) {
+                Ok(j) => j,
+                Err(e) => return Err(DacpacErrorKind::GenerationError(format!("Failed to write DACPAC: {}", e)).into()),
+            };
+            ztry!(zip.write_all(json.as_bytes()));            
+        }
+
         ztry!(zip.finish());
 
         Ok(())
@@ -322,6 +333,7 @@ impl Dacpac {
         let mut scripts = Vec::new();
         let mut tables = Vec::new();
         let mut types = Vec::new();
+        let mut order = None;
 
         for i in 0..archive.len()
         {
@@ -341,6 +353,11 @@ impl Dacpac {
                 load_file!(TableDefinition, tables, file);
             } else if file.name().starts_with("types/") {
                 load_file!(TypeDefinition, types, file);
+            } else if file.name().eq("order.json") {
+                let mut contents = String::new();
+                file.read_to_string(&mut contents).unwrap();
+                let nodes : Vec<Node> = serde_json::from_str(&contents).unwrap();
+                order = Some(nodes);
             }
         }
 
@@ -351,6 +368,7 @@ impl Dacpac {
             scripts: scripts,
             tables: tables,
             types: types,
+            order: order,
         })
     }
 
@@ -374,6 +392,106 @@ impl Dacpac {
     }
 }
 
+trait GenerateDependencyGraph {
+    fn generate_dependencies(&self, graph:&mut DependencyGraph, parent:Option<String>) -> Node;
+}
+
+impl GenerateDependencyGraph for SchemaDefinition {
+    fn generate_dependencies(&self, graph:&mut DependencyGraph, _:Option<String>) -> Node {
+        // Schema has nothing that it is dependent on
+        // It will not have a parent
+        let node = Node::Schema(self.name.to_string());
+        graph.add_node(&node);
+        node
+    }
+}
+
+impl GenerateDependencyGraph for TableDefinition {
+    fn generate_dependencies(&self, graph:&mut DependencyGraph, _:Option<String>) -> Node {
+        // Table is dependent on a schema, so add the edge
+        // It will not have a parent - the schema is embedded in the name
+        let name = self.name.clone();
+        let full_name = self.name.to_string();
+        let table_node = Node::Table(full_name.clone());
+        graph.add_node_with_edges(&table_node, vec!(
+                Edge::new(&Node::Schema(name.schema.unwrap()), 1.0)
+            ));
+        for column in &self.columns {
+            // Column doesn't know that it's dependent on this table so add it here
+            let col_node = column.generate_dependencies(graph, Some(full_name.clone()));
+            graph.add_edge(&col_node, Edge::new(&table_node, 1.0));
+        }
+        match self.constraints {
+            Some(ref table_constaints) => {
+                for constraint in table_constaints {
+                    let table_constraint_node = constraint.generate_dependencies(graph, Some(full_name.clone()));
+                    graph.add_edge(&table_constraint_node, Edge::new(&table_node, 1.0));
+                }
+            },
+            None => {}
+        }
+        table_node
+    }
+}
+
+impl GenerateDependencyGraph for ColumnDefinition {
+    fn generate_dependencies(&self, graph:&mut DependencyGraph, parent:Option<String>) -> Node {
+        // Column does have a parent - namely the table
+        let column_node = Node::Column(format!("{}.{}", parent.unwrap(), self.name));
+        graph.add_node(&column_node);
+        column_node
+    }
+}
+
+impl GenerateDependencyGraph for FunctionDefinition {
+    fn generate_dependencies(&self, graph:&mut DependencyGraph, _:Option<String>) -> Node {
+        // Function is dependent on a schema, so add the edge
+        // It will not have a parent - the schema is embedded in the name
+        let name = self.name.clone();
+        let function_node = Node::Function(self.name.to_string());
+        graph.add_node_with_edges(&function_node, vec!(
+                Edge::new(&Node::Schema(name.schema.unwrap()), 1.0)
+            ));
+        function_node
+    }
+}
+
+impl GenerateDependencyGraph for TableConstraint {
+    fn generate_dependencies(&self, graph:&mut DependencyGraph, parent:Option<String>) -> Node {
+        // We currently have two types of table constraints: Primary and Foreign
+        // Primary is easy with a direct dependency to the column
+        // Foreign requires a weighted dependency
+        // This does have a parent - namely the table
+        let table = parent.unwrap();
+        match *self {
+            TableConstraint::Primary { ref name, ref columns, .. } => {
+                // Primary relies on the columns existing (of course)
+                let node = Node::Constraint(format!("{}.{}", table.clone(), name));
+                graph.add_node(&node);
+                for column in columns {
+                    graph.add_edge(&node, Edge::new(&Node::Column(format!("{}.{}", table.clone(), column)), 1.0));
+                }
+                node
+            },
+            TableConstraint::Foreign { ref name, ref columns, ref ref_table, ref ref_columns, .. } => {
+                // Foreign has two types of edges
+                let node = Node::Constraint(format!("{}.{}", table.clone(), name));
+                graph.add_node(&node);
+                for column in columns {
+                    graph.add_edge(&node, Edge::new(&Node::Column(format!("{}.{}", table.clone(), column)), 1.0));
+                }
+                for column in ref_columns {
+                    graph.add_edge(&node, Edge::new(
+                        &Node::Column(
+                            format!("{}.{}", ref_table.to_string(), column)
+                            ), 1.1));
+                }
+                node
+            },
+        }
+    }
+}
+
 #[derive(Deserialize)]
 struct ProjectConfig {
     version: String,
@@ -392,6 +510,7 @@ struct Project {
     scripts: Vec<ScriptDefinition>,
     tables: Vec<TableDefinition>,
     types: Vec<TypeDefinition>,
+    order: Option<Vec<Node>>,
 }
 
 impl Project {
@@ -404,6 +523,7 @@ impl Project {
             scripts: Vec::new(),
             tables: Vec::new(),
             types: Vec::new(),
+            order: None,
         }
     }
 
@@ -464,10 +584,30 @@ impl Project {
 
     fn generate_dependency_graph(&mut self) -> DacpacResult<()> {
 
-        // The general idea is that we go through each object and add it as a node as well as direct dependencies.
-        // This is a simple graph to begin with - from which I build a dependency graph with ordering.
-        // Please note, that schema is relevant when naming however schema is still a dependency.
+        let mut graph = DependencyGraph::new();
+        
+        // Go through and add each object and add it to the graph
+        // Extensions and types are always implied 
+        for schema in &self.schemas {
+            schema.generate_dependencies(&mut graph, None);
+        }
+        for table in &self.tables {
+            table.generate_dependencies(&mut graph, None);
+        }
+        for function in &self.functions {
+            function.generate_dependencies(&mut graph, None);
+        }
 
+        // Make sure it's valid first up
+        match graph.validate() {
+            DependencyGraphValidationResult::Valid => {},
+            DependencyGraphValidationResult::CircularReference => return Err(DacpacErrorKind::GenerationError("Circular reference detected".to_owned()).into()),
+            // TODO: List out unresolved references
+            DependencyGraphValidationResult::UnresolvedDependencies => return Err(DacpacErrorKind::GenerationError("Unresolved dependencies detected".to_owned()).into()),
+        }
+
+        // Then generate the order
+        self.order = Some(graph.topological_graph());
         Ok(())
     }
 

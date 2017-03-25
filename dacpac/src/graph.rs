@@ -1,13 +1,13 @@
 use std::cmp::Ordering;
 use std::collections::{HashMap,HashSet};
 
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 pub enum Node {
-    Schema(String),
-    Table(String),
     Column(String),
     Constraint(String),
     Function(String),
+    Schema(String),
+    Table(String),
 }
 
 #[derive(Clone, Debug)]
@@ -184,6 +184,7 @@ impl DependencyGraph {
         let mut weighted_graph : Vec<(Node, f32)> = table.into_iter().collect();;
         weighted_graph.sort_by(|a,b| { 
             let c = (b.1 - a.1).abs();
+            // Using an epsilon for equality
             if c <= 0.00000000000001 {
                 a.0.cmp(&b.0)
             } else if b.1 < a.1 {
@@ -337,7 +338,7 @@ fn it_generates_a_topological_graph() {
     let column_versions_id = Node::Column("data.versions.id".to_owned());
     let column_coefficients_id = Node::Column("data.coefficients.id".to_owned());
     let column_coefficients_version_id = Node::Column("data.coefficients.version_id".to_owned());
-    let constraint_coefficients_version_id = Node::Constraint("fk_coefficients__version_id".to_owned());
+    let constraint_coefficients_version_id = Node::Constraint("data.coefficients.fk_coefficients__version_id".to_owned());
 
     // Note: We do this in an unordered way purposely
 
