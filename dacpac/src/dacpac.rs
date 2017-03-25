@@ -462,7 +462,7 @@ impl Project {
         }
     }
 
-    fn generate_dependency_graph(&mut self) -> Result<(), Vec<DacpacError>> {
+    fn generate_dependency_graph(&mut self) -> DacpacResult<()> {
 
         // The general idea is that we go through each object and add it as a node as well as direct dependencies.
         // This is a simple graph to begin with - from which I build a dependency graph with ordering.
