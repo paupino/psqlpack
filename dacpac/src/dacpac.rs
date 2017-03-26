@@ -396,26 +396,13 @@ trait GenerateDependencyGraph {
     fn generate_dependencies(&self, graph:&mut DependencyGraph, parent:Option<String>) -> Node;
 }
 
-impl GenerateDependencyGraph for SchemaDefinition {
-    fn generate_dependencies(&self, graph:&mut DependencyGraph, _:Option<String>) -> Node {
-        // Schema has nothing that it is dependent on
-        // It will not have a parent
-        let node = Node::Schema(self.name.to_string());
-        graph.add_node(&node);
-        node
-    }
-}
-
 impl GenerateDependencyGraph for TableDefinition {
     fn generate_dependencies(&self, graph:&mut DependencyGraph, _:Option<String>) -> Node {
         // Table is dependent on a schema, so add the edge
         // It will not have a parent - the schema is embedded in the name
-        let name = self.name.clone();
         let full_name = self.name.to_string();
         let table_node = Node::Table(full_name.clone());
-        graph.add_node_with_edges(&table_node, vec!(
-                Edge::new(&Node::Schema(name.schema.unwrap()), 1.0)
-            ));
+        graph.add_node(&table_node);
         for column in &self.columns {
             // Column doesn't know that it's dependent on this table so add it here
             let col_node = column.generate_dependencies(graph, Some(full_name.clone()));
@@ -449,9 +436,7 @@ impl GenerateDependencyGraph for FunctionDefinition {
         // It will not have a parent - the schema is embedded in the name
         let name = self.name.clone();
         let function_node = Node::Function(self.name.to_string());
-        graph.add_node_with_edges(&function_node, vec!(
-                Edge::new(&Node::Schema(name.schema.unwrap()), 1.0)
-            ));
+        graph.add_node(&function_node);
         function_node
     }
 }
@@ -587,10 +572,7 @@ impl Project {
         let mut graph = DependencyGraph::new();
         
         // Go through and add each object and add it to the graph
-        // Extensions and types are always implied 
-        for schema in &self.schemas {
-            schema.generate_dependencies(&mut graph, None);
-        }
+        // Extensions, schemas and types are always implied 
         for table in &self.tables {
             table.generate_dependencies(&mut graph, None);
         }
@@ -607,7 +589,9 @@ impl Project {
         }
 
         // Then generate the order
-        self.order = Some(graph.topological_graph());
+        let order = graph.topological_graph();
+        // Should we also add schema etc in there? Not really necessary...
+        self.order = Some(order);
         Ok(())
     }
 
