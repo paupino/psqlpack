@@ -218,7 +218,7 @@ impl Dacpac {
                 Ok(j) => j,
                 Err(e) => return Err(DacpacErrorKind::GenerationError(format!("Failed to write DACPAC: {}", e)).into()),
             };
-            ztry!(zip.write_all(json.as_bytes()));            
+            ztry!(zip.write_all(json.as_bytes()));
         }
 
         ztry!(zip.finish());
@@ -570,9 +570,9 @@ impl Project {
     fn generate_dependency_graph(&mut self) -> DacpacResult<()> {
 
         let mut graph = DependencyGraph::new();
-        
+
         // Go through and add each object and add it to the graph
-        // Extensions, schemas and types are always implied 
+        // Extensions, schemas and types are always implied
         for table in &self.tables {
             table.generate_dependencies(&mut graph, None);
         }
@@ -589,7 +589,7 @@ impl Project {
         }
 
         // Then generate the order
-        let order = graph.topological_graph();
+        let order = graph.topological_sort();
         // Should we also add schema etc in there? Not really necessary...
         self.order = Some(order);
         Ok(())

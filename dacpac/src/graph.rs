@@ -36,81 +36,6 @@ pub enum ValidationResult {
     CircularReference
 }
 
-struct DepthFirstSearchState {
-    pre : Vec<usize>, // fixed size array
-    post : Vec<usize>, // fixed size array
-    pre_order: Vec<usize>, // queue
-    post_order: Vec<usize>, // queue
-    marked: Vec<bool>, // fixed size array
-    pre_counter: usize, // Tracks current position in pre
-    post_counter: usize,  // Tracks current position in post
-}
-
-impl DepthFirstSearchState {
-    fn new(size: usize) -> Self {
-        DepthFirstSearchState {
-            pre : DepthFirstSearchState::fixed_len::<usize>(size, 0),
-            post : DepthFirstSearchState::fixed_len::<usize>(size, 0),
-            pre_order : Vec::new(),
-            post_order : Vec::new(),
-            marked : DepthFirstSearchState::fixed_len::<bool>(size, false),
-            pre_counter : 0,
-            post_counter : 0,
-        }
-    }
-
-    fn fixed_len<T>(size: usize, def: T) -> Vec<T> where T: Copy {
-        let mut zero_vec: Vec<T> = Vec::with_capacity(size);
-        for _ in 0..size {
-            zero_vec.push(def);
-        }
-        zero_vec
-    }
-
-    fn update_pre_order(&mut self, v: usize) {
-        self.pre[v] = self.pre_counter;
-        self.pre_counter = self.pre_counter + 1;
-        self.pre_order.push(v);
-    }
-
-    fn update_post_order(&mut self, v: usize) {
-        self.post_order.push(v);
-        self.post[v] = self.post_counter;
-        self.post_counter = self.post_counter + 1;
-    }
-
-    // check that preorder and postorder are consistent with pre[v] and post[v]
-    fn validate(&self) -> bool {
-
-        // Has everything been visited?
-        for m in &self.marked {
-            if !m {
-                return false;
-            }
-        }
-
-        // check that post[v] is consistent with post_order
-        let mut r = 0;
-        for v in self.post_order.iter() {
-            if self.post[*v] != r {
-                return false;
-            }
-            r = r + 1;
-        }
-
-        // check that pre[v] is consistent with pre_order
-        r = 0;
-        for v in self.pre_order.iter() {
-            if self.pre[*v] != r {
-                return false;
-            }
-            r = r + 1;
-        }
-
-        true
-    }    
-}
-
 /*
  * Our dependency graph is edge weighted. This is a multiplier and bubbled up.
  * e.g. assume we have a FK constaint. This will weight the reference column over
@@ -158,7 +83,7 @@ impl DependencyGraph {
     pub fn validate(&self) -> ValidationResult {
         if !self.unresolved.is_empty() {
             return ValidationResult::UnresolvedDependencies;
-        } 
+        }
 
         // Check for circular references. It's only circular if the root edge is seen twice.
         for node in self.edges.keys() {
@@ -183,19 +108,19 @@ impl DependencyGraph {
             }
         }
         false
-    }    
+    }
 
     pub fn unresolved(&self) -> Vec<Node> {
         self.unresolved.iter().map(|x| x.clone()).collect()
     }
 
-    // TODO: Does not work for what I need, relies on reverse dependents
-    pub fn topological_graph(&self) -> Vec<Node> {
-        // Create a graph vec to track state for directed acyclic graph
-        // First, we need to sort it according it edge weight
-        // The order is relevant for the DFS algorithm!
+    pub fn topological_sort(&self) -> Vec<Node> {
+
+        // The general idea here is that we're ordering the nodes first up in weighted order
+        // We then loop through and remove any without dependencies and put them into a new ordered list
+        // Because of weighting, those with most importance will go first.
         let mut table = HashMap::new();
-        // Set up the hash map first 
+        // Set up the hash map first
         for node in self.edges.keys() {
             table.insert(node.clone(), 1.0);
         }
@@ -205,7 +130,7 @@ impl DependencyGraph {
         }
 
         let mut weighted_graph : Vec<(Node, f32)> = table.into_iter().collect();;
-        weighted_graph.sort_by(|a,b| { 
+        weighted_graph.sort_by(|a,b| {
             let c = (b.1 - a.1).abs();
             // Using an epsilon for equality
             if c <= 0.00000000000001 {
@@ -219,44 +144,32 @@ impl DependencyGraph {
         for item in &weighted_graph {
             println!("{:?} {}", item.0, item.1);
         }
-        let graph : Vec<Node> = weighted_graph.iter().map(|k| k.0.clone()).collect();
 
-        // Create the state
-        let mut state = DepthFirstSearchState::new(graph.len());
-
-        // Do a DFS and compute preorder/postorder
-        for v in 0..graph.len() {
-            if !state.marked[v] {
-                self.dfs(&graph, v, &mut state);
-            }
-        }
-
-        if !state.validate() {
-            panic!("Directed Acyclic Graph in invalid state");
-        }
-
-        // Finally, reverse the post order to build the topological graph
-        let mut result = Vec::new();
-        for v in state.post_order {
-            result.push(graph[v].clone());
-        }
-        result
-    }
-
-    fn dfs(&self, graph: &Vec<Node>, v: usize, state: &mut DepthFirstSearchState) {
-        state.marked[v] = true;
-        state.update_pre_order(v);
-        if let Some(edges) = self.edges.get(&graph[v]) {
-            for edge in edges {
-                // Look up location in graph
-                if let Ok(w) = graph.binary_search(&edge.node) {
-                    if !state.marked[w] {
-                        self.dfs(graph, w, state);
+        // Now go through and build my new ordered graph.
+        // Pretty inefficient - perhaps we can optimize this in the future
+        let mut ordered = Vec::new();
+        while !weighted_graph.is_empty() {
+            for &(ref node, ..) in &weighted_graph {
+                if let Some(edges) = self.edges.get(&node) {
+                    if edges.is_empty() {
+                        ordered.push(node.clone());
+                    } else {
+                        let mut edgeless = true;
+                        for e in edges {
+                            if !ordered.contains(&e.node) {
+                                edgeless = false;
+                                break;
+                            }
+                        }
+                        if edgeless {
+                            ordered.push(node.clone());
+                        }
                     }
                 }
             }
+            weighted_graph.retain(|ref x| !ordered.contains(&x.0));
         }
-        state.update_post_order(v);
+        ordered
     }
 
     fn calculate_weight(&self, table: &mut HashMap<Node,f32>, current_node: &Node, weight: f32) {
@@ -289,7 +202,7 @@ fn it_panics_if_adding_a_dependency_to_a_node_that_doesnt_exist() {
     let table_org = Node::Table("public.org".to_owned());
     let col_id = Node::Column("public.org.id".to_owned());
     graph.add_node(&table_org);
-    graph.add_edge(&col_id, Edge::new(&table_org, 1.0));    
+    graph.add_edge(&col_id, Edge::new(&table_org, 1.0));
 }
 
 #[test]
@@ -330,16 +243,16 @@ fn it_detects_circular_dependencies() {
 }
 
 #[test]
-fn it_generates_a_topological_graph() {
+fn it_can_output_a_topological_sort() {
     let mut graph = DependencyGraph::new();
     // This is a more complex test. It represents the following structures:
     //    CREATE TABLE data.versions(
     //        id serial NOT NULL
     //    );
     //    CREATE TABLE data.coefficients(
-    //        id serial NOT NULL, 
+    //        id serial NOT NULL,
     //        version_id int NOT NULL,
-    //        CONSTRAINT fk_coefficients__version_id FOREIGN KEY (version_id) 
+    //        CONSTRAINT fk_coefficients__version_id FOREIGN KEY (version_id)
     //          REFERENCES data.versions (id) MATCH SIMPLE
     //          ON UPDATE NO ACTION ON DELETE NO ACTION
     //    );
@@ -357,10 +270,10 @@ fn it_generates_a_topological_graph() {
     // Add each column for this table, each column needs the table to exist
     graph.add_node_with_edges(&column_coefficients_id, vec!(
         Edge::new(&table_coefficients, 1.0)
-        )); 
+        ));
     graph.add_node_with_edges(&column_coefficients_version_id, vec!(
         Edge::new(&table_coefficients, 1.0)
-        )); 
+        ));
     // Add constraint - the constraint needs the columns created
     graph.add_node_with_edges(&constraint_coefficients_version_id, vec!(
         Edge::new(&column_coefficients_version_id, 1.0), // FK
@@ -378,15 +291,15 @@ fn it_generates_a_topological_graph() {
     assert_eq!(ValidationResult::Valid, graph.validate());
 
     // Now, order it.
-    let ordered = graph.topological_graph();
+    let ordered = graph.topological_sort();
 
-    //TODO: Need to make this edge weighted as a constraint on a table defines that the other table has to exist first 
+    //TODO: Need to make this edge weighted as a constraint on a table defines that the other table has to exist first
     // (i.e. versions before coefficient)
     // The expected order:
     let expected = [
         table_versions, // Versions must be first as coefficients has a constraint against it
-        column_versions_id,
         table_coefficients,
+        column_versions_id,
         column_coefficients_id,
         column_coefficients_version_id,
         constraint_coefficients_version_id,
