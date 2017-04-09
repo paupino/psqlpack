@@ -184,7 +184,7 @@ impl Dacpac {
             return Err(DacpacErrorKind::MultipleErrors(errors).into());
         }
 
-        // Update any missing faults, create a dependency graph and then try to validate the project
+        // Update any missing defaults, create a dependency graph and then try to validate the project
         project.set_defaults(&project_config);
         try!(project.generate_dependency_graph());
         try!(project.validate());
