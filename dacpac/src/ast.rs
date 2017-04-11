@@ -113,7 +113,7 @@ pub struct TableDefinition {
     pub constraints: Option<Vec<TableConstraint>>,
 }
 
-#[derive(Serialize,Deserialize)]
+#[derive(Clone,Serialize,Deserialize)]
 pub struct ObjectName {
     pub schema: Option<String>,
     pub name: String,

@@ -17,6 +17,7 @@ mod ast;
 mod errors;
 mod connection;
 mod dacpac;
+mod graph;
 mod lexer;
 mod sql;
 
