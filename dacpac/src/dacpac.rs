@@ -60,7 +60,9 @@ macro_rules! zip_collection {
     }};
 }
 
-static Q_DATABASE_EXISTS : &'static str = "SELECT 1 from pg_database WHERE datname=$1;";
+static Q_DATABASE_EXISTS : &'static str = "SELECT 1 FROM pg_database WHERE datname=$1;";
+static Q_EXTENSION_EXISTS : &'static str = "SELECT 1 FROM pg_catalog.pg_extension WHERE extname=$1;";
+// Schemas: information_schema.schemata 
 static Q_TABLE_EXISTS : &'static str = "SELECT 1
                                         FROM pg_catalog.pg_class c
                                         JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
@@ -699,8 +701,15 @@ impl Project {
             for item in &build_order {
                 match *item {
                     DbObject::Extension(ref extension) => {
-                        // TODO: Only add if it does not exist
-                        //changeset.push(ChangeInstruction::AddExtension(extension));
+                        // Only add the extension if it does not already exist
+                        let mut extension_exists = false;
+                        for _ in &conn.query(Q_EXTENSION_EXISTS, &[ &extension.name ]).unwrap() {
+                            extension_exists = true;
+                            break;
+                        }
+                        if !extension_exists {
+                            changeset.push(ChangeInstruction::AddExtension(extension));  
+                        }
                     },
                     DbObject::Function(ref function) => {
                         // TODO: Figure out if it exists and drop if necessary
