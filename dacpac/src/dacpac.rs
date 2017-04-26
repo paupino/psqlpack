@@ -667,6 +667,13 @@ impl Project {
             panic!("Internal state error: order was not generated");
         }
 
+        // Add in post deployment scripts
+        for script in &self.scripts {
+            if script.kind == ScriptKind::PostDeployment {
+                build_order.push(DbObject::Script(script));
+            }
+        }
+
         // First up, detect if there is no database (or it needs to be recreated)
         // If so, we assume everything is new
         let db_conn = dbtry!(connection.connect_host());
