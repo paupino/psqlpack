@@ -688,27 +688,48 @@ impl Project {
             // Connect to the database
             let conn = dbtry!(connection.connect_database());
 
-            // Go through each table
-            for table in &self.tables {
-                let mut table_exists = false;
-                for _ in &conn.query(Q_TABLE_EXISTS, &[ &table.name.schema, &table.name.name ]).unwrap() {
-                    table_exists = true;
-                    break;
-                }
-                if table_exists {
-                    // Check the columns
-                    for _ in &conn.query(Q_DESCRIBE_COLUMNS, &[ &table.name.schema, &table.name.name ]).unwrap() {
-                        //let column_name : String = column.get(1);
-                    }
+            // Go through each item in order and figure out what to do with it
+            for item in &build_order {
+                match *item {
+                    DbObject::Extension(ref extension) => {
+                        changeset.push(ChangeInstruction::AddExtension(extension));
+                    },
+                    DbObject::Function(ref function) => {
+                        // TODO: Figure out if it exists and drop if necessary
+                    },
+                    DbObject::Schema(ref schema) => {
+                        // TODO: Figure out if it exists and drop if necessary
+                    },
+                    DbObject::Script(ref script) => {
+                        changeset.push(ChangeInstruction::RunScript(script));
+                    },
+                    DbObject::Table(ref table) => {
+                        let mut table_exists = false;
+                        for _ in &conn.query(Q_TABLE_EXISTS, &[ &table.name.schema, &table.name.name ]).unwrap() {
+                            table_exists = true;
+                            break;
+                        }
+                        if table_exists {
+                            // Check the columns
+                            for _ in &conn.query(Q_DESCRIBE_COLUMNS, &[ &table.name.schema, &table.name.name ]).unwrap() {
+                                //let column_name : String = column.get(1);
+                            }
 
-                    // Check the constraints
-                } else {
-                    changeset.push(ChangeInstruction::AddTable(table));
+                            // Check the constraints
+                        } else {
+                            changeset.push(ChangeInstruction::AddTable(table));
+                        }
+                    },
+                    DbObject::Type(ref t) => {
+                        // TODO: Figure out if it exists and drop if necessary
+                    }
                 }
             }
         } else {
             changeset.push(ChangeInstruction::CreateDatabase(connection.database().to_owned()));
             changeset.push(ChangeInstruction::UseDatabase(connection.database().to_owned()));
+
+            // Since this is a new database add everything (in order)
             for item in &build_order {
                 match *item {
                     DbObject::Extension(ref extension) => {
