@@ -347,7 +347,7 @@ impl Dacpac {
                 load_file!(FunctionDefinition, functions, file);
             } else if file.name().starts_with("schemas/") {
                 load_file!(SchemaDefinition, schemas, file);
-            } else if file.name().starts_with("schemas/") {
+            } else if file.name().starts_with("scripts/") {
                 load_file!(ScriptDefinition, scripts, file);
             } else if file.name().starts_with("tables/") {
                 load_file!(TableDefinition, tables, file);
