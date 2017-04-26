@@ -699,7 +699,8 @@ impl Project {
             for item in &build_order {
                 match *item {
                     DbObject::Extension(ref extension) => {
-                        changeset.push(ChangeInstruction::AddExtension(extension));
+                        // TODO: Only add if it does not exist
+                        //changeset.push(ChangeInstruction::AddExtension(extension));
                     },
                     DbObject::Function(ref function) => {
                         // TODO: Figure out if it exists and drop if necessary
@@ -824,6 +825,11 @@ impl<'input> ChangeInstruction<'input> {
                 format!("/c {}", db)
             },
 
+            // Extension level
+            ChangeInstruction::AddExtension(ref ext) => {
+                format!("CREATE EXTENSION {}", ext.name)
+            },
+
             // Table level
             ChangeInstruction::AddTable(def) => {
                 let mut instr = String::new();
@@ -901,7 +907,17 @@ impl<'input> ChangeInstruction<'input> {
                 }
                 instr.push_str("\n)");
                 instr
+            },
+
+            // Raw scripts
+            ChangeInstruction::RunScript(script) => {
+                let mut instr = String::new();
+                instr.push_str(&format!("/* {} */\n", script.name)[..]);
+                instr.push_str(&script.contents[..]);
+                instr.push('\n');
+                instr
             }
+
             _ => {
                 "TODO".to_owned()
             }
