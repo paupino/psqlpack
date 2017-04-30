@@ -63,6 +63,7 @@ macro_rules! zip_collection {
 static Q_DATABASE_EXISTS : &'static str = "SELECT 1 FROM pg_database WHERE datname=$1;";
 static Q_EXTENSION_EXISTS : &'static str = "SELECT 1 FROM pg_catalog.pg_extension WHERE extname=$1;";
 static Q_SCHEMA_EXISTS : &'static str = "SELECT 1 FROM information_schema.schemata WHERE schema_name=$1;";
+static Q_TYPE_EXISTS : &'static str = "SELECT 1 FROM pg_catalog.pg_type where typcategory <> 'A' AND typname=$1;";
 static Q_TABLE_EXISTS : &'static str = "SELECT 1
                                         FROM pg_catalog.pg_class c
                                         JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
@@ -749,7 +750,16 @@ impl Project {
                         }
                     },
                     DbObject::Type(ref t) => {
-                        // TODO: Figure out if it exists and drop if necessary
+                        let mut type_exists = false;
+                        for _ in &conn.query(Q_TYPE_EXISTS, &[ &t.name ]).unwrap() {
+                            type_exists = true;
+                            break;
+                        }
+                        if type_exists {
+                            // TODO: How do you modify a type?
+                        } else {
+                            changeset.push(ChangeInstruction::AddType(t));
+                        }
                     }
                 }
             }
@@ -853,6 +863,31 @@ impl<'input> ChangeInstruction<'input> {
             // Schema level
             ChangeInstruction::AddSchema(ref schema) => {
                 format!("CREATE SCHEMA {}", schema.name)
+            },
+
+            // Type level
+            ChangeInstruction::AddType(ref t) => {
+                let mut def = String::new();
+                def.push_str(&format!("CREATE TYPE {} AS ", t.name)[..]);
+                match t.kind {
+                    TypeDefinitionKind::Alias(ref sql_type) => {
+                        def.push_str(&sql_type.to_string()[..]);
+                    },
+                    TypeDefinitionKind::Enum(ref values) => {
+                        def.push_str("ENUM (\n");
+                        let mut enum_comma_required = false;
+                        for value in values {
+                            if enum_comma_required {
+                                def.push_str(",\n");
+                            } else {
+                                enum_comma_required = true;
+                            }
+                            def.push_str(&format!("  '{}'", value)[..]);
+                        }
+                        def.push_str("\n)");
+                    }
+                }
+                def
             },
 
             // Function level
