@@ -712,7 +712,10 @@ impl Project {
                         }
                     },
                     DbObject::Function(ref function) => {
-                        // TODO: Figure out if it exists and drop if necessary
+                        // Since we don't really need to worry about this in PG we just 
+                        // add it as is and rely on CREATE OR REPLACE. In the future, it'd
+                        // be good to check the hash or something to only do this when required
+                        changeset.push(ChangeInstruction::ModifyFunction(function));
                     },
                     DbObject::Schema(ref schema) => {
                         // Only add schema's, we do not drop them at this point
@@ -850,6 +853,47 @@ impl<'input> ChangeInstruction<'input> {
             // Schema level
             ChangeInstruction::AddSchema(ref schema) => {
                 format!("CREATE SCHEMA {}", schema.name)
+            },
+
+            // Function level
+            ChangeInstruction::AddFunction(ref function) | ChangeInstruction::ModifyFunction(ref function) => {
+                let mut func = String::new();
+                func.push_str(&format!("CREATE OR REPLACE {} (", function.name)[..]);
+                let mut arg_comma_required = false;
+                for arg in &function.arguments {
+                    if arg_comma_required {
+                        func.push_str(", ");
+                    } else {
+                        arg_comma_required = true;
+                    }
+
+                    func.push_str(&format!("{} {}", arg.name, arg.sql_type)[..]);
+                }
+                func.push_str(")\n");
+                func.push_str("RETURNS ");
+                match function.return_type {
+                    FunctionReturnType::Table(ref columns) => {
+                        func.push_str("TABLE (\n");
+                        for column in columns {
+                            func.push_str(&format!("  {} {},\n", column.name, column.sql_type)[..]);
+                        }
+                        func.push_str(")\n");
+                    },
+                    FunctionReturnType::SqlType(ref sql_type) => {
+                        func.push_str(&format!("{} ", sql_type)[..]);
+                    }
+                }
+                func.push_str("AS $$");
+                func.push_str(&function.body[..]);
+                func.push_str("$$\n");
+                func.push_str("LANGUAGE ");
+                match function.language {
+                    FunctionLanguage::C => func.push_str("C"),
+                    FunctionLanguage::Internal => func.push_str("INTERNAL"),
+                    FunctionLanguage::PostgreSQL => func.push_str("PGSQL"),
+                    FunctionLanguage::SQL => func.push_str("SQL")
+                }
+                func
             },
 
             // Table level
