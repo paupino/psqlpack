@@ -842,7 +842,7 @@ impl<'input> ChangeInstruction<'input> {
                 format!("DROP DATABASE {}", db)
             },
             ChangeInstruction::UseDatabase(ref db) => {
-                format!("/c {}", db)
+                format!("-- Using database `{}`", db)
             },
 
             // Extension level
@@ -858,7 +858,7 @@ impl<'input> ChangeInstruction<'input> {
             // Function level
             ChangeInstruction::AddFunction(ref function) | ChangeInstruction::ModifyFunction(ref function) => {
                 let mut func = String::new();
-                func.push_str(&format!("CREATE OR REPLACE {} (", function.name)[..]);
+                func.push_str(&format!("CREATE OR REPLACE FUNCTION {} (", function.name)[..]);
                 let mut arg_comma_required = false;
                 for arg in &function.arguments {
                     if arg_comma_required {
@@ -874,10 +874,16 @@ impl<'input> ChangeInstruction<'input> {
                 match function.return_type {
                     FunctionReturnType::Table(ref columns) => {
                         func.push_str("TABLE (\n");
+                        let mut column_comma_required = false;
                         for column in columns {
-                            func.push_str(&format!("  {} {},\n", column.name, column.sql_type)[..]);
+                            if column_comma_required {
+                                func.push_str(",\n");
+                            } else {
+                                column_comma_required = true;
+                            }
+                            func.push_str(&format!("  {} {}", column.name, column.sql_type)[..]);
                         }
-                        func.push_str(")\n");
+                        func.push_str("\n)\n");
                     },
                     FunctionReturnType::SqlType(ref sql_type) => {
                         func.push_str(&format!("{} ", sql_type)[..]);
