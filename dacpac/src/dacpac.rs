@@ -756,7 +756,7 @@ impl Project {
                             break;
                         }
                         if type_exists {
-                            // TODO: How do you modify a type?
+                            // TODO: Need to figure out if it's changed and also perhaps how it's changed. I don't think a blanket modify is enough.
                         } else {
                             changeset.push(ChangeInstruction::AddType(t));
                         }
@@ -1019,7 +1019,7 @@ impl<'input> ChangeInstruction<'input> {
             // Raw scripts
             ChangeInstruction::RunScript(script) => {
                 let mut instr = String::new();
-                instr.push_str(&format!("/* {} */\n", script.name)[..]);
+                instr.push_str(&format!("-- Script: {}\n", script.name)[..]);
                 instr.push_str(&script.contents[..]);
                 instr.push('\n');
                 instr
