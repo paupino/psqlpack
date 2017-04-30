@@ -62,7 +62,7 @@ macro_rules! zip_collection {
 
 static Q_DATABASE_EXISTS : &'static str = "SELECT 1 FROM pg_database WHERE datname=$1;";
 static Q_EXTENSION_EXISTS : &'static str = "SELECT 1 FROM pg_catalog.pg_extension WHERE extname=$1;";
-// Schemas: information_schema.schemata 
+static Q_SCHEMA_EXISTS : &'static str = "SELECT 1 FROM information_schema.schemata WHERE schema_name=$1;";
 static Q_TABLE_EXISTS : &'static str = "SELECT 1
                                         FROM pg_catalog.pg_class c
                                         JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
@@ -715,7 +715,15 @@ impl Project {
                         // TODO: Figure out if it exists and drop if necessary
                     },
                     DbObject::Schema(ref schema) => {
-                        // TODO: Figure out if it exists and drop if necessary
+                        // Only add schema's, we do not drop them at this point
+                        let mut schema_exists = false;
+                        for _ in &conn.query(Q_SCHEMA_EXISTS, &[ &schema.name ]).unwrap() {
+                            schema_exists = true;
+                            break;
+                        }
+                        if !schema_exists {
+                            changeset.push(ChangeInstruction::AddSchema(schema));  
+                        }
                     },
                     DbObject::Script(ref script) => {
                         changeset.push(ChangeInstruction::RunScript(script));
@@ -795,7 +803,7 @@ enum ChangeInstruction<'input> {
 
     // Schema
     AddSchema(&'input SchemaDefinition),
-    RemoveSchema(String),
+    //RemoveSchema(String),
 
     // Scripts 
     RunScript(&'input ScriptDefinition),
@@ -837,6 +845,11 @@ impl<'input> ChangeInstruction<'input> {
             // Extension level
             ChangeInstruction::AddExtension(ref ext) => {
                 format!("CREATE EXTENSION {}", ext.name)
+            },
+
+            // Schema level
+            ChangeInstruction::AddSchema(ref schema) => {
+                format!("CREATE SCHEMA {}", schema.name)
             },
 
             // Table level
