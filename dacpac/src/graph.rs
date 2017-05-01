@@ -141,9 +141,6 @@ impl DependencyGraph {
                 Ordering::Greater
             }
         });
-        for item in &weighted_graph {
-            println!("{:?} {}", item.0, item.1);
-        }
 
         // Now go through and build my new ordered graph.
         // Pretty inefficient - perhaps we can optimize this in the future

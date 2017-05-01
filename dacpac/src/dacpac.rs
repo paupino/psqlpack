@@ -60,7 +60,9 @@ macro_rules! zip_collection {
     }};
 }
 
-static Q_DATABASE_EXISTS : &'static str = "SELECT 1 from pg_database WHERE datname=$1;";
+static Q_DATABASE_EXISTS : &'static str = "SELECT 1 FROM pg_database WHERE datname=$1;";
+static Q_EXTENSION_EXISTS : &'static str = "SELECT 1 FROM pg_catalog.pg_extension WHERE extname=$1;";
+// Schemas: information_schema.schemata 
 static Q_TABLE_EXISTS : &'static str = "SELECT 1
                                         FROM pg_catalog.pg_class c
                                         JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
@@ -191,8 +193,8 @@ impl Dacpac {
 
         // Now generate the dacpac
         let output_path = Path::new(&output_file[..]);
-        if output_path.parent().is_some() {
-            match fs::create_dir_all(format!("{}", output_path.parent().unwrap().display())) {
+        if let Some(parent) = output_path.parent() {
+            match fs::create_dir_all(format!("{}", parent.display())) {
                 Ok(_) => {},
                 Err(e) => return Err(DacpacErrorKind::GenerationError(format!("Failed to create DACPAC directory: {}", e)).into()),
             }
@@ -212,9 +214,9 @@ impl Dacpac {
         zip_collection!(zip, project, types);
 
         // Also, do the order if we have it defined
-        if project.order.is_some() {
+        if let Some(order) = project.order {
             ztry!(zip.start_file("order.json", FileOptions::default()));
-            let json = match serde_json::to_string_pretty(&project.order.unwrap()) {
+            let json = match serde_json::to_string_pretty(&order) {
                 Ok(j) => j,
                 Err(e) => return Err(DacpacErrorKind::GenerationError(format!("Failed to write DACPAC: {}", e)).into()),
             };
@@ -347,7 +349,7 @@ impl Dacpac {
                 load_file!(FunctionDefinition, functions, file);
             } else if file.name().starts_with("schemas/") {
                 load_file!(SchemaDefinition, schemas, file);
-            } else if file.name().starts_with("schemas/") {
+            } else if file.name().starts_with("scripts/") {
                 load_file!(ScriptDefinition, scripts, file);
             } else if file.name().starts_with("tables/") {
                 load_file!(TableDefinition, tables, file);
@@ -488,6 +490,15 @@ struct ProjectConfig {
     post_deploy_scripts: Vec<String>,
 }
 
+enum DbObject<'a> {
+    Extension(&'a ExtensionDefinition), // 2
+    Function(&'a FunctionDefinition), // 6 (ordered)
+    Schema(&'a SchemaDefinition), // 3
+    Script(&'a ScriptDefinition), // 1, 7
+    Table(&'a TableDefinition), // 5 (ordered)
+    Type(&'a TypeDefinition), // 4
+}
+
 struct Project {
     extensions: Vec<ExtensionDefinition>,
     functions: Vec<FunctionDefinition>,
@@ -606,6 +617,65 @@ impl Project {
         // Start the changeset
         let mut changeset = Vec::new();
 
+        // Create the build order - including all document types outside the topological sort.
+        let mut build_order = Vec::new();
+
+        // Pre deployment scripts
+        for script in &self.scripts {
+            if script.kind == ScriptKind::PreDeployment {
+                build_order.push(DbObject::Script(script));
+            }
+        }
+
+        // Extensions
+        for extension in &self.extensions {
+            build_order.push(DbObject::Extension(extension));
+        }
+
+        // Schemas
+        for schema in &self.schemas {
+            build_order.push(DbObject::Schema(schema));
+        }
+
+        // Types
+        for t in &self.types {
+            build_order.push(DbObject::Type(t));
+        }
+
+        // Now add everything else per the topological sort
+        if let Some(ref ordered_items) = self.order {
+            for item in ordered_items {
+                // Not the most efficient algorithm, perhaps something to cleanup
+                match *item {
+                    Node::Column(_) => { /* Necessary for ordering however unused here for now */ },
+                    Node::Constraint(_) => { /* Necessary for ordering however unused here for now */ },
+                    Node::Function(ref name) => {
+                        if let Some(function) = self.functions.iter().find(|x| x.name.to_string() == *name) {
+                            build_order.push(DbObject::Function(function));
+                        } else {
+                            // Warning?
+                        }
+                    },
+                    Node::Table(ref name) => {
+                        if let Some(table) = self.tables.iter().find(|x| x.name.to_string() == *name) {
+                            build_order.push(DbObject::Table(table));
+                        } else {
+                            // Warning?
+                        }
+                    },
+                }
+            }
+        } else {
+            panic!("Internal state error: order was not generated");
+        }
+
+        // Add in post deployment scripts
+        for script in &self.scripts {
+            if script.kind == ScriptKind::PostDeployment {
+                build_order.push(DbObject::Script(script));
+            }
+        }
+
         // First up, detect if there is no database (or it needs to be recreated)
         // If so, we assume everything is new
         let db_conn = dbtry!(connection.connect_host());
@@ -627,29 +697,77 @@ impl Project {
             // Connect to the database
             let conn = dbtry!(connection.connect_database());
 
-            // Go through each table
-            for table in &self.tables {
-                let mut table_exists = false;
-                for _ in &conn.query(Q_TABLE_EXISTS, &[ &table.name.schema, &table.name.name ]).unwrap() {
-                    table_exists = true;
-                    break;
-                }
-                if table_exists {
-                    // Check the columns
-                    for _ in &conn.query(Q_DESCRIBE_COLUMNS, &[ &table.name.schema, &table.name.name ]).unwrap() {
-                        //let column_name : String = column.get(1);
-                    }
+            // Go through each item in order and figure out what to do with it
+            for item in &build_order {
+                match *item {
+                    DbObject::Extension(ref extension) => {
+                        // Only add the extension if it does not already exist
+                        let mut extension_exists = false;
+                        for _ in &conn.query(Q_EXTENSION_EXISTS, &[ &extension.name ]).unwrap() {
+                            extension_exists = true;
+                            break;
+                        }
+                        if !extension_exists {
+                            changeset.push(ChangeInstruction::AddExtension(extension));  
+                        }
+                    },
+                    DbObject::Function(ref function) => {
+                        // TODO: Figure out if it exists and drop if necessary
+                    },
+                    DbObject::Schema(ref schema) => {
+                        // TODO: Figure out if it exists and drop if necessary
+                    },
+                    DbObject::Script(ref script) => {
+                        changeset.push(ChangeInstruction::RunScript(script));
+                    },
+                    DbObject::Table(ref table) => {
+                        let mut table_exists = false;
+                        for _ in &conn.query(Q_TABLE_EXISTS, &[ &table.name.schema, &table.name.name ]).unwrap() {
+                            table_exists = true;
+                            break;
+                        }
+                        if table_exists {
+                            // Check the columns
+                            for _ in &conn.query(Q_DESCRIBE_COLUMNS, &[ &table.name.schema, &table.name.name ]).unwrap() {
+                                //let column_name : String = column.get(1);
+                            }
 
-                    // Check the constraints
-                } else {
-                    changeset.push(ChangeInstruction::AddTable(table));
+                            // Check the constraints
+                        } else {
+                            changeset.push(ChangeInstruction::AddTable(table));
+                        }
+                    },
+                    DbObject::Type(ref t) => {
+                        // TODO: Figure out if it exists and drop if necessary
+                    }
                 }
             }
         } else {
             changeset.push(ChangeInstruction::CreateDatabase(connection.database().to_owned()));
             changeset.push(ChangeInstruction::UseDatabase(connection.database().to_owned()));
-            for table in &self.tables {
-                changeset.push(ChangeInstruction::AddTable(table));
+
+            // Since this is a new database add everything (in order)
+            for item in &build_order {
+                match *item {
+                    DbObject::Extension(ref extension) => {
+                        changeset.push(ChangeInstruction::AddExtension(extension));
+                    },
+                    DbObject::Function(ref function) => {
+                        changeset.push(ChangeInstruction::AddFunction(function));
+                    },
+                    DbObject::Schema(ref schema) => {
+                        changeset.push(ChangeInstruction::AddSchema(schema));
+                    },
+                    DbObject::Script(ref script) => {
+                        changeset.push(ChangeInstruction::RunScript(script));
+                    },
+                    DbObject::Table(ref table) => {
+                        changeset.push(ChangeInstruction::AddTable(table));
+                    },
+                    DbObject::Type(ref t) => {
+                        changeset.push(ChangeInstruction::AddType(t));
+                    }
+                }
             }
         }
         Ok(changeset)
@@ -672,6 +790,20 @@ enum ChangeInstruction<'input> {
     CreateDatabase(String),
     UseDatabase(String),
 
+    // Extensions
+    AddExtension(&'input ExtensionDefinition),
+
+    // Schema
+    AddSchema(&'input SchemaDefinition),
+    RemoveSchema(String),
+
+    // Scripts 
+    RunScript(&'input ScriptDefinition),
+
+    // Types
+    AddType(&'input TypeDefinition),
+    RemoveType(String),
+
     // Tables
     AddTable(&'input TableDefinition),
     RemoveTable(String),
@@ -680,6 +812,12 @@ enum ChangeInstruction<'input> {
     AddColumn(&'input ColumnDefinition),
     ModifyColumn(&'input ColumnDefinition),
     RemoveColumn(String),
+
+    // Functions
+    AddFunction(&'input FunctionDefinition),
+    ModifyFunction(&'input FunctionDefinition), // This is identical to add however it's for future possible support
+    DropFunction(String),
+
 }
 
 impl<'input> ChangeInstruction<'input> {
@@ -694,6 +832,11 @@ impl<'input> ChangeInstruction<'input> {
             },
             ChangeInstruction::UseDatabase(ref db) => {
                 format!("/c {}", db)
+            },
+
+            // Extension level
+            ChangeInstruction::AddExtension(ref ext) => {
+                format!("CREATE EXTENSION {}", ext.name)
             },
 
             // Table level
@@ -773,7 +916,17 @@ impl<'input> ChangeInstruction<'input> {
                 }
                 instr.push_str("\n)");
                 instr
+            },
+
+            // Raw scripts
+            ChangeInstruction::RunScript(script) => {
+                let mut instr = String::new();
+                instr.push_str(&format!("/* {} */\n", script.name)[..]);
+                instr.push_str(&script.contents[..]);
+                instr.push('\n');
+                instr
             }
+
             _ => {
                 "TODO".to_owned()
             }

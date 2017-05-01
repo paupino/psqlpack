@@ -156,7 +156,7 @@ pub struct ScriptDefinition {
     pub contents: String,
 }
 
-#[derive(Serialize,Deserialize)]
+#[derive(Serialize,Deserialize,PartialEq)]
 pub enum ScriptKind {
     PreDeployment,
     PostDeployment
