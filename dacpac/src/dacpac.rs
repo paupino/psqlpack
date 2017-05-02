@@ -62,7 +62,8 @@ macro_rules! zip_collection {
 
 static Q_DATABASE_EXISTS : &'static str = "SELECT 1 FROM pg_database WHERE datname=$1;";
 static Q_EXTENSION_EXISTS : &'static str = "SELECT 1 FROM pg_catalog.pg_extension WHERE extname=$1;";
-// Schemas: information_schema.schemata 
+static Q_SCHEMA_EXISTS : &'static str = "SELECT 1 FROM information_schema.schemata WHERE schema_name=$1;";
+static Q_TYPE_EXISTS : &'static str = "SELECT 1 FROM pg_catalog.pg_type where typcategory <> 'A' AND typname=$1;";
 static Q_TABLE_EXISTS : &'static str = "SELECT 1
                                         FROM pg_catalog.pg_class c
                                         JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
@@ -712,10 +713,21 @@ impl Project {
                         }
                     },
                     DbObject::Function(ref function) => {
-                        // TODO: Figure out if it exists and drop if necessary
+                        // Since we don't really need to worry about this in PG we just 
+                        // add it as is and rely on CREATE OR REPLACE. In the future, it'd
+                        // be good to check the hash or something to only do this when required
+                        changeset.push(ChangeInstruction::ModifyFunction(function));
                     },
                     DbObject::Schema(ref schema) => {
-                        // TODO: Figure out if it exists and drop if necessary
+                        // Only add schema's, we do not drop them at this point
+                        let mut schema_exists = false;
+                        for _ in &conn.query(Q_SCHEMA_EXISTS, &[ &schema.name ]).unwrap() {
+                            schema_exists = true;
+                            break;
+                        }
+                        if !schema_exists {
+                            changeset.push(ChangeInstruction::AddSchema(schema));  
+                        }
                     },
                     DbObject::Script(ref script) => {
                         changeset.push(ChangeInstruction::RunScript(script));
@@ -738,7 +750,16 @@ impl Project {
                         }
                     },
                     DbObject::Type(ref t) => {
-                        // TODO: Figure out if it exists and drop if necessary
+                        let mut type_exists = false;
+                        for _ in &conn.query(Q_TYPE_EXISTS, &[ &t.name ]).unwrap() {
+                            type_exists = true;
+                            break;
+                        }
+                        if type_exists {
+                            // TODO: Need to figure out if it's changed and also perhaps how it's changed. I don't think a blanket modify is enough.
+                        } else {
+                            changeset.push(ChangeInstruction::AddType(t));
+                        }
                     }
                 }
             }
@@ -795,7 +816,7 @@ enum ChangeInstruction<'input> {
 
     // Schema
     AddSchema(&'input SchemaDefinition),
-    RemoveSchema(String),
+    //RemoveSchema(String),
 
     // Scripts 
     RunScript(&'input ScriptDefinition),
@@ -831,12 +852,89 @@ impl<'input> ChangeInstruction<'input> {
                 format!("DROP DATABASE {}", db)
             },
             ChangeInstruction::UseDatabase(ref db) => {
-                format!("/c {}", db)
+                format!("-- Using database `{}`", db)
             },
 
             // Extension level
             ChangeInstruction::AddExtension(ref ext) => {
                 format!("CREATE EXTENSION {}", ext.name)
+            },
+
+            // Schema level
+            ChangeInstruction::AddSchema(ref schema) => {
+                format!("CREATE SCHEMA {}", schema.name)
+            },
+
+            // Type level
+            ChangeInstruction::AddType(ref t) => {
+                let mut def = String::new();
+                def.push_str(&format!("CREATE TYPE {} AS ", t.name)[..]);
+                match t.kind {
+                    TypeDefinitionKind::Alias(ref sql_type) => {
+                        def.push_str(&sql_type.to_string()[..]);
+                    },
+                    TypeDefinitionKind::Enum(ref values) => {
+                        def.push_str("ENUM (\n");
+                        let mut enum_comma_required = false;
+                        for value in values {
+                            if enum_comma_required {
+                                def.push_str(",\n");
+                            } else {
+                                enum_comma_required = true;
+                            }
+                            def.push_str(&format!("  '{}'", value)[..]);
+                        }
+                        def.push_str("\n)");
+                    }
+                }
+                def
+            },
+
+            // Function level
+            ChangeInstruction::AddFunction(ref function) | ChangeInstruction::ModifyFunction(ref function) => {
+                let mut func = String::new();
+                func.push_str(&format!("CREATE OR REPLACE FUNCTION {} (", function.name)[..]);
+                let mut arg_comma_required = false;
+                for arg in &function.arguments {
+                    if arg_comma_required {
+                        func.push_str(", ");
+                    } else {
+                        arg_comma_required = true;
+                    }
+
+                    func.push_str(&format!("{} {}", arg.name, arg.sql_type)[..]);
+                }
+                func.push_str(")\n");
+                func.push_str("RETURNS ");
+                match function.return_type {
+                    FunctionReturnType::Table(ref columns) => {
+                        func.push_str("TABLE (\n");
+                        let mut column_comma_required = false;
+                        for column in columns {
+                            if column_comma_required {
+                                func.push_str(",\n");
+                            } else {
+                                column_comma_required = true;
+                            }
+                            func.push_str(&format!("  {} {}", column.name, column.sql_type)[..]);
+                        }
+                        func.push_str("\n)\n");
+                    },
+                    FunctionReturnType::SqlType(ref sql_type) => {
+                        func.push_str(&format!("{} ", sql_type)[..]);
+                    }
+                }
+                func.push_str("AS $$");
+                func.push_str(&function.body[..]);
+                func.push_str("$$\n");
+                func.push_str("LANGUAGE ");
+                match function.language {
+                    FunctionLanguage::C => func.push_str("C"),
+                    FunctionLanguage::Internal => func.push_str("INTERNAL"),
+                    FunctionLanguage::PostgreSQL => func.push_str("PGSQL"),
+                    FunctionLanguage::SQL => func.push_str("SQL")
+                }
+                func
             },
 
             // Table level
@@ -921,7 +1019,7 @@ impl<'input> ChangeInstruction<'input> {
             // Raw scripts
             ChangeInstruction::RunScript(script) => {
                 let mut instr = String::new();
-                instr.push_str(&format!("/* {} */\n", script.name)[..]);
+                instr.push_str(&format!("-- Script: {}\n", script.name)[..]);
                 instr.push_str(&script.contents[..]);
                 instr.push('\n');
                 instr
