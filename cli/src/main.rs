@@ -2,10 +2,10 @@ extern crate chrono;
 extern crate clap;
 extern crate pg_dacpac;
 
-use clap::{Arg, App, SubCommand};
+use clap::{Arg, ArgMatches, App, SubCommand};
 use std::env;
 use std::time::Instant;
-use pg_dacpac::{Dacpac, DacpacErrorKind, ParseError};
+use pg_dacpac::{Dacpac, DacpacResult, DacpacErrorKind, ParseError};
 
 fn main() {
     let matches = App::new("DACPAC for PostgreSQL")
@@ -90,77 +90,71 @@ fn main() {
     // Time how long this takes
     let time_stamp = Instant::now();
 
-    // Parse the subcommand
-    // TODO: do some validation
-    let action;
-    if let Some(package) = matches.subcommand_matches("package") {
-        // Source is a directory to begin with
-        action = "Packaging";
-
-        // If the source is provided, use that, else use the current dir + project.json
-        let source;
-        if let Some(cmd_source) = package.value_of("SOURCE") {
-            source = cmd_source.to_owned();
-        } else {
-            let current_dir = env::current_dir().unwrap();
-            source = format!("{}{}project.json",
-                             current_dir.display(),
-                             std::path::MAIN_SEPARATOR);
+    // Handle the user input.
+    match handle(matches) {
+        HandleResult::UnknownSubcommand => println!("Command is required"),
+        HandleResult::Outcome(action, Err(error)) => {
+            println!("Error encountered during {} command:", action);
+            print_error(&error);
         }
-        let output = String::from(package.value_of("OUT").unwrap());
-        match Dacpac::package_project(source, output) {
-            Ok(_) => {}
-            Err(error) => {
-                print_error(&error);
-            }
+        HandleResult::Outcome(action, _) => {
+            // Capture how long was elapsed
+            let elapsed = time_stamp.elapsed();
+            let elapsed = elapsed.as_secs() as f64 + elapsed.subsec_nanos() as f64 / 1000_000_000.0;
+            println!("Completed {} command in {}s", action, elapsed);
         }
-    } else if let Some(publish) = matches.subcommand_matches("publish") {
-        action = "Publishing";
-        // Source is the dacpac, target is the DB
-        let source = String::from(publish.value_of("SOURCE").unwrap());
-        let target = String::from(publish.value_of("TARGET").unwrap());
-        let profile = String::from(publish.value_of("PROFILE").unwrap());
-        match Dacpac::publish(source, target, profile) {
-            Ok(_) => {}
-            Err(error) => {
-                print_error(&error);
-            }
-        }
-    } else if let Some(script) = matches.subcommand_matches("script") {
-        action = "SQL File Generation";
-        // Source is the dacpac, target is the DB
-        let source = String::from(script.value_of("SOURCE").unwrap());
-        let target = String::from(script.value_of("TARGET").unwrap());
-        let profile = String::from(script.value_of("PROFILE").unwrap());
-        let output_file = String::from(script.value_of("OUT").unwrap());
-        match Dacpac::generate_sql(source, target, profile, output_file) {
-            Ok(_) => {}
-            Err(error) => {
-                print_error(&error);
-            }
-        }
-    } else if let Some(report) = matches.subcommand_matches("report") {
-        action = "Report Generation";
-        // Source is the dacpac, target is the DB
-        let source = String::from(report.value_of("SOURCE").unwrap());
-        let target = String::from(report.value_of("TARGET").unwrap());
-        let profile = String::from(report.value_of("PROFILE").unwrap());
-        let output_file = String::from(report.value_of("OUT").unwrap());
-        match Dacpac::generate_report(source, target, profile, output_file) {
-            Ok(_) => {}
-            Err(error) => {
-                print_error(&error);
-            }
-        }
-    } else {
-        println!("Subcommand is required");
-        std::process::exit(1);
     }
+}
 
-    // Capture how long was elapsed
-    let elapsed = time_stamp.elapsed();
-    let elapsed = elapsed.as_secs() as f64 + elapsed.subsec_nanos() as f64 / 1000_000_000.0;
-    println!("{} took {}s", action, elapsed);
+enum HandleResult {
+    UnknownSubcommand,
+    Outcome(String, DacpacResult<()>),
+}
+
+fn handle(matches: ArgMatches) -> HandleResult {
+    // TODO: do some validation
+    match matches.subcommand() {
+        (command @ "package", Some(package)) => {
+            // Source is a directory to begin with
+            // If the source is provided, use that, else use the current dir + project.json
+            let source = match package.value_of("SOURCE") {
+                Some(cmd_source) => cmd_source.to_owned(),
+                None => {
+                    let mut path = env::current_dir().unwrap().to_path_buf();
+                    path.push("project.json");
+                    path.to_str().unwrap().to_owned()
+                }
+            };
+            let output = String::from(package.value_of("OUT").unwrap());
+            HandleResult::Outcome(command.to_owned(), Dacpac::package_project(source, output))
+        }
+        (command @ "publish", Some(publish)) => {
+            // Source is the dacpac, target is the DB
+            let source = String::from(publish.value_of("SOURCE").unwrap());
+            let target = String::from(publish.value_of("TARGET").unwrap());
+            let profile = String::from(publish.value_of("PROFILE").unwrap());
+            HandleResult::Outcome(command.to_owned(), Dacpac::publish(source, target, profile))
+        }
+        (command @ "script", Some(script)) => {
+            // Source is the dacpac, target is the DB
+            let source = String::from(script.value_of("SOURCE").unwrap());
+            let target = String::from(script.value_of("TARGET").unwrap());
+            let profile = String::from(script.value_of("PROFILE").unwrap());
+            let output_file = String::from(script.value_of("OUT").unwrap());
+            HandleResult::Outcome(command.to_owned(),
+                                  Dacpac::generate_sql(source, target, profile, output_file))
+        }
+        (command @ "report", Some(report)) => {
+            // Source is the dacpac, target is the DB
+            let source = String::from(report.value_of("SOURCE").unwrap());
+            let target = String::from(report.value_of("TARGET").unwrap());
+            let profile = String::from(report.value_of("PROFILE").unwrap());
+            let output_file = String::from(report.value_of("OUT").unwrap());
+            HandleResult::Outcome(command.to_owned(),
+                                  Dacpac::generate_report(source, target, profile, output_file))
+        }
+        _ => HandleResult::UnknownSubcommand,
+    }
 }
 
 pub fn print_error(error: &DacpacErrorKind) {
@@ -204,7 +198,10 @@ pub fn print_error(error: &DacpacErrorKind) {
                     ParseError::InvalidToken { .. } => {
                         println!("  Invalid token");
                     }
-                    ParseError::UnrecognizedToken { ref token, ref expected } => {
+                    ParseError::UnrecognizedToken {
+                        ref token,
+                        ref expected,
+                    } => {
                         if let Some(ref x) = *token {
                             println!("  Unexpected {:?}.", x.1);
                         } else {
