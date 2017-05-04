@@ -63,7 +63,7 @@ impl FromStr for Connection {
 
             let pair: Vec<&str> = section.split('=').collect();
             if pair.len() != 2 {
-                return Err(ConnectionErrorKind::MalformedConnectionString.into());
+                bail!(ConnectionErrorKind::MalformedConnectionString);
             }
 
             parts.insert(pair[0], pair[1]);
@@ -71,15 +71,15 @@ impl FromStr for Connection {
 
         let host = match parts.get(&"host") {
             Some(host) => *host,
-            None => return Err(ConnectionErrorKind::RequiredPartMissing("host".to_owned()).into())
+            None => bail!(ConnectionErrorKind::RequiredPartMissing("host".to_owned()))
         };
         let database = match parts.get(&"database") {
             Some(database) => *database,
-            None => return Err(ConnectionErrorKind::RequiredPartMissing("database".to_owned()).into())
+            None => bail!(ConnectionErrorKind::RequiredPartMissing("database".to_owned()))
         };
         let user = match parts.get(&"userid") {
             Some(user) => *user,
-            None => return Err(ConnectionErrorKind::RequiredPartMissing("userid".to_owned()).into())
+            None => bail!(ConnectionErrorKind::RequiredPartMissing("userid".to_owned()))
         };
 
         let mut builder = ConnectionBuilder::new(database, host, user);

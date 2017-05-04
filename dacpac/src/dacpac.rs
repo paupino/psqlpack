@@ -22,7 +22,7 @@ macro_rules! ztry {
     ($expr:expr) => {{
         match $expr {
             Ok(_) => {},
-            Err(e) => return Err(DacpacErrorKind::GenerationError(format!("Failed to write DACPAC: {}", e)).into()),
+            Err(e) => bail!(DacpacErrorKind::GenerationError(format!("Failed to write DACPAC: {}", e))),
         }
     }};
 }
@@ -31,7 +31,7 @@ macro_rules! dbtry {
     ($expr:expr) => {
         match $expr {
             Ok(o) => o,
-            Err(e) => return Err(DacpacErrorKind::DatabaseError(format!("{}", e)).into()),
+            Err(e) => bail!(DacpacErrorKind::DatabaseError(format!("{}", e))),
         }
     };
 }
@@ -53,7 +53,7 @@ macro_rules! zip_collection {
             ztry!($zip.start_file(format!("{}/{}.json", collection_name, item.name), FileOptions::default()));
             let json = match serde_json::to_string_pretty(&item) {
                 Ok(j) => j,
-                Err(e) => return Err(DacpacErrorKind::GenerationError(format!("Failed to write DACPAC: {}", e)).into()),
+                Err(e) => bail!(DacpacErrorKind::GenerationError(format!("Failed to write DACPAC: {}", e))),
             };
             ztry!($zip.write_all(json.as_bytes()));
         }
@@ -79,17 +79,17 @@ impl Dacpac {
     pub fn package_project(project_path: &Path, output_path: &Path) -> DacpacResult<()> {
         // Load the project file
         if !project_path.is_file() {
-            return Err(DacpacErrorKind::IOError(format!("{}", project_path.display()),"Project file does not exist".to_owned()).into());
+            bail!(DacpacErrorKind::IOError(format!("{}", project_path.display()),"Project file does not exist".to_owned()));
         }
         let mut project_source = String::new();
         if let Err(err) = File::open(project_path).and_then(|mut f| f.read_to_string(&mut project_source)) {
-            return Err(DacpacErrorKind::IOError(format!("{}", project_path.display()), format!("Failed to read project file: {}", err)).into());
+            bail!(DacpacErrorKind::IOError(format!("{}", project_path.display()), format!("Failed to read project file: {}", err)));
         }
 
         // Load the project config
         let project_config : ProjectConfig = match serde_json::from_str(&project_source) {
             Ok(c) => c,
-            Err(e) => return Err(DacpacErrorKind::ProjectError(format!("{}", e)).into()),
+            Err(e) => bail!(DacpacErrorKind::ProjectError(format!("{}", e))),
         };
         // Turn the pre/post into paths to quickly check
         let mut predeploy_paths = Vec::new();
@@ -98,14 +98,14 @@ impl Dacpac {
         for script in &project_config.pre_deploy_scripts {
             let path = match fs::canonicalize(Path::new(&format!("{}{}{}", parent.display(), PATH_SEPARATOR, script)[..])) {
                 Ok(p) => p,
-                Err(e) => return Err(DacpacErrorKind::ProjectError(format!("Invalid script found for pre-deployment: {} ({})", script, e)).into()),
+                Err(e) => bail!(DacpacErrorKind::ProjectError(format!("Invalid script found for pre-deployment: {} ({})", script, e))),
             };
             predeploy_paths.push(format!("{}", path.display()));
         }
         for script in &project_config.post_deploy_scripts {
             let path = match fs::canonicalize(Path::new(&format!("{}{}{}", parent.display(), PATH_SEPARATOR, script)[..])) {
                 Ok(p) => p,
-                Err(e) => return Err(DacpacErrorKind::ProjectError(format!("Invalid script found for post-deployment: {} ({})", script, e)).into())
+                Err(e) => bail!(DacpacErrorKind::ProjectError(format!("Invalid script found for post-deployment: {} ({})", script, e)))
             };
             postdeploy_paths.push(format!("{}", path.display()));
         }
@@ -182,7 +182,7 @@ impl Dacpac {
 
         // Early exit if errors
         if !errors.is_empty() {
-            return Err(DacpacErrorKind::MultipleErrors(errors).into());
+            bail!(DacpacErrorKind::MultipleErrors(errors));
         }
 
         // Update any missing defaults, create a dependency graph and then try to validate the project
@@ -194,13 +194,13 @@ impl Dacpac {
         if let Some(parent) = output_path.parent() {
             match fs::create_dir_all(format!("{}", parent.display())) {
                 Ok(_) => {},
-                Err(e) => return Err(DacpacErrorKind::GenerationError(format!("Failed to create DACPAC directory: {}", e)).into()),
+                Err(e) => bail!(DacpacErrorKind::GenerationError(format!("Failed to create DACPAC directory: {}", e))),
             }
         }
 
         let output_file = match File::create(&output_path) {
             Ok(f) => f,
-            Err(e) => return Err(DacpacErrorKind::GenerationError(format!("Failed to write DACPAC: {}", e)).into())
+            Err(e) => bail!(DacpacErrorKind::GenerationError(format!("Failed to write DACPAC: {}", e)))
         };
         let mut zip = ZipWriter::new(output_file);
 
@@ -216,7 +216,7 @@ impl Dacpac {
             ztry!(zip.start_file("order.json", FileOptions::default()));
             let json = match serde_json::to_string_pretty(&order) {
                 Ok(j) => j,
-                Err(e) => return Err(DacpacErrorKind::GenerationError(format!("Failed to write DACPAC: {}", e)).into()),
+                Err(e) => bail!(DacpacErrorKind::GenerationError(format!("Failed to write DACPAC: {}", e))),
             };
             ztry!(zip.write_all(json.as_bytes()));
         }
@@ -266,7 +266,7 @@ impl Dacpac {
         // These instructions turn into a single SQL file
         let mut out = match File::create(output_file) {
             Ok(o) => o,
-            Err(e) => return Err(DacpacErrorKind::GenerationError(format!("Failed to generate SQL file: {}", e)).into())
+            Err(e) => bail!(DacpacErrorKind::GenerationError(format!("Failed to generate SQL file: {}", e)))
         };
 
         for change in changeset {
@@ -275,10 +275,10 @@ impl Dacpac {
                     // New line
                     match out.write(&[59u8, 10u8, 10u8]) {
                         Ok(_) => {},
-                        Err(e) => return Err(DacpacErrorKind::GenerationError(format!("Failed to generate SQL file: {}", e)).into())
+                        Err(e) => bail!(DacpacErrorKind::GenerationError(format!("Failed to generate SQL file: {}", e)))
                     }
                 },
-                Err(e) => return Err(DacpacErrorKind::GenerationError(format!("Failed to generate SQL file: {}", e)).into())
+                Err(e) => bail!(DacpacErrorKind::GenerationError(format!("Failed to generate SQL file: {}", e)))
             }
         }
 
@@ -297,16 +297,16 @@ impl Dacpac {
         // These instructions turn into a JSON report
         let json = match serde_json::to_string_pretty(&changeset) {
             Ok(j) => j,
-            Err(e) => return Err(DacpacErrorKind::GenerationError(format!("Failed to generate report: {}", e)).into())
+            Err(e) => bail!(DacpacErrorKind::GenerationError(format!("Failed to generate report: {}", e)))
         };
 
         let mut out = match File::create(output_file) {
             Ok(o) => o,
-            Err(e) => return Err(DacpacErrorKind::GenerationError(format!("Failed to generate report: {}", e)).into())
+            Err(e) => bail!(DacpacErrorKind::GenerationError(format!("Failed to generate report: {}", e)))
         };
         match out.write_all(json.as_bytes()) {
             Ok(_) => {},
-            Err(e) => return Err(DacpacErrorKind::GenerationError(format!("Failed to generate report: {}", e)).into())
+            Err(e) => bail!(DacpacErrorKind::GenerationError(format!("Failed to generate report: {}", e)))
         }
 
         Ok(())
@@ -315,15 +315,15 @@ impl Dacpac {
     fn load_project(source_path: &Path) -> DacpacResult<Project> {
         // Load the DACPAC
         if !source_path.is_file() {
-            return Err(DacpacErrorKind::IOError(format!("{}", source_path.display()), "DACPAC file does not exist".to_owned()).into())
+            bail!(DacpacErrorKind::IOError(format!("{}", source_path.display()), "DACPAC file does not exist".to_owned()))
         }
         let file = match fs::File::open(&source_path) {
             Ok(o) => o,
-            Err(e) => return Err(DacpacErrorKind::IOError(format!("{}", source_path.display()), format!("Failed to open DACPAC file: {}", e)).into())
+            Err(e) => bail!(DacpacErrorKind::IOError(format!("{}", source_path.display()), format!("Failed to open DACPAC file: {}", e)))
         };
         let mut archive = match ZipArchive::new(file) {
             Ok(o) => o,
-            Err(e) => return Err(DacpacErrorKind::IOError(format!("{}", source_path.display()), format!("Failed to open DACPAC file: {}", e)).into())
+            Err(e) => bail!(DacpacErrorKind::IOError(format!("{}", source_path.display()), format!("Failed to open DACPAC file: {}", e)))
         };
 
         let mut extensions = Vec::new();
@@ -374,17 +374,17 @@ impl Dacpac {
     fn load_publish_profile(publish_profile: &Path) -> DacpacResult<PublishProfile> {
         // Load the publish profile
         if !publish_profile.is_file() {
-            return Err(DacpacErrorKind::IOError(format!("{}", publish_profile.display()), "Publish profile does not exist".to_owned()).into());
+            bail!(DacpacErrorKind::IOError(format!("{}", publish_profile.display()), "Publish profile does not exist".to_owned()));
         }
         let mut publish_profile_raw = String::new();
         if let Err(err) = File::open(&publish_profile).and_then(|mut f| f.read_to_string(&mut publish_profile_raw)) {
-            return Err(DacpacErrorKind::IOError(format!("{}", publish_profile.display()), format!("Failed to read publish profile: {}", err)).into());
+            bail!(DacpacErrorKind::IOError(format!("{}", publish_profile.display()), format!("Failed to read publish profile: {}", err)));
         }
 
         // Deserialize
         let publish_profile : PublishProfile = match serde_json::from_str(&publish_profile_raw) {
             Ok(p) => p,
-            Err(e) => return Err(DacpacErrorKind::FormatError(format!("{}", publish_profile.display()), format!("Publish profile was not well formed: {}", e)).into())
+            Err(e) => bail!(DacpacErrorKind::FormatError(format!("{}", publish_profile.display()), format!("Publish profile was not well formed: {}", e)))
         };
         Ok(publish_profile)
     }
@@ -432,7 +432,6 @@ impl GenerateDependencyGraph for FunctionDefinition {
     fn generate_dependencies(&self, graph:&mut DependencyGraph, _:Option<String>) -> Node {
         // Function is dependent on a schema, so add the edge
         // It will not have a parent - the schema is embedded in the name
-        let name = self.name.clone();
         let function_node = Node::Function(self.name.to_string());
         graph.add_node(&function_node);
         function_node
@@ -590,9 +589,9 @@ impl Project {
         // Make sure it's valid first up
         match graph.validate() {
             DependencyGraphValidationResult::Valid => {},
-            DependencyGraphValidationResult::CircularReference => return Err(DacpacErrorKind::GenerationError("Circular reference detected".to_owned()).into()),
+            DependencyGraphValidationResult::CircularReference => bail!(DacpacErrorKind::GenerationError("Circular reference detected".to_owned())),
             // TODO: List out unresolved references
-            DependencyGraphValidationResult::UnresolvedDependencies => return Err(DacpacErrorKind::GenerationError("Unresolved dependencies detected".to_owned()).into()),
+            DependencyGraphValidationResult::UnresolvedDependencies => bail!(DacpacErrorKind::GenerationError("Unresolved dependencies detected".to_owned())),
         }
 
         // Then generate the order
