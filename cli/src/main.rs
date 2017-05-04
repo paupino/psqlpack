@@ -2,9 +2,11 @@ extern crate chrono;
 extern crate clap;
 extern crate pg_dacpac;
 
-use clap::{Arg, ArgMatches, App, SubCommand};
 use std::env;
+use std::path::Path;
 use std::time::Instant;
+
+use clap::{Arg, ArgMatches, App, SubCommand};
 use pg_dacpac::{Dacpac, DacpacResult, DacpacErrorKind, ParseError};
 
 fn main() {
@@ -118,40 +120,40 @@ fn handle(matches: ArgMatches) -> HandleResult {
             // Source is a directory to begin with
             // If the source is provided, use that, else use the current dir + project.json
             let source = match package.value_of("SOURCE") {
-                Some(cmd_source) => cmd_source.to_owned(),
+                Some(cmd_source) => cmd_source.into(),
                 None => {
                     let mut path = env::current_dir().unwrap().to_path_buf();
                     path.push("project.json");
-                    path.to_str().unwrap().to_owned()
+                    path
                 }
             };
-            let output = String::from(package.value_of("OUT").unwrap());
-            HandleResult::Outcome(command.to_owned(), Dacpac::package_project(source, output))
+            let output = Path::new(package.value_of("OUT").unwrap());
+            HandleResult::Outcome(command.to_owned(), Dacpac::package_project(&source, &output))
         }
         (command @ "publish", Some(publish)) => {
             // Source is the dacpac, target is the DB
-            let source = String::from(publish.value_of("SOURCE").unwrap());
+            let source = Path::new(publish.value_of("SOURCE").unwrap());
             let target = String::from(publish.value_of("TARGET").unwrap());
-            let profile = String::from(publish.value_of("PROFILE").unwrap());
-            HandleResult::Outcome(command.to_owned(), Dacpac::publish(source, target, profile))
+            let profile = Path::new(publish.value_of("PROFILE").unwrap());
+            HandleResult::Outcome(command.to_owned(), Dacpac::publish(&source, target, &profile))
         }
         (command @ "script", Some(script)) => {
             // Source is the dacpac, target is the DB
-            let source = String::from(script.value_of("SOURCE").unwrap());
+            let source = Path::new(script.value_of("SOURCE").unwrap());
             let target = String::from(script.value_of("TARGET").unwrap());
-            let profile = String::from(script.value_of("PROFILE").unwrap());
-            let output_file = String::from(script.value_of("OUT").unwrap());
+            let profile = Path::new(script.value_of("PROFILE").unwrap());
+            let output_file = Path::new(script.value_of("OUT").unwrap());
             HandleResult::Outcome(command.to_owned(),
-                                  Dacpac::generate_sql(source, target, profile, output_file))
+                                  Dacpac::generate_sql(&source, target, &profile, &output_file))
         }
         (command @ "report", Some(report)) => {
             // Source is the dacpac, target is the DB
-            let source = String::from(report.value_of("SOURCE").unwrap());
+            let source = Path::new(report.value_of("SOURCE").unwrap());
             let target = String::from(report.value_of("TARGET").unwrap());
-            let profile = String::from(report.value_of("PROFILE").unwrap());
-            let output_file = String::from(report.value_of("OUT").unwrap());
+            let profile = Path::new(report.value_of("PROFILE").unwrap());
+            let output_file = Path::new(report.value_of("OUT").unwrap());
             HandleResult::Outcome(command.to_owned(),
-                                  Dacpac::generate_report(source, target, profile, output_file))
+                                  Dacpac::generate_report(&source, target, &profile, &output_file))
         }
         _ => HandleResult::UnknownSubcommand,
     }
