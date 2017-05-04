@@ -704,11 +704,11 @@ impl Project {
                             break;
                         }
                         if !extension_exists {
-                            changeset.push(ChangeInstruction::AddExtension(extension));  
+                            changeset.push(ChangeInstruction::AddExtension(extension));
                         }
                     },
                     DbObject::Function(ref function) => {
-                        // Since we don't really need to worry about this in PG we just 
+                        // Since we don't really need to worry about this in PG we just
                         // add it as is and rely on CREATE OR REPLACE. In the future, it'd
                         // be good to check the hash or something to only do this when required
                         changeset.push(ChangeInstruction::ModifyFunction(function));
@@ -721,7 +721,7 @@ impl Project {
                             break;
                         }
                         if !schema_exists {
-                            changeset.push(ChangeInstruction::AddSchema(schema));  
+                            changeset.push(ChangeInstruction::AddSchema(schema));
                         }
                     },
                     DbObject::Script(ref script) => {
@@ -813,7 +813,7 @@ enum ChangeInstruction<'input> {
     AddSchema(&'input SchemaDefinition),
     //RemoveSchema(String),
 
-    // Scripts 
+    // Scripts
     RunScript(&'input ScriptDefinition),
 
     // Types
