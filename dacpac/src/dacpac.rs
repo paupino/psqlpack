@@ -76,15 +76,13 @@ static Q_DESCRIBE_COLUMNS : &'static str = "SELECT ordinal_position, column_name
 pub struct Dacpac;
 
 impl Dacpac {
-    pub fn package_project(source_project_file: String, output_file: String) -> DacpacResult<()> {
-
+    pub fn package_project(project_path: &Path, output_path: &Path) -> DacpacResult<()> {
         // Load the project file
-        let project_path = Path::new(&source_project_file[..]);
         if !project_path.is_file() {
             return Err(DacpacErrorKind::IOError(format!("{}", project_path.display()),"Project file does not exist".to_owned()).into());
         }
         let mut project_source = String::new();
-        if let Err(err) = File::open(&project_path).and_then(|mut f| f.read_to_string(&mut project_source)) {
+        if let Err(err) = File::open(project_path).and_then(|mut f| f.read_to_string(&mut project_source)) {
             return Err(DacpacErrorKind::IOError(format!("{}", project_path.display()), format!("Failed to read project file: {}", err)).into());
         }
 
@@ -193,7 +191,6 @@ impl Dacpac {
         try!(project.validate());
 
         // Now generate the dacpac
-        let output_path = Path::new(&output_file[..]);
         if let Some(parent) = output_path.parent() {
             match fs::create_dir_all(format!("{}", parent.display())) {
                 Ok(_) => {},
@@ -229,7 +226,7 @@ impl Dacpac {
         Ok(())
     }
 
-    pub fn publish(source_dacpac_file: String, target_connection_string: String, publish_profile: String) -> DacpacResult<()> {
+    pub fn publish(source_dacpac_file: &Path, target_connection_string: String, publish_profile: &Path) -> DacpacResult<()> {
 
         let project = try!(Dacpac::load_project(source_dacpac_file));
         let publish_profile = try!(Dacpac::load_publish_profile(publish_profile));
@@ -257,7 +254,7 @@ impl Dacpac {
         Ok(())
     }
 
-    pub fn generate_sql(source_dacpac_file: String, target_connection_string: String, publish_profile: String, output_file: String) -> DacpacResult<()> {
+    pub fn generate_sql(source_dacpac_file: &Path, target_connection_string: String, publish_profile: &Path, output_file: &Path) -> DacpacResult<()> {
 
         let project = try!(Dacpac::load_project(source_dacpac_file));
         let publish_profile = try!(Dacpac::load_publish_profile(publish_profile));
@@ -267,7 +264,7 @@ impl Dacpac {
         let changeset = project.generate_changeset(&connection, publish_profile)?;
 
         // These instructions turn into a single SQL file
-        let mut out = match File::create(&output_file[..]) {
+        let mut out = match File::create(output_file) {
             Ok(o) => o,
             Err(e) => return Err(DacpacErrorKind::GenerationError(format!("Failed to generate SQL file: {}", e)).into())
         };
@@ -288,7 +285,7 @@ impl Dacpac {
         Ok(())
     }
 
-    pub fn generate_report(source_dacpac_file: String, target_connection_string: String, publish_profile: String, output_file: String) -> DacpacResult<()> {
+    pub fn generate_report(source_dacpac_file: &Path, target_connection_string: String, publish_profile: &Path, output_file: &Path) -> DacpacResult<()> {
 
         let project = try!(Dacpac::load_project(source_dacpac_file));
         let publish_profile = try!(Dacpac::load_publish_profile(publish_profile));
@@ -303,7 +300,7 @@ impl Dacpac {
             Err(e) => return Err(DacpacErrorKind::GenerationError(format!("Failed to generate report: {}", e)).into())
         };
 
-        let mut out = match File::create(&output_file[..]) {
+        let mut out = match File::create(output_file) {
             Ok(o) => o,
             Err(e) => return Err(DacpacErrorKind::GenerationError(format!("Failed to generate report: {}", e)).into())
         };
@@ -315,9 +312,8 @@ impl Dacpac {
         Ok(())
     }
 
-    fn load_project(source_dacpac_file: String) -> DacpacResult<Project> {
+    fn load_project(source_path: &Path) -> DacpacResult<Project> {
         // Load the DACPAC
-        let source_path = Path::new(&source_dacpac_file[..]);
         if !source_path.is_file() {
             return Err(DacpacErrorKind::IOError(format!("{}", source_path.display()), "DACPAC file does not exist".to_owned()).into())
         }
@@ -375,21 +371,20 @@ impl Dacpac {
         })
     }
 
-    fn load_publish_profile(publish_profile: String) -> DacpacResult<PublishProfile> {
+    fn load_publish_profile(publish_profile: &Path) -> DacpacResult<PublishProfile> {
         // Load the publish profile
-        let path = Path::new(&publish_profile[..]);
-        if !path.is_file() {
-            return Err(DacpacErrorKind::IOError(format!("{}", path.display()), "Publish profile does not exist".to_owned()).into());
+        if !publish_profile.is_file() {
+            return Err(DacpacErrorKind::IOError(format!("{}", publish_profile.display()), "Publish profile does not exist".to_owned()).into());
         }
         let mut publish_profile_raw = String::new();
-        if let Err(err) = File::open(&path).and_then(|mut f| f.read_to_string(&mut publish_profile_raw)) {
-            return Err(DacpacErrorKind::IOError(format!("{}", path.display()), format!("Failed to read publish profile: {}", err)).into());
+        if let Err(err) = File::open(&publish_profile).and_then(|mut f| f.read_to_string(&mut publish_profile_raw)) {
+            return Err(DacpacErrorKind::IOError(format!("{}", publish_profile.display()), format!("Failed to read publish profile: {}", err)).into());
         }
 
         // Deserialize
         let publish_profile : PublishProfile = match serde_json::from_str(&publish_profile_raw) {
             Ok(p) => p,
-            Err(e) => return Err(DacpacErrorKind::FormatError(format!("{}", path.display()), format!("Publish profile was not well formed: {}", e)).into())
+            Err(e) => return Err(DacpacErrorKind::FormatError(format!("{}", publish_profile.display()), format!("Publish profile was not well formed: {}", e)).into())
         };
         Ok(publish_profile)
     }
