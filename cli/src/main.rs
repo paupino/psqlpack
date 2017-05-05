@@ -7,7 +7,7 @@ use std::path::Path;
 use std::time::Instant;
 
 use clap::{Arg, ArgMatches, App, SubCommand};
-use pg_dacpac::{Dacpac, DacpacResult, DacpacErrorKind, ParseError};
+use pg_dacpac::{Dacpac, DacpacResult, ChainedError};
 
 fn main() {
     let matches = App::new("DACPAC for PostgreSQL")
@@ -96,8 +96,7 @@ fn main() {
     match handle(matches) {
         HandleResult::UnknownSubcommand => println!("Command is required"),
         HandleResult::Outcome(action, Err(error)) => {
-            println!("Error encountered during {} command:", action);
-            print_error(&error);
+            println!("Error encountered during {} command:\n{}", action, error.display());
         }
         HandleResult::Outcome(action, _) => {
             // Capture how long was elapsed
@@ -156,100 +155,5 @@ fn handle(matches: ArgMatches) -> HandleResult {
                                   Dacpac::generate_report(&source, target, &profile, &output_file))
         }
         _ => HandleResult::UnknownSubcommand,
-    }
-}
-
-pub fn print_error(error: &DacpacErrorKind) {
-    match *error {
-        DacpacErrorKind::Connection(ref inner) => {
-            println!("Invalid connection string");
-            println!("  {}", inner);
-            println!();
-        }
-        DacpacErrorKind::Msg(ref message) => {
-            println!("Unknown Error");
-            println!("  {}", message);
-            println!();
-        }
-        DacpacErrorKind::IOError(ref file, ref message) => {
-            println!("IO Error when reading {}", file);
-            println!("  {}", message);
-            println!();
-        }
-        DacpacErrorKind::FormatError(ref file, ref message) => {
-            println!("Formatting Error when reading {}", file);
-            println!("  {}", message);
-            println!();
-        }
-        DacpacErrorKind::SyntaxError(ref file, ref line, line_number, start_pos, end_pos) => {
-            println!("Syntax error in {} on line {}", file, line_number);
-            println!("  {}", line);
-            print!("  ");
-            for _ in 0..start_pos {
-                print!(" ");
-            }
-            for _ in start_pos..end_pos {
-                print!("^");
-            }
-            println!();
-        }
-        DacpacErrorKind::ParseError(ref file, ref errors) => {
-            println!("Error in {}", file);
-            for e in errors.iter() {
-                match *e {
-                    ParseError::InvalidToken { .. } => {
-                        println!("  Invalid token");
-                    }
-                    ParseError::UnrecognizedToken {
-                        ref token,
-                        ref expected,
-                    } => {
-                        if let Some(ref x) = *token {
-                            println!("  Unexpected {:?}.", x.1);
-                        } else {
-                            println!("  Unexpected end of file");
-                        }
-                        print!("  Expected one of: ");
-                        let mut first = true;
-                        for expect in expected {
-                            if first {
-                                first = false;
-                            } else {
-                                print!(", ");
-                            }
-                            print!("{}", expect);
-                        }
-                        println!();
-                    }
-                    ParseError::ExtraToken { ref token } => {
-                        println!("  Extra token detectd: {:?}", token);
-                    }
-                    ParseError::User { ref error } => {
-                        println!("  {:?}", error);
-                    }
-                }
-            }
-            println!();
-        }
-        DacpacErrorKind::GenerationError(ref message) => {
-            println!("Error generating DACPAC");
-            println!("  {}", message);
-            println!();
-        }
-        DacpacErrorKind::DatabaseError(ref message) => {
-            println!("Database error:");
-            println!("  {}", message);
-            println!();
-        }
-        DacpacErrorKind::ProjectError(ref message) => {
-            println!("Project format error:");
-            println!("  {}", message);
-            println!();
-        }
-        DacpacErrorKind::MultipleErrors(ref errors) => {
-            for error in errors {
-                print_error(error);
-            }
-        }
     }
 }

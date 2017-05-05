@@ -11,12 +11,16 @@ error_chain! {
         PostgresConnect(::postgres::error::ConnectError);
     }
     errors {
-        MalformedConnectionString
-        RequiredPartMissing(part: String) {
-            description("required connection string part missing")
-            display("required connection string part missing: '{}'", part)
+        MalformedConnectionString {
+            description("The connection string was malformed.")
         }
-        TlsNotSupported
+        RequiredPartMissing(part: String) {
+            description("Required connection string part missing")
+            display("Required connection string part missing: '{}'", part)
+        }
+        TlsNotSupported {
+            description("TLS connections are not currently supported.")
+        }
     }
 }
 

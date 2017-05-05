@@ -23,4 +23,3 @@ mod sql;
 
 pub use errors::*;
 pub use dacpac::Dacpac;
-pub use lalrpop_util::ParseError;

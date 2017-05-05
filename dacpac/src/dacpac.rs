@@ -112,7 +112,7 @@ impl Dacpac {
 
         // Start the project
         let mut project = Project::new();
-        let mut errors = Vec::new();
+        let mut errors: Vec<DacpacError> = Vec::new();
 
         // Enumerate the directory
         for entry in WalkDir::new(project_path.parent().unwrap()).follow_links(false) {
@@ -125,7 +125,7 @@ impl Dacpac {
 
             let mut contents = String::new();
             if let Err(err) = File::open(&path).and_then(|mut f| f.read_to_string(&mut contents)) {
-                errors.push(DacpacErrorKind::IOError(format!("{}", path.display()), format!("{}", err)));
+                errors.push(DacpacErrorKind::IOError(format!("{}", path.display()), format!("{}", err)).into());
                 continue;
             }
 
@@ -155,7 +155,7 @@ impl Dacpac {
                             e.line_number,
                             e.start_pos,
                             e.end_pos
-                        ));
+                        ).into());
                         continue;
                     },
                 };
@@ -173,7 +173,7 @@ impl Dacpac {
                         }
                     },
                     Err(err) => {
-                        errors.push(DacpacErrorKind::ParseError(format!("{}", path.display()), vec!(err)));
+                        errors.push(DacpacErrorKind::ParseError(format!("{}", path.display()), vec!(err)).into());
                         continue;
                     }
                 }
