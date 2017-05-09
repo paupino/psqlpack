@@ -18,7 +18,7 @@ pub enum SimpleSqlType {
     FixedLengthString(u32), // char(size)
     VariableLengthString(u32), // varchar(size)
     Text, // text
-    
+
     FixedLengthBitString(u32), // bit(size)
     VariableLengthBitString(u32), // varbit(size)
 
@@ -69,15 +69,15 @@ pub enum IndexParameter {
 
 #[derive(Serialize,Deserialize)]
 pub enum TableConstraint {
-    Primary { 
-        name: String, 
-        columns: Vec<String>, 
-        parameters: Option<Vec<IndexParameter>> 
+    Primary {
+        name: String,
+        columns: Vec<String>,
+        parameters: Option<Vec<IndexParameter>>,
     },
-    Foreign { 
-        name: String, 
-        columns: Vec<String>, 
-        ref_table: ObjectName, 
+    Foreign {
+        name: String,
+        columns: Vec<String>,
+        ref_table: ObjectName,
         ref_columns: Vec<String>,
         match_type: Option<ForeignConstraintMatchType>,
         events: Option<Vec<ForeignConstraintEvent>>,
@@ -108,8 +108,8 @@ pub enum ForeignConstraintAction {
 
 #[derive(Serialize,Deserialize)]
 pub struct TableDefinition {
-    pub name: ObjectName, 
-    pub columns: Vec<ColumnDefinition>, 
+    pub name: ObjectName,
+    pub columns: Vec<ColumnDefinition>,
     pub constraints: Option<Vec<TableConstraint>>,
 }
 
@@ -159,7 +159,7 @@ pub struct ScriptDefinition {
 #[derive(Serialize,Deserialize,PartialEq)]
 pub enum ScriptKind {
     PreDeployment,
-    PostDeployment
+    PostDeployment,
 }
 
 #[derive(Serialize,Deserialize)]

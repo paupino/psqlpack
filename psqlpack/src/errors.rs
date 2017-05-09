@@ -50,11 +50,11 @@ error_chain! {
             description("IO error when reading a file")
             display("IO error when reading {}: {}", file, message)
         }
-        SyntaxError(file: String, line: String, line_number: i32, start_pos: i32, end_pos: i32) {
+        SyntaxError(file: String, line: String, line_number: usize, start: usize, end: usize) {
             description("SQL syntax error encountered")
             display(
                 "SQL syntax error encountered in {} on line {}:\n  {}\n  {}{}",
-                file, line_number, line, " ".repeat(*start_pos as usize), "^".repeat((end_pos - start_pos) as usize))
+                file, line_number, line, " ".repeat(*start), "^".repeat(end - start))
         }
         ParseError(file: String, errors: Vec<ParseError<(), lexer::Token, ()>>) {
             description("Parser error")
@@ -92,9 +92,7 @@ impl<'fmt> Display for ParseErrorFormatter<'fmt> {
         for (i, error) in self.0.iter().enumerate() {
             write!(f, "{}: ", i)?;
             match *error {
-                ParseError::InvalidToken { .. } => {
-                    write!(f, "Invalid token")?
-                }
+                ParseError::InvalidToken { .. } => write!(f, "Invalid token")?,
                 ParseError::UnrecognizedToken {
                     ref token,
                     ref expected,
@@ -108,9 +106,7 @@ impl<'fmt> Display for ParseErrorFormatter<'fmt> {
                 ParseError::ExtraToken { ref token } => {
                     write!(f, "Extra token detected: {:?}", token)?
                 }
-                ParseError::User { ref error } => {
-                    write!(f, "{:?}", error)?
-                }
+                ParseError::User { ref error } => write!(f, "{:?}", error)?,
             }
         }
         Ok(())

@@ -75,15 +75,15 @@ impl FromStr for Connection {
 
         let host = match parts.get(&"host") {
             Some(host) => *host,
-            None => bail!(ConnectionErrorKind::RequiredPartMissing("host".to_owned()))
+            None => bail!(ConnectionErrorKind::RequiredPartMissing("host".to_owned())),
         };
         let database = match parts.get(&"database") {
             Some(database) => *database,
-            None => bail!(ConnectionErrorKind::RequiredPartMissing("database".to_owned()))
+            None => bail!(ConnectionErrorKind::RequiredPartMissing("database".to_owned())),
         };
         let user = match parts.get(&"userid") {
             Some(user) => *user,
-            None => bail!(ConnectionErrorKind::RequiredPartMissing("userid".to_owned()))
+            None => bail!(ConnectionErrorKind::RequiredPartMissing("userid".to_owned())),
         };
 
         let mut builder = ConnectionBuilder::new(database, host, user);
@@ -135,13 +135,15 @@ impl ConnectionBuilder {
             Err(ConnectionErrorKind::TlsNotSupported.into())
         } else {
             let uri = match self.password {
-                Some(ref password) => format!("postgres://{}:{}@{}", self.user, password, self.host),
+                Some(ref password) => {
+                    format!("postgres://{}:{}@{}", self.user, password, self.host)
+                }
                 None => format!("postgres://{}@{}", self.user, self.host),
             };
             Ok(Connection {
-                database: self.database.clone(),
-                uri: uri.to_owned(),
-            })
+                   database: self.database.clone(),
+                   uri: uri.to_owned(),
+               })
         }
     }
 }
@@ -159,53 +161,71 @@ mod tests {
 
     #[test]
     fn builder_basic_works() {
-        let connection = ConnectionBuilder::new("database", "host", "user").build().unwrap();
+        let connection = ConnectionBuilder::new("database", "host", "user")
+            .build()
+            .unwrap();
         assert_eq!("database", connection.database());
         assert_eq!("postgres://user@host", connection.uri);
     }
 
     #[test]
     fn builder_with_password_works() {
-        let connection = ConnectionBuilder::new("database", "host", "user").with_password("password").build().unwrap();
+        let connection = ConnectionBuilder::new("database", "host", "user")
+            .with_password("password")
+            .build()
+            .unwrap();
         assert_eq!("database", connection.database());
         assert_eq!("postgres://user:password@host", connection.uri);
     }
 
     #[test]
     fn builder_with_tls_fails() {
-        let error = ConnectionBuilder::new("database", "host", "user").with_tls_mode("true").build().unwrap_err();
+        let error = ConnectionBuilder::new("database", "host", "user")
+            .with_tls_mode("true")
+            .build()
+            .unwrap_err();
         assert_error_kind!(error, ConnectionErrorKind::TlsNotSupported);
     }
 
     #[test]
     fn parse_basic_works() {
-        let connection: Connection = "host=localhost;database=db1;userid=user;".parse().unwrap();
+        let connection: Connection = "host=localhost;database=db1;userid=user;"
+            .parse()
+            .unwrap();
         assert_eq!("db1", connection.database());
         assert_eq!("postgres://user@localhost", connection.uri);
     }
 
     #[test]
     fn parse_with_password_works() {
-        let connection: Connection = "host=localhost;database=db1;userid=user;password=secret;".parse().unwrap();
+        let connection: Connection = "host=localhost;database=db1;userid=user;password=secret;"
+            .parse()
+            .unwrap();
         assert_eq!("db1", connection.database());
         assert_eq!("postgres://user:secret@localhost", connection.uri);
     }
 
     #[test]
     fn parse_without_host_fails() {
-        let error = "database=db1;userid=user;".parse::<Connection>().unwrap_err();
+        let error = "database=db1;userid=user;"
+            .parse::<Connection>()
+            .unwrap_err();
         assert_error_kind!(error, ConnectionErrorKind::RequiredPartMissing(_));
     }
 
     #[test]
     fn parse_without_database_fails() {
-        let error = "host=localhost;userid=user;".parse::<Connection>().unwrap_err();
+        let error = "host=localhost;userid=user;"
+            .parse::<Connection>()
+            .unwrap_err();
         assert_error_kind!(error, ConnectionErrorKind::RequiredPartMissing(_));
     }
 
     #[test]
     fn parse_without_user_fails() {
-        let error = "host=localhost;database=db1".parse::<Connection>().unwrap_err();
+        let error = "host=localhost;database=db1"
+            .parse::<Connection>()
+            .unwrap_err();
         assert_error_kind!(error, ConnectionErrorKind::RequiredPartMissing(_));
     }
 }

@@ -137,9 +137,9 @@ impl Psqlpack {
                         errors.push(PsqlpackErrorKind::SyntaxError(
                             format!("{}", path.display()),
                             e.line.to_owned(),
-                            e.line_number,
-                            e.start_pos,
-                            e.end_pos
+                            e.line_number as usize,
+                            e.start_pos as usize,
+                            e.end_pos as usize,
                         ).into());
                         continue;
                     },
