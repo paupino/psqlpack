@@ -4,7 +4,6 @@ use std::fs::{self,File};
 use std::io::Read;
 use std::io::prelude::*;
 use std::path::Path;
-use std::path::MAIN_SEPARATOR as PATH_SEPARATOR;
 
 use serde_json;
 use walkdir::WalkDir;
@@ -34,15 +33,6 @@ macro_rules! dbtry {
             Err(e) => bail!(DacpacErrorKind::DatabaseError(format!("{}", e))),
         }
     };
-}
-
-macro_rules! load_file {
-    ($file_type:ty, $coll:ident, $file:ident) => {{
-        let mut contents = String::new();
-        $file.read_to_string(&mut contents).unwrap();
-        let object : $file_type = serde_json::from_str(&contents).unwrap();
-        $coll.push(object);
-    }};
 }
 
 macro_rules! zip_collection {
@@ -77,37 +67,32 @@ pub struct Dacpac;
 
 impl Dacpac {
     pub fn package_project(project_path: &Path, output_path: &Path) -> DacpacResult<()> {
-        // Load the project file
-        if !project_path.is_file() {
-            bail!(DacpacErrorKind::IOError(format!("{}", project_path.display()),"Project file does not exist".to_owned()));
-        }
-        let mut project_source = String::new();
-        if let Err(err) = File::open(project_path).and_then(|mut f| f.read_to_string(&mut project_source)) {
-            bail!(DacpacErrorKind::IOError(format!("{}", project_path.display()), format!("Failed to read project file: {}", err)));
+        // Load the project config
+        let project_config : ProjectConfig =
+            File::open(project_path)
+            .chain_err(|| DacpacErrorKind::ProjectReadError(project_path.to_path_buf()))
+            .and_then(|file| {
+                serde_json::from_reader(file)
+                .chain_err(|| DacpacErrorKind::ProjectParseError(project_path.to_path_buf()))
+            })?;
+
+        // Turn the pre/post into paths to quickly check
+        let parent = project_path.parent().unwrap();
+        let make_path = |script: &str| {
+            parent
+                .join(Path::new(script))
+                .canonicalize()
+                .chain_err(|| DacpacErrorKind::InvalidScriptPath(script.to_owned()))
+        };
+
+        let mut predeploy_paths = Vec::new();
+        for script in &project_config.pre_deploy_scripts {
+            predeploy_paths.push(make_path(script)?);
         }
 
-        // Load the project config
-        let project_config : ProjectConfig = match serde_json::from_str(&project_source) {
-            Ok(c) => c,
-            Err(e) => bail!(DacpacErrorKind::ProjectError(format!("{}", e))),
-        };
-        // Turn the pre/post into paths to quickly check
-        let mut predeploy_paths = Vec::new();
         let mut postdeploy_paths = Vec::new();
-        let parent = project_path.parent().unwrap();
-        for script in &project_config.pre_deploy_scripts {
-            let path = match fs::canonicalize(Path::new(&format!("{}{}{}", parent.display(), PATH_SEPARATOR, script)[..])) {
-                Ok(p) => p,
-                Err(e) => bail!(DacpacErrorKind::ProjectError(format!("Invalid script found for pre-deployment: {} ({})", script, e))),
-            };
-            predeploy_paths.push(format!("{}", path.display()));
-        }
         for script in &project_config.post_deploy_scripts {
-            let path = match fs::canonicalize(Path::new(&format!("{}{}{}", parent.display(), PATH_SEPARATOR, script)[..])) {
-                Ok(p) => p,
-                Err(e) => bail!(DacpacErrorKind::ProjectError(format!("Invalid script found for post-deployment: {} ({})", script, e)))
-            };
-            postdeploy_paths.push(format!("{}", path.display()));
+            postdeploy_paths.push(make_path(script)?);
         }
 
         // Start the project
@@ -115,7 +100,7 @@ impl Dacpac {
         let mut errors: Vec<DacpacError> = Vec::new();
 
         // Enumerate the directory
-        for entry in WalkDir::new(project_path.parent().unwrap()).follow_links(false) {
+        for entry in WalkDir::new(parent).follow_links(false) {
             // Read in the file contents
             let e = entry.unwrap();
             let path = e.path();
@@ -130,15 +115,15 @@ impl Dacpac {
             }
 
             // Figure out if it's a pre/post deployment script
-            let abs_path = format!("{}", fs::canonicalize(path).unwrap().display());
-            if let Some(pos) = predeploy_paths.iter().position(|x| abs_path.eq(x)) {
+            let real_path = path.to_path_buf().canonicalize().unwrap();
+            if let Some(pos) = predeploy_paths.iter().position(|x| real_path.eq(x)) {
                 project.push_script(ScriptDefinition {
                     name: path.file_name().unwrap().to_str().unwrap().to_owned(),
                     kind: ScriptKind::PreDeployment,
                     order: pos,
                     contents: contents
                 });
-            } else if let Some(pos) = postdeploy_paths.iter().position(|x| abs_path.eq(x)) {
+            } else if let Some(pos) = postdeploy_paths.iter().position(|x| real_path.eq(x)) {
                 project.push_script(ScriptDefinition {
                     name: path.file_name().unwrap().to_str().unwrap().to_owned(),
                     kind: ScriptKind::PostDeployment,
@@ -313,18 +298,13 @@ impl Dacpac {
     }
 
     fn load_project(source_path: &Path) -> DacpacResult<Project> {
-        // Load the DACPAC
-        if !source_path.is_file() {
-            bail!(DacpacErrorKind::IOError(format!("{}", source_path.display()), "DACPAC file does not exist".to_owned()))
-        }
-        let file = match fs::File::open(&source_path) {
-            Ok(o) => o,
-            Err(e) => bail!(DacpacErrorKind::IOError(format!("{}", source_path.display()), format!("Failed to open DACPAC file: {}", e)))
-        };
-        let mut archive = match ZipArchive::new(file) {
-            Ok(o) => o,
-            Err(e) => bail!(DacpacErrorKind::IOError(format!("{}", source_path.display()), format!("Failed to open DACPAC file: {}", e)))
-        };
+        let mut archive =
+            File::open(&source_path)
+            .chain_err(|| DacpacErrorKind::PackageReadError(source_path.to_path_buf()))
+            .and_then(|file| {
+                ZipArchive::new(file)
+                .chain_err(|| DacpacErrorKind::PackageUnarchiveError(source_path.to_path_buf()))
+            })?;
 
         let mut extensions = Vec::new();
         let mut functions = Vec::new();
@@ -340,23 +320,35 @@ impl Dacpac {
             if file.size() == 0 {
                 continue;
             }
-            if file.name().starts_with("extensions/") {
-                load_file!(ExtensionDefinition, extensions, file);
-            } else if file.name().starts_with("functions/") {
-                load_file!(FunctionDefinition, functions, file);
-            } else if file.name().starts_with("schemas/") {
-                load_file!(SchemaDefinition, schemas, file);
-            } else if file.name().starts_with("scripts/") {
-                load_file!(ScriptDefinition, scripts, file);
-            } else if file.name().starts_with("tables/") {
-                load_file!(TableDefinition, tables, file);
-            } else if file.name().starts_with("types/") {
-                load_file!(TypeDefinition, types, file);
-            } else if file.name().eq("order.json") {
-                let mut contents = String::new();
-                file.read_to_string(&mut contents).unwrap();
-                let nodes : Vec<Node> = serde_json::from_str(&contents).unwrap();
-                order = Some(nodes);
+            let name = file.name().to_owned();
+            if name.starts_with("extensions/") {
+                extensions.push(
+                    serde_json::from_reader(file)
+                    .chain_err(|| DacpacErrorKind::PackageInternalReadError(name))?);
+            } else if name.starts_with("functions/") {
+                functions.push(
+                    serde_json::from_reader(file)
+                    .chain_err(|| DacpacErrorKind::PackageInternalReadError(name))?);
+            } else if name.starts_with("schemas/") {
+                schemas.push(
+                    serde_json::from_reader(file)
+                    .chain_err(|| DacpacErrorKind::PackageInternalReadError(name))?);
+            } else if name.starts_with("scripts/") {
+                scripts.push(
+                    serde_json::from_reader(file)
+                    .chain_err(|| DacpacErrorKind::PackageInternalReadError(name))?);
+            } else if name.starts_with("tables/") {
+                tables.push(
+                    serde_json::from_reader(file)
+                    .chain_err(|| DacpacErrorKind::PackageInternalReadError(name))?);
+            } else if name.starts_with("types/") {
+                types.push(
+                    serde_json::from_reader(file)
+                    .chain_err(|| DacpacErrorKind::PackageInternalReadError(name))?);
+            } else if name.eq("order.json") {
+                order = Some(
+                    serde_json::from_reader(file)
+                    .chain_err(|| DacpacErrorKind::PackageInternalReadError(name))?);
             }
         }
 
@@ -372,21 +364,12 @@ impl Dacpac {
     }
 
     fn load_publish_profile(publish_profile: &Path) -> DacpacResult<PublishProfile> {
-        // Load the publish profile
-        if !publish_profile.is_file() {
-            bail!(DacpacErrorKind::IOError(format!("{}", publish_profile.display()), "Publish profile does not exist".to_owned()));
-        }
-        let mut publish_profile_raw = String::new();
-        if let Err(err) = File::open(&publish_profile).and_then(|mut f| f.read_to_string(&mut publish_profile_raw)) {
-            bail!(DacpacErrorKind::IOError(format!("{}", publish_profile.display()), format!("Failed to read publish profile: {}", err)));
-        }
-
-        // Deserialize
-        let publish_profile : PublishProfile = match serde_json::from_str(&publish_profile_raw) {
-            Ok(p) => p,
-            Err(e) => bail!(DacpacErrorKind::FormatError(format!("{}", publish_profile.display()), format!("Publish profile was not well formed: {}", e)))
-        };
-        Ok(publish_profile)
+        File::open(publish_profile)
+        .chain_err(|| DacpacErrorKind::PublishProfileReadError(publish_profile.to_path_buf()))
+        .and_then(|file| {
+            serde_json::from_reader(file)
+            .chain_err(|| DacpacErrorKind::PublishProfileParseError(publish_profile.to_path_buf()))
+        })
     }
 }
 

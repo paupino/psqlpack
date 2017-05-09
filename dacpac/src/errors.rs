@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 pub use error_chain::ChainedError;
 pub use lalrpop_util::ParseError;
 
@@ -12,6 +14,38 @@ error_chain! {
         Connection(ConnectionError, ConnectionErrorKind);
     }
     errors {
+        ProjectReadError(path: PathBuf) {
+            description("Couldn't read project file")
+            display("Couldn't read project file: {}", path.as_path().display())
+        }
+        ProjectParseError(path: PathBuf) {
+            description("Couldn't parse project file")
+            display("Couldn't parse project file: {}", path.as_path().display())
+        }
+        InvalidScriptPath(path: String) {
+            description("Invalid script path in project file")
+            display("Invalid script path in project file: {}", path)
+        }
+        PublishProfileReadError(path: PathBuf) {
+            description("Couldn't read publish profile file")
+            display("Couldn't read publish profile file: {}", path.as_path().display())
+        }
+        PublishProfileParseError(path: PathBuf) {
+            description("Couldn't parse publish profile file")
+            display("Couldn't parse publish profile file: {}", path.as_path().display())
+        }
+        PackageReadError(path: PathBuf) {
+            description("Couldn't read package file")
+            display("Couldn't read package file: {}", path.as_path().display())
+        }
+        PackageUnarchiveError(path: PathBuf) {
+            description("Couldn't unarchive package file")
+            display("Couldn't unarchive package file: {}", path.as_path().display())
+        }
+        PackageInternalReadError(file_name: String) {
+            description("Couldn't read part of the package file")
+            display("Couldn't read part of the package file: {}", file_name)
+        }
         IOError(file: String, message: String) {
             description("IO error when reading a file")
             display("IO error when reading {}: {}", file, message)
