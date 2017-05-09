@@ -1,12 +1,12 @@
 extern crate clap;
-extern crate pg_dacpac;
+extern crate psqlpack;
 
 use std::env;
 use std::path::Path;
 use std::time::Instant;
 
 use clap::{Arg, ArgMatches, App, SubCommand};
-use pg_dacpac::{Dacpac, DacpacResult, ChainedError};
+use psqlpack::{Dacpac, DacpacResult, ChainedError};
 
 fn main() {
     let matches = App::new("DACPAC for PostgreSQL")

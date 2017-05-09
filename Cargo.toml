@@ -1,2 +1,2 @@
 [workspace]
-members = ["dacpac", "cli"]
+members = ["psqlpack", "cli"]
