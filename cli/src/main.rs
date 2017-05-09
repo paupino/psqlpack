@@ -64,8 +64,7 @@ fn main() {
                 .takes_value(true)
                 .help("The SQL file to generate")))
         .subcommand(SubCommand::with_name("report")
-            .about("outputs a JSON deployment report for what would be executed against the \
-                    target")
+            .about("outputs a JSON deployment report for proposed changes to the target")
             .arg(Arg::with_name("SOURCE")
                 .long("source")
                 .required(true)
@@ -95,7 +94,9 @@ fn main() {
     match handle(matches) {
         HandleResult::UnknownSubcommand => println!("Command is required"),
         HandleResult::Outcome(action, Err(error)) => {
-            println!("Error encountered during {} command:\n{}", action, error.display());
+            println!("Error encountered during {} command:\n{}",
+                     action,
+                     error.display());
         }
         HandleResult::Outcome(action, _) => {
             // Capture how long was elapsed
@@ -126,14 +127,16 @@ fn handle(matches: ArgMatches) -> HandleResult {
                 }
             };
             let output = Path::new(package.value_of("OUT").unwrap());
-            HandleResult::Outcome(command.to_owned(), Psqlpack::package_project(&source, &output))
+            HandleResult::Outcome(command.to_owned(),
+                                  Psqlpack::package_project(&source, &output))
         }
         (command @ "publish", Some(publish)) => {
             // Source is the psqlpack, target is the DB
             let source = Path::new(publish.value_of("SOURCE").unwrap());
             let target = String::from(publish.value_of("TARGET").unwrap());
             let profile = Path::new(publish.value_of("PROFILE").unwrap());
-            HandleResult::Outcome(command.to_owned(), Psqlpack::publish(&source, target, &profile))
+            HandleResult::Outcome(command.to_owned(),
+                                  Psqlpack::publish(&source, target, &profile))
         }
         (command @ "script", Some(script)) => {
             // Source is the psqlpack, target is the DB
@@ -151,7 +154,10 @@ fn handle(matches: ArgMatches) -> HandleResult {
             let profile = Path::new(report.value_of("PROFILE").unwrap());
             let output_file = Path::new(report.value_of("OUT").unwrap());
             HandleResult::Outcome(command.to_owned(),
-                                  Psqlpack::generate_report(&source, target, &profile, &output_file))
+                                  Psqlpack::generate_report(&source,
+                                                            target,
+                                                            &profile,
+                                                            &output_file))
         }
         _ => HandleResult::UnknownSubcommand,
     }
