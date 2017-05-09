@@ -62,7 +62,7 @@ Package type is an enum type which can either be one of the following values:
 
 # File formats
 
-We define a number of custom file formats to help drive the DACPAC process.
+We define a number of custom file formats to help drive the psqlpack process.
 
 ## Project file format
 

@@ -9,11 +9,11 @@ use clap::{Arg, ArgMatches, App, SubCommand};
 use psqlpack::{Dacpac, DacpacResult, ChainedError};
 
 fn main() {
-    let matches = App::new("DACPAC for PostgreSQL")
+    let matches = App::new("psqlpack")
         .version("1.0")
         .author("Paul Mason <paul.mason@xero.com>")
         .subcommand(SubCommand::with_name("package")
-            .about("creates a DACPAC from the specified target")
+            .about("creates a psqlpack from the specified target")
             .arg(Arg::with_name("SOURCE")
                 .long("source")
                 .required(false)
@@ -23,14 +23,14 @@ fn main() {
                 .long("out")
                 .required(true)
                 .takes_value(true)
-                .help("The location of the folder to export the dacpac to")))
+                .help("The location of the folder to export the psqlpack to")))
         .subcommand(SubCommand::with_name("publish")
-            .about("publishes a DACPAC to target")
+            .about("publishes a psqlpack to target")
             .arg(Arg::with_name("SOURCE")
                 .long("source")
                 .required(true)
                 .takes_value(true)
-                .help("The source dacpac to use for publishing"))
+                .help("The source psqlpack to use for publishing"))
             .arg(Arg::with_name("TARGET")
                 .long("target")
                 .required(true)
@@ -47,7 +47,7 @@ fn main() {
                 .long("source")
                 .required(false)
                 .takes_value(true)
-                .help("The source dacpac to use for the deploy report"))
+                .help("The source psqlpack to use for the deploy report"))
             .arg(Arg::with_name("TARGET")
                 .long("target")
                 .required(true)
@@ -70,7 +70,7 @@ fn main() {
                 .long("source")
                 .required(true)
                 .takes_value(true)
-                .help("The source dacpac to use for the deploy report"))
+                .help("The source psqlpack to use for the deploy report"))
             .arg(Arg::with_name("TARGET")
                 .long("target")
                 .required(true)
@@ -129,14 +129,14 @@ fn handle(matches: ArgMatches) -> HandleResult {
             HandleResult::Outcome(command.to_owned(), Dacpac::package_project(&source, &output))
         }
         (command @ "publish", Some(publish)) => {
-            // Source is the dacpac, target is the DB
+            // Source is the psqlpack, target is the DB
             let source = Path::new(publish.value_of("SOURCE").unwrap());
             let target = String::from(publish.value_of("TARGET").unwrap());
             let profile = Path::new(publish.value_of("PROFILE").unwrap());
             HandleResult::Outcome(command.to_owned(), Dacpac::publish(&source, target, &profile))
         }
         (command @ "script", Some(script)) => {
-            // Source is the dacpac, target is the DB
+            // Source is the psqlpack, target is the DB
             let source = Path::new(script.value_of("SOURCE").unwrap());
             let target = String::from(script.value_of("TARGET").unwrap());
             let profile = Path::new(script.value_of("PROFILE").unwrap());
@@ -145,7 +145,7 @@ fn handle(matches: ArgMatches) -> HandleResult {
                                   Dacpac::generate_sql(&source, target, &profile, &output_file))
         }
         (command @ "report", Some(report)) => {
-            // Source is the dacpac, target is the DB
+            // Source is the psqlpack, target is the DB
             let source = Path::new(report.value_of("SOURCE").unwrap());
             let target = String::from(report.value_of("TARGET").unwrap());
             let profile = Path::new(report.value_of("PROFILE").unwrap());
