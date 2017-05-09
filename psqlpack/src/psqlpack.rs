@@ -21,7 +21,7 @@ macro_rules! ztry {
     ($expr:expr) => {{
         match $expr {
             Ok(_) => {},
-            Err(e) => bail!(DacpacErrorKind::GenerationError(format!("Failed to write DACPAC: {}", e))),
+            Err(e) => bail!(PsqlpackErrorKind::GenerationError(format!("Failed to write package: {}", e))),
         }
     }};
 }
@@ -30,7 +30,7 @@ macro_rules! dbtry {
     ($expr:expr) => {
         match $expr {
             Ok(o) => o,
-            Err(e) => bail!(DacpacErrorKind::DatabaseError(format!("{}", e))),
+            Err(e) => bail!(PsqlpackErrorKind::DatabaseError(format!("{}", e))),
         }
     };
 }
@@ -43,7 +43,7 @@ macro_rules! zip_collection {
             ztry!($zip.start_file(format!("{}/{}.json", collection_name, item.name), FileOptions::default()));
             let json = match serde_json::to_string_pretty(&item) {
                 Ok(j) => j,
-                Err(e) => bail!(DacpacErrorKind::GenerationError(format!("Failed to write DACPAC: {}", e))),
+                Err(e) => bail!(PsqlpackErrorKind::GenerationError(format!("Failed to write package: {}", e))),
             };
             ztry!($zip.write_all(json.as_bytes()));
         }
@@ -63,17 +63,17 @@ static Q_DESCRIBE_COLUMNS : &'static str = "SELECT ordinal_position, column_name
                                             WHERE table_schema = $1 AND table_name = $2
                                             ORDER BY ordinal_position;";
 
-pub struct Dacpac;
+pub struct Psqlpack;
 
-impl Dacpac {
-    pub fn package_project(project_path: &Path, output_path: &Path) -> DacpacResult<()> {
+impl Psqlpack {
+    pub fn package_project(project_path: &Path, output_path: &Path) -> PsqlpackResult<()> {
         // Load the project config
         let project_config : ProjectConfig =
             File::open(project_path)
-            .chain_err(|| DacpacErrorKind::ProjectReadError(project_path.to_path_buf()))
+            .chain_err(|| PsqlpackErrorKind::ProjectReadError(project_path.to_path_buf()))
             .and_then(|file| {
                 serde_json::from_reader(file)
-                .chain_err(|| DacpacErrorKind::ProjectParseError(project_path.to_path_buf()))
+                .chain_err(|| PsqlpackErrorKind::ProjectParseError(project_path.to_path_buf()))
             })?;
 
         // Turn the pre/post into paths to quickly check
@@ -82,7 +82,7 @@ impl Dacpac {
             parent
                 .join(Path::new(script))
                 .canonicalize()
-                .chain_err(|| DacpacErrorKind::InvalidScriptPath(script.to_owned()))
+                .chain_err(|| PsqlpackErrorKind::InvalidScriptPath(script.to_owned()))
         };
 
         let mut predeploy_paths = Vec::new();
@@ -97,7 +97,7 @@ impl Dacpac {
 
         // Start the project
         let mut project = Project::new();
-        let mut errors: Vec<DacpacError> = Vec::new();
+        let mut errors: Vec<PsqlpackError> = Vec::new();
 
         // Enumerate the directory
         for entry in WalkDir::new(parent).follow_links(false) {
@@ -110,7 +110,7 @@ impl Dacpac {
 
             let mut contents = String::new();
             if let Err(err) = File::open(&path).and_then(|mut f| f.read_to_string(&mut contents)) {
-                errors.push(DacpacErrorKind::IOError(format!("{}", path.display()), format!("{}", err)).into());
+                errors.push(PsqlpackErrorKind::IOError(format!("{}", path.display()), format!("{}", err)).into());
                 continue;
             }
 
@@ -134,7 +134,7 @@ impl Dacpac {
                 let tokens = match lexer::tokenize(&contents[..]) {
                     Ok(t) => t,
                     Err(e) => {
-                        errors.push(DacpacErrorKind::SyntaxError(
+                        errors.push(PsqlpackErrorKind::SyntaxError(
                             format!("{}", path.display()),
                             e.line.to_owned(),
                             e.line_number,
@@ -158,7 +158,7 @@ impl Dacpac {
                         }
                     },
                     Err(err) => {
-                        errors.push(DacpacErrorKind::ParseError(format!("{}", path.display()), vec!(err)).into());
+                        errors.push(PsqlpackErrorKind::ParseError(format!("{}", path.display()), vec!(err)).into());
                         continue;
                     }
                 }
@@ -167,7 +167,7 @@ impl Dacpac {
 
         // Early exit if errors
         if !errors.is_empty() {
-            bail!(DacpacErrorKind::MultipleErrors(errors));
+            bail!(PsqlpackErrorKind::MultipleErrors(errors));
         }
 
         // Update any missing defaults, create a dependency graph and then try to validate the project
@@ -175,17 +175,17 @@ impl Dacpac {
         try!(project.generate_dependency_graph());
         try!(project.validate());
 
-        // Now generate the dacpac
+        // Now generate the prackage
         if let Some(parent) = output_path.parent() {
             match fs::create_dir_all(format!("{}", parent.display())) {
                 Ok(_) => {},
-                Err(e) => bail!(DacpacErrorKind::GenerationError(format!("Failed to create DACPAC directory: {}", e))),
+                Err(e) => bail!(PsqlpackErrorKind::GenerationError(format!("Failed to create package directory: {}", e))),
             }
         }
 
         let output_file = match File::create(&output_path) {
             Ok(f) => f,
-            Err(e) => bail!(DacpacErrorKind::GenerationError(format!("Failed to write DACPAC: {}", e)))
+            Err(e) => bail!(PsqlpackErrorKind::GenerationError(format!("Failed to write package: {}", e)))
         };
         let mut zip = ZipWriter::new(output_file);
 
@@ -201,7 +201,7 @@ impl Dacpac {
             ztry!(zip.start_file("order.json", FileOptions::default()));
             let json = match serde_json::to_string_pretty(&order) {
                 Ok(j) => j,
-                Err(e) => bail!(DacpacErrorKind::GenerationError(format!("Failed to write DACPAC: {}", e))),
+                Err(e) => bail!(PsqlpackErrorKind::GenerationError(format!("Failed to write package: {}", e))),
             };
             ztry!(zip.write_all(json.as_bytes()));
         }
@@ -211,10 +211,10 @@ impl Dacpac {
         Ok(())
     }
 
-    pub fn publish(source_dacpac_file: &Path, target_connection_string: String, publish_profile: &Path) -> DacpacResult<()> {
+    pub fn publish(source_project_file: &Path, target_connection_string: String, publish_profile: &Path) -> PsqlpackResult<()> {
 
-        let project = try!(Dacpac::load_project(source_dacpac_file));
-        let publish_profile = try!(Dacpac::load_publish_profile(publish_profile));
+        let project = try!(Psqlpack::load_project(source_project_file));
+        let publish_profile = try!(Psqlpack::load_publish_profile(publish_profile));
         let connection = try!(target_connection_string.parse());
 
         // Now we generate our instructions
@@ -239,10 +239,10 @@ impl Dacpac {
         Ok(())
     }
 
-    pub fn generate_sql(source_dacpac_file: &Path, target_connection_string: String, publish_profile: &Path, output_file: &Path) -> DacpacResult<()> {
+    pub fn generate_sql(source_project_file: &Path, target_connection_string: String, publish_profile: &Path, output_file: &Path) -> PsqlpackResult<()> {
 
-        let project = try!(Dacpac::load_project(source_dacpac_file));
-        let publish_profile = try!(Dacpac::load_publish_profile(publish_profile));
+        let project = try!(Psqlpack::load_project(source_project_file));
+        let publish_profile = try!(Psqlpack::load_publish_profile(publish_profile));
         let connection = try!(target_connection_string.parse());
 
         // Now we generate our instructions
@@ -251,7 +251,7 @@ impl Dacpac {
         // These instructions turn into a single SQL file
         let mut out = match File::create(output_file) {
             Ok(o) => o,
-            Err(e) => bail!(DacpacErrorKind::GenerationError(format!("Failed to generate SQL file: {}", e)))
+            Err(e) => bail!(PsqlpackErrorKind::GenerationError(format!("Failed to generate SQL file: {}", e)))
         };
 
         for change in changeset {
@@ -260,20 +260,20 @@ impl Dacpac {
                     // New line
                     match out.write(&[59u8, 10u8, 10u8]) {
                         Ok(_) => {},
-                        Err(e) => bail!(DacpacErrorKind::GenerationError(format!("Failed to generate SQL file: {}", e)))
+                        Err(e) => bail!(PsqlpackErrorKind::GenerationError(format!("Failed to generate SQL file: {}", e)))
                     }
                 },
-                Err(e) => bail!(DacpacErrorKind::GenerationError(format!("Failed to generate SQL file: {}", e)))
+                Err(e) => bail!(PsqlpackErrorKind::GenerationError(format!("Failed to generate SQL file: {}", e)))
             }
         }
 
         Ok(())
     }
 
-    pub fn generate_report(source_dacpac_file: &Path, target_connection_string: String, publish_profile: &Path, output_file: &Path) -> DacpacResult<()> {
+    pub fn generate_report(source_project_file: &Path, target_connection_string: String, publish_profile: &Path, output_file: &Path) -> PsqlpackResult<()> {
 
-        let project = try!(Dacpac::load_project(source_dacpac_file));
-        let publish_profile = try!(Dacpac::load_publish_profile(publish_profile));
+        let project = try!(Psqlpack::load_project(source_project_file));
+        let publish_profile = try!(Psqlpack::load_publish_profile(publish_profile));
         let connection = try!(target_connection_string.parse());
 
         // Now we generate our instructions
@@ -282,28 +282,28 @@ impl Dacpac {
         // These instructions turn into a JSON report
         let json = match serde_json::to_string_pretty(&changeset) {
             Ok(j) => j,
-            Err(e) => bail!(DacpacErrorKind::GenerationError(format!("Failed to generate report: {}", e)))
+            Err(e) => bail!(PsqlpackErrorKind::GenerationError(format!("Failed to generate report: {}", e)))
         };
 
         let mut out = match File::create(output_file) {
             Ok(o) => o,
-            Err(e) => bail!(DacpacErrorKind::GenerationError(format!("Failed to generate report: {}", e)))
+            Err(e) => bail!(PsqlpackErrorKind::GenerationError(format!("Failed to generate report: {}", e)))
         };
         match out.write_all(json.as_bytes()) {
             Ok(_) => {},
-            Err(e) => bail!(DacpacErrorKind::GenerationError(format!("Failed to generate report: {}", e)))
+            Err(e) => bail!(PsqlpackErrorKind::GenerationError(format!("Failed to generate report: {}", e)))
         }
 
         Ok(())
     }
 
-    fn load_project(source_path: &Path) -> DacpacResult<Project> {
+    fn load_project(source_path: &Path) -> PsqlpackResult<Project> {
         let mut archive =
             File::open(&source_path)
-            .chain_err(|| DacpacErrorKind::PackageReadError(source_path.to_path_buf()))
+            .chain_err(|| PsqlpackErrorKind::PackageReadError(source_path.to_path_buf()))
             .and_then(|file| {
                 ZipArchive::new(file)
-                .chain_err(|| DacpacErrorKind::PackageUnarchiveError(source_path.to_path_buf()))
+                .chain_err(|| PsqlpackErrorKind::PackageUnarchiveError(source_path.to_path_buf()))
             })?;
 
         let mut extensions = Vec::new();
@@ -324,31 +324,31 @@ impl Dacpac {
             if name.starts_with("extensions/") {
                 extensions.push(
                     serde_json::from_reader(file)
-                    .chain_err(|| DacpacErrorKind::PackageInternalReadError(name))?);
+                    .chain_err(|| PsqlpackErrorKind::PackageInternalReadError(name))?);
             } else if name.starts_with("functions/") {
                 functions.push(
                     serde_json::from_reader(file)
-                    .chain_err(|| DacpacErrorKind::PackageInternalReadError(name))?);
+                    .chain_err(|| PsqlpackErrorKind::PackageInternalReadError(name))?);
             } else if name.starts_with("schemas/") {
                 schemas.push(
                     serde_json::from_reader(file)
-                    .chain_err(|| DacpacErrorKind::PackageInternalReadError(name))?);
+                    .chain_err(|| PsqlpackErrorKind::PackageInternalReadError(name))?);
             } else if name.starts_with("scripts/") {
                 scripts.push(
                     serde_json::from_reader(file)
-                    .chain_err(|| DacpacErrorKind::PackageInternalReadError(name))?);
+                    .chain_err(|| PsqlpackErrorKind::PackageInternalReadError(name))?);
             } else if name.starts_with("tables/") {
                 tables.push(
                     serde_json::from_reader(file)
-                    .chain_err(|| DacpacErrorKind::PackageInternalReadError(name))?);
+                    .chain_err(|| PsqlpackErrorKind::PackageInternalReadError(name))?);
             } else if name.starts_with("types/") {
                 types.push(
                     serde_json::from_reader(file)
-                    .chain_err(|| DacpacErrorKind::PackageInternalReadError(name))?);
+                    .chain_err(|| PsqlpackErrorKind::PackageInternalReadError(name))?);
             } else if name.eq("order.json") {
                 order = Some(
                     serde_json::from_reader(file)
-                    .chain_err(|| DacpacErrorKind::PackageInternalReadError(name))?);
+                    .chain_err(|| PsqlpackErrorKind::PackageInternalReadError(name))?);
             }
         }
 
@@ -363,12 +363,12 @@ impl Dacpac {
         })
     }
 
-    fn load_publish_profile(publish_profile: &Path) -> DacpacResult<PublishProfile> {
+    fn load_publish_profile(publish_profile: &Path) -> PsqlpackResult<PublishProfile> {
         File::open(publish_profile)
-        .chain_err(|| DacpacErrorKind::PublishProfileReadError(publish_profile.to_path_buf()))
+        .chain_err(|| PsqlpackErrorKind::PublishProfileReadError(publish_profile.to_path_buf()))
         .and_then(|file| {
             serde_json::from_reader(file)
-            .chain_err(|| DacpacErrorKind::PublishProfileParseError(publish_profile.to_path_buf()))
+            .chain_err(|| PsqlpackErrorKind::PublishProfileParseError(publish_profile.to_path_buf()))
         })
     }
 }
@@ -556,7 +556,7 @@ impl Project {
         }
     }
 
-    fn generate_dependency_graph(&mut self) -> DacpacResult<()> {
+    fn generate_dependency_graph(&mut self) -> PsqlpackResult<()> {
 
         let mut graph = DependencyGraph::new();
 
@@ -572,9 +572,9 @@ impl Project {
         // Make sure it's valid first up
         match graph.validate() {
             DependencyGraphValidationResult::Valid => {},
-            DependencyGraphValidationResult::CircularReference => bail!(DacpacErrorKind::GenerationError("Circular reference detected".to_owned())),
+            DependencyGraphValidationResult::CircularReference => bail!(PsqlpackErrorKind::GenerationError("Circular reference detected".to_owned())),
             // TODO: List out unresolved references
-            DependencyGraphValidationResult::UnresolvedDependencies => bail!(DacpacErrorKind::GenerationError("Unresolved dependencies detected".to_owned())),
+            DependencyGraphValidationResult::UnresolvedDependencies => bail!(PsqlpackErrorKind::GenerationError("Unresolved dependencies detected".to_owned())),
         }
 
         // Then generate the order
@@ -584,13 +584,13 @@ impl Project {
         Ok(())
     }
 
-    fn validate(&self) -> DacpacResult<()> {
+    fn validate(&self) -> PsqlpackResult<()> {
 
         // TODO: Validate references etc
         Ok(())
     }
 
-    fn generate_changeset(&self, connection: &Connection, publish_profile: PublishProfile) -> DacpacResult<Vec<ChangeInstruction>> {
+    fn generate_changeset(&self, connection: &Connection, publish_profile: PublishProfile) -> PsqlpackResult<Vec<ChangeInstruction>> {
 
         // Start the changeset
         let mut changeset = Vec::new();

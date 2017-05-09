@@ -6,7 +6,7 @@ use std::path::Path;
 use std::time::Instant;
 
 use clap::{Arg, ArgMatches, App, SubCommand};
-use psqlpack::{Dacpac, DacpacResult, ChainedError};
+use psqlpack::{Psqlpack, PsqlpackResult, ChainedError};
 
 fn main() {
     let matches = App::new("psqlpack")
@@ -108,7 +108,7 @@ fn main() {
 
 enum HandleResult {
     UnknownSubcommand,
-    Outcome(String, DacpacResult<()>),
+    Outcome(String, PsqlpackResult<()>),
 }
 
 fn handle(matches: ArgMatches) -> HandleResult {
@@ -126,14 +126,14 @@ fn handle(matches: ArgMatches) -> HandleResult {
                 }
             };
             let output = Path::new(package.value_of("OUT").unwrap());
-            HandleResult::Outcome(command.to_owned(), Dacpac::package_project(&source, &output))
+            HandleResult::Outcome(command.to_owned(), Psqlpack::package_project(&source, &output))
         }
         (command @ "publish", Some(publish)) => {
             // Source is the psqlpack, target is the DB
             let source = Path::new(publish.value_of("SOURCE").unwrap());
             let target = String::from(publish.value_of("TARGET").unwrap());
             let profile = Path::new(publish.value_of("PROFILE").unwrap());
-            HandleResult::Outcome(command.to_owned(), Dacpac::publish(&source, target, &profile))
+            HandleResult::Outcome(command.to_owned(), Psqlpack::publish(&source, target, &profile))
         }
         (command @ "script", Some(script)) => {
             // Source is the psqlpack, target is the DB
@@ -142,7 +142,7 @@ fn handle(matches: ArgMatches) -> HandleResult {
             let profile = Path::new(script.value_of("PROFILE").unwrap());
             let output_file = Path::new(script.value_of("OUT").unwrap());
             HandleResult::Outcome(command.to_owned(),
-                                  Dacpac::generate_sql(&source, target, &profile, &output_file))
+                                  Psqlpack::generate_sql(&source, target, &profile, &output_file))
         }
         (command @ "report", Some(report)) => {
             // Source is the psqlpack, target is the DB
@@ -151,7 +151,7 @@ fn handle(matches: ArgMatches) -> HandleResult {
             let profile = Path::new(report.value_of("PROFILE").unwrap());
             let output_file = Path::new(report.value_of("OUT").unwrap());
             HandleResult::Outcome(command.to_owned(),
-                                  Dacpac::generate_report(&source, target, &profile, &output_file))
+                                  Psqlpack::generate_report(&source, target, &profile, &output_file))
         }
         _ => HandleResult::UnknownSubcommand,
     }

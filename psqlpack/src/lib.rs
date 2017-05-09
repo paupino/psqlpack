@@ -18,10 +18,10 @@ extern crate zip;
 mod ast;
 mod errors;
 mod connection;
-mod dacpac;
+mod psqlpack;
 mod graph;
 mod lexer;
 mod sql;
 
 pub use errors::*;
-pub use dacpac::Dacpac;
+pub use psqlpack::Psqlpack;
