@@ -37,10 +37,10 @@ macro_rules! dbtry {
 }
 
 macro_rules! zip_collection {
-    ($zip:ident, $project:ident, $collection:ident) => {{
+    ($zip:ident, $package:ident, $collection:ident) => {{
         let collection_name = stringify!($collection);
         ztry!($zip.add_directory(format!("{}/", collection_name), FileOptions::default()));
-        for item in $project.$collection {
+        for item in $package.$collection {
             ztry!($zip.start_file(format!("{}/{}.json", collection_name, item.name), FileOptions::default()));
             let json = match serde_json::to_string_pretty(&item) {
                 Ok(j) => j,
@@ -96,8 +96,8 @@ impl Psqlpack {
             postdeploy_paths.push(make_path(script)?);
         }
 
-        // Start the project
-        let mut project = Project::new();
+        // Start the package
+        let mut package = Package::new();
         let mut errors: Vec<PsqlpackError> = Vec::new();
 
         // Enumerate the directory
@@ -118,14 +118,14 @@ impl Psqlpack {
             // Figure out if it's a pre/post deployment script
             let real_path = path.to_path_buf().canonicalize().unwrap();
             if let Some(pos) = predeploy_paths.iter().position(|x| real_path.eq(x)) {
-                project.push_script(ScriptDefinition {
+                package.push_script(ScriptDefinition {
                     name: path.file_name().unwrap().to_str().unwrap().to_owned(),
                     kind: ScriptKind::PreDeployment,
                     order: pos,
                     contents: contents
                 });
             } else if let Some(pos) = postdeploy_paths.iter().position(|x| real_path.eq(x)) {
-                project.push_script(ScriptDefinition {
+                package.push_script(ScriptDefinition {
                     name: path.file_name().unwrap().to_str().unwrap().to_owned(),
                     kind: ScriptKind::PostDeployment,
                     order: pos,
@@ -150,11 +150,11 @@ impl Psqlpack {
                     Ok(statement_list) => {
                         for statement in statement_list {
                             match statement {
-                                Statement::Extension(extension_definition) => project.push_extension(extension_definition),
-                                Statement::Function(function_definition) => project.push_function(function_definition),
-                                Statement::Schema(schema_definition) => project.push_schema(schema_definition),
-                                Statement::Table(table_definition) => project.push_table(table_definition),
-                                Statement::Type(type_definition) => project.push_type(type_definition),
+                                Statement::Extension(extension_definition) => package.push_extension(extension_definition),
+                                Statement::Function(function_definition) => package.push_function(function_definition),
+                                Statement::Schema(schema_definition) => package.push_schema(schema_definition),
+                                Statement::Table(table_definition) => package.push_table(table_definition),
+                                Statement::Type(type_definition) => package.push_type(type_definition),
                             }
                         }
                     },
@@ -172,9 +172,9 @@ impl Psqlpack {
         }
 
         // Update any missing defaults, create a dependency graph and then try to validate the project
-        project.set_defaults(&project_config);
-        try!(project.generate_dependency_graph());
-        try!(project.validate());
+        package.set_defaults(&project_config);
+        try!(package.generate_dependency_graph());
+        try!(package.validate());
 
         // Now generate the prackage
         if let Some(parent) = output_path.parent() {
@@ -190,15 +190,15 @@ impl Psqlpack {
         };
         let mut zip = ZipWriter::new(output_file);
 
-        zip_collection!(zip, project, extensions);
-        zip_collection!(zip, project, functions);
-        zip_collection!(zip, project, schemas);
-        zip_collection!(zip, project, scripts);
-        zip_collection!(zip, project, tables);
-        zip_collection!(zip, project, types);
+        zip_collection!(zip, package, extensions);
+        zip_collection!(zip, package, functions);
+        zip_collection!(zip, package, schemas);
+        zip_collection!(zip, package, scripts);
+        zip_collection!(zip, package, tables);
+        zip_collection!(zip, package, types);
 
         // Also, do the order if we have it defined
-        if let Some(order) = project.order {
+        if let Some(order) = package.order {
             ztry!(zip.start_file("order.json", FileOptions::default()));
             let json = match serde_json::to_string_pretty(&order) {
                 Ok(j) => j,
@@ -212,14 +212,14 @@ impl Psqlpack {
         Ok(())
     }
 
-    pub fn publish(source_project_file: &Path, target_connection_string: String, publish_profile: &Path) -> PsqlpackResult<()> {
+    pub fn publish(source_package_path: &Path, target_connection_string: String, publish_profile: &Path) -> PsqlpackResult<()> {
 
-        let project = try!(Psqlpack::load_project(source_project_file));
+        let package = try!(Psqlpack::load_package(source_package_path));
         let publish_profile = PublishProfile::from_path(publish_profile)?;
         let connection = try!(target_connection_string.parse());
 
         // Now we generate our instructions
-        let changeset = project.generate_changeset(&connection, publish_profile)?;
+        let changeset = package.generate_changeset(&connection, publish_profile)?;
 
         // These instructions turn into SQL statements that get executed
         let mut conn = dbtry!(connection.connect_host());
@@ -240,14 +240,14 @@ impl Psqlpack {
         Ok(())
     }
 
-    pub fn generate_sql(source_project_file: &Path, target_connection_string: String, publish_profile: &Path, output_file: &Path) -> PsqlpackResult<()> {
+    pub fn generate_sql(source_package_path: &Path, target_connection_string: String, publish_profile: &Path, output_file: &Path) -> PsqlpackResult<()> {
 
-        let project = try!(Psqlpack::load_project(source_project_file));
+        let package = try!(Psqlpack::load_package(source_package_path));
         let publish_profile = PublishProfile::from_path(publish_profile)?;
         let connection = try!(target_connection_string.parse());
 
         // Now we generate our instructions
-        let changeset = project.generate_changeset(&connection, publish_profile)?;
+        let changeset = package.generate_changeset(&connection, publish_profile)?;
 
         // These instructions turn into a single SQL file
         let mut out = match File::create(output_file) {
@@ -271,14 +271,14 @@ impl Psqlpack {
         Ok(())
     }
 
-    pub fn generate_report(source_project_file: &Path, target_connection_string: String, publish_profile: &Path, output_file: &Path) -> PsqlpackResult<()> {
+    pub fn generate_report(source_package_path: &Path, target_connection_string: String, publish_profile: &Path, output_file: &Path) -> PsqlpackResult<()> {
 
-        let project = try!(Psqlpack::load_project(source_project_file));
+        let package = try!(Psqlpack::load_package(source_package_path));
         let publish_profile = PublishProfile::from_path(publish_profile)?;
         let connection = try!(target_connection_string.parse());
 
         // Now we generate our instructions
-        let changeset = project.generate_changeset(&connection, publish_profile)?;
+        let changeset = package.generate_changeset(&connection, publish_profile)?;
 
         // These instructions turn into a JSON report
         let json = match serde_json::to_string_pretty(&changeset) {
@@ -298,7 +298,7 @@ impl Psqlpack {
         Ok(())
     }
 
-    fn load_project(source_path: &Path) -> PsqlpackResult<Project> {
+    fn load_package(source_path: &Path) -> PsqlpackResult<Package> {
         let mut archive =
             File::open(&source_path)
             .chain_err(|| PsqlpackErrorKind::PackageReadError(source_path.to_path_buf()))
@@ -353,7 +353,7 @@ impl Psqlpack {
             }
         }
 
-        Ok(Project {
+        Ok(Package {
             extensions: extensions,
             functions: functions,
             schemas: schemas,
@@ -469,7 +469,7 @@ enum DbObject<'a> {
     Type(&'a TypeDefinition), // 4
 }
 
-struct Project {
+struct Package {
     extensions: Vec<ExtensionDefinition>,
     functions: Vec<FunctionDefinition>,
     schemas: Vec<SchemaDefinition>,
@@ -479,10 +479,9 @@ struct Project {
     order: Option<Vec<Node>>,
 }
 
-impl Project {
-
+impl Package {
     fn new() -> Self {
-        Project {
+        Package {
             extensions: Vec::new(),
             functions: Vec::new(),
             schemas: Vec::new(),
@@ -518,7 +517,6 @@ impl Project {
     }
 
     fn set_defaults(&mut self, config: &ProjectConfig) {
-
         // Make sure the public schema exists
         let mut has_public = false;
         for schema in &mut self.schemas {
@@ -549,7 +547,6 @@ impl Project {
     }
 
     fn generate_dependency_graph(&mut self) -> PsqlpackResult<()> {
-
         let mut graph = DependencyGraph::new();
 
         // Go through and add each object and add it to the graph
@@ -577,13 +574,11 @@ impl Project {
     }
 
     fn validate(&self) -> PsqlpackResult<()> {
-
         // TODO: Validate references etc
         Ok(())
     }
 
     fn generate_changeset(&self, connection: &Connection, publish_profile: PublishProfile) -> PsqlpackResult<Vec<ChangeInstruction>> {
-
         // Start the changeset
         let mut changeset = Vec::new();
 
@@ -767,7 +762,6 @@ impl Project {
 #[allow(dead_code)]
 #[derive(Serialize)]
 enum ChangeInstruction<'input> {
-
     // Databases
     DropDatabase(String),
     CreateDatabase(String),
