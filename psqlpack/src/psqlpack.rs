@@ -69,7 +69,7 @@ pub struct Psqlpack;
 impl Psqlpack {
     pub fn package_project(project_path: &Path, output_path: &Path) -> PsqlpackResult<()> {
         // Load the project config
-        let project_config : ProjectConfig =
+        let project : Project =
             File::open(project_path)
             .chain_err(|| PsqlpackErrorKind::ProjectReadError(project_path.to_path_buf()))
             .and_then(|file| {
@@ -87,12 +87,12 @@ impl Psqlpack {
         };
 
         let mut predeploy_paths = Vec::new();
-        for script in &project_config.pre_deploy_scripts {
+        for script in &project.pre_deploy_scripts {
             predeploy_paths.push(make_path(script)?);
         }
 
         let mut postdeploy_paths = Vec::new();
-        for script in &project_config.post_deploy_scripts {
+        for script in &project.post_deploy_scripts {
             postdeploy_paths.push(make_path(script)?);
         }
 
@@ -172,7 +172,7 @@ impl Psqlpack {
         }
 
         // Update any missing defaults, create a dependency graph and then try to validate the project
-        package.set_defaults(&project_config);
+        package.set_defaults(&project);
         try!(package.generate_dependency_graph());
         try!(package.validate());
 
@@ -450,7 +450,7 @@ impl GenerateDependencyGraph for TableConstraint {
 }
 
 #[derive(Deserialize)]
-struct ProjectConfig {
+struct Project {
     version: String,
     #[serde(rename = "defaultSchema")]
     default_schema: String,
@@ -516,7 +516,7 @@ impl Package {
         self.types.push(def);
     }
 
-    fn set_defaults(&mut self, config: &ProjectConfig) {
+    fn set_defaults(&mut self, project: &Project) {
         // Make sure the public schema exists
         let mut has_public = false;
         for schema in &mut self.schemas {
@@ -532,13 +532,13 @@ impl Package {
         // Set default schema's
         for table in &mut self.tables {
             if table.name.schema.is_none() {
-                table.name.schema = Some(config.default_schema.clone());
+                table.name.schema = Some(project.default_schema.clone());
             }
             if let Some(ref mut constraints) = table.constraints {
                 for constraint in constraints.iter_mut() {
                     if let TableConstraint::Foreign { ref mut ref_table, .. } = *constraint {
                         if ref_table.schema.is_none() {
-                            ref_table.schema = Some(config.default_schema.clone());
+                            ref_table.schema = Some(project.default_schema.clone());
                         }
                     }
                 }
