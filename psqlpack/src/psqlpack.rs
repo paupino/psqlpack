@@ -12,6 +12,7 @@ use zip::write::FileOptions;
 
 use ast::*;
 use connection::Connection;
+use profiles::PublishProfile;
 use errors::*;
 use graph::{DependencyGraph,Edge,Node,ValidationResult as DependencyGraphValidationResult};
 use lexer;
@@ -214,7 +215,7 @@ impl Psqlpack {
     pub fn publish(source_project_file: &Path, target_connection_string: String, publish_profile: &Path) -> PsqlpackResult<()> {
 
         let project = try!(Psqlpack::load_project(source_project_file));
-        let publish_profile = try!(Psqlpack::load_publish_profile(publish_profile));
+        let publish_profile = PublishProfile::from_path(publish_profile)?;
         let connection = try!(target_connection_string.parse());
 
         // Now we generate our instructions
@@ -242,7 +243,7 @@ impl Psqlpack {
     pub fn generate_sql(source_project_file: &Path, target_connection_string: String, publish_profile: &Path, output_file: &Path) -> PsqlpackResult<()> {
 
         let project = try!(Psqlpack::load_project(source_project_file));
-        let publish_profile = try!(Psqlpack::load_publish_profile(publish_profile));
+        let publish_profile = PublishProfile::from_path(publish_profile)?;
         let connection = try!(target_connection_string.parse());
 
         // Now we generate our instructions
@@ -273,7 +274,7 @@ impl Psqlpack {
     pub fn generate_report(source_project_file: &Path, target_connection_string: String, publish_profile: &Path, output_file: &Path) -> PsqlpackResult<()> {
 
         let project = try!(Psqlpack::load_project(source_project_file));
-        let publish_profile = try!(Psqlpack::load_publish_profile(publish_profile));
+        let publish_profile = PublishProfile::from_path(publish_profile)?;
         let connection = try!(target_connection_string.parse());
 
         // Now we generate our instructions
@@ -360,15 +361,6 @@ impl Psqlpack {
             tables: tables,
             types: types,
             order: order,
-        })
-    }
-
-    fn load_publish_profile(publish_profile: &Path) -> PsqlpackResult<PublishProfile> {
-        File::open(publish_profile)
-        .chain_err(|| PsqlpackErrorKind::PublishProfileReadError(publish_profile.to_path_buf()))
-        .and_then(|file| {
-            serde_json::from_reader(file)
-            .chain_err(|| PsqlpackErrorKind::PublishProfileParseError(publish_profile.to_path_buf()))
         })
     }
 }
@@ -770,13 +762,6 @@ impl Project {
         }
         Ok(changeset)
     }
-}
-
-#[derive(Deserialize)]
-struct PublishProfile {
-    version: String,
-    #[serde(rename = "alwaysRecreateDatabase")]
-    always_recreate_database: bool,
 }
 
 #[allow(dead_code)]

@@ -18,6 +18,7 @@ extern crate zip;
 mod ast;
 mod errors;
 mod connection;
+mod profiles;
 mod psqlpack;
 mod graph;
 mod lexer;
