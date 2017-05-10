@@ -13,6 +13,7 @@ use zip::write::FileOptions;
 use ast::*;
 use connection::Connection;
 use profiles::PublishProfile;
+use project::Project;
 use errors::*;
 use graph::{DependencyGraph,Edge,Node,ValidationResult as DependencyGraphValidationResult};
 use lexer;
@@ -68,14 +69,8 @@ pub struct Psqlpack;
 
 impl Psqlpack {
     pub fn package_project(project_path: &Path, output_path: &Path) -> PsqlpackResult<()> {
-        // Load the project config
-        let project : Project =
-            File::open(project_path)
-            .chain_err(|| PsqlpackErrorKind::ProjectReadError(project_path.to_path_buf()))
-            .and_then(|file| {
-                serde_json::from_reader(file)
-                .chain_err(|| PsqlpackErrorKind::ProjectParseError(project_path.to_path_buf()))
-            })?;
+        // Load the project
+        let project = Project::from_path(project_path)?;
 
         // Turn the pre/post into paths to quickly check
         let parent = project_path.parent().unwrap();
@@ -447,17 +442,6 @@ impl GenerateDependencyGraph for TableConstraint {
             },
         }
     }
-}
-
-#[derive(Deserialize)]
-struct Project {
-    version: String,
-    #[serde(rename = "defaultSchema")]
-    default_schema: String,
-    #[serde(rename = "preDeployScripts")]
-    pre_deploy_scripts: Vec<String>,
-    #[serde(rename = "postDeployScripts")]
-    post_deploy_scripts: Vec<String>,
 }
 
 enum DbObject<'a> {

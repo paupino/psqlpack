@@ -19,6 +19,7 @@ mod ast;
 mod errors;
 mod connection;
 mod profiles;
+mod project;
 mod psqlpack;
 mod graph;
 mod lexer;
