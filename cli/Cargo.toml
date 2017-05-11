@@ -1,8 +1,11 @@
 [package]
-name = "psqlpackage"
+name = "psqlpack-cli"
 version = "0.1.0"
 authors = ["Paul Mason <paul@form1.co.nz>"]
 
+[[bin]]
+name = "psqlpack"
+
 [dependencies]
 clap = "2.20.5"
-pg-dacpac = { path = "../dacpac/" }
+psqlpack = { path = "../psqlpack/" }
