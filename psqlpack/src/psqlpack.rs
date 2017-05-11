@@ -1,4 +1,3 @@
-use std::ascii::AsciiExt;
 use std::fmt;
 use std::fs::{self,File};
 use std::io::Read;
@@ -7,26 +6,16 @@ use std::path::Path;
 
 use serde_json;
 use walkdir::WalkDir;
-use zip::{ZipArchive,ZipWriter};
-use zip::write::FileOptions;
 
 use ast::*;
 use connection::Connection;
 use profiles::PublishProfile;
 use project::Project;
+use package::Package;
 use errors::*;
-use graph::{DependencyGraph,Edge,Node,ValidationResult as DependencyGraphValidationResult};
+use graph::Node;
 use lexer;
 use sql;
-
-macro_rules! ztry {
-    ($expr:expr) => {{
-        match $expr {
-            Ok(_) => {},
-            Err(e) => bail!(PsqlpackErrorKind::GenerationError(format!("Failed to write package: {}", e))),
-        }
-    }};
-}
 
 macro_rules! dbtry {
     ($expr:expr) => {
@@ -35,21 +24,6 @@ macro_rules! dbtry {
             Err(e) => bail!(PsqlpackErrorKind::DatabaseError(format!("{}", e))),
         }
     };
-}
-
-macro_rules! zip_collection {
-    ($zip:ident, $package:ident, $collection:ident) => {{
-        let collection_name = stringify!($collection);
-        ztry!($zip.add_directory(format!("{}/", collection_name), FileOptions::default()));
-        for item in $package.$collection {
-            ztry!($zip.start_file(format!("{}/{}.json", collection_name, item.name), FileOptions::default()));
-            let json = match serde_json::to_string_pretty(&item) {
-                Ok(j) => j,
-                Err(e) => bail!(PsqlpackErrorKind::GenerationError(format!("Failed to write package: {}", e))),
-            };
-            ztry!($zip.write_all(json.as_bytes()));
-        }
-    }};
 }
 
 static Q_DATABASE_EXISTS : &'static str = "SELECT 1 FROM pg_database WHERE datname=$1;";
@@ -179,42 +153,16 @@ impl Psqlpack {
             }
         }
 
-        let output_file = match File::create(&output_path) {
-            Ok(f) => f,
-            Err(e) => bail!(PsqlpackErrorKind::GenerationError(format!("Failed to write package: {}", e)))
-        };
-        let mut zip = ZipWriter::new(output_file);
-
-        zip_collection!(zip, package, extensions);
-        zip_collection!(zip, package, functions);
-        zip_collection!(zip, package, schemas);
-        zip_collection!(zip, package, scripts);
-        zip_collection!(zip, package, tables);
-        zip_collection!(zip, package, types);
-
-        // Also, do the order if we have it defined
-        if let Some(order) = package.order {
-            ztry!(zip.start_file("order.json", FileOptions::default()));
-            let json = match serde_json::to_string_pretty(&order) {
-                Ok(j) => j,
-                Err(e) => bail!(PsqlpackErrorKind::GenerationError(format!("Failed to write package: {}", e))),
-            };
-            ztry!(zip.write_all(json.as_bytes()));
-        }
-
-        ztry!(zip.finish());
-
-        Ok(())
+        package.write_to(&output_path)
     }
 
     pub fn publish(source_package_path: &Path, target_connection_string: String, publish_profile: &Path) -> PsqlpackResult<()> {
-
-        let package = try!(Psqlpack::load_package(source_package_path));
+        let package = Package::from_path(source_package_path)?;
         let publish_profile = PublishProfile::from_path(publish_profile)?;
-        let connection = try!(target_connection_string.parse());
+        let connection = target_connection_string.parse()?;
 
         // Now we generate our instructions
-        let changeset = package.generate_changeset(&connection, publish_profile)?;
+        let changeset = Psqlpack::generate_changeset(&package, &connection, publish_profile)?;
 
         // These instructions turn into SQL statements that get executed
         let mut conn = dbtry!(connection.connect_host());
@@ -236,13 +184,12 @@ impl Psqlpack {
     }
 
     pub fn generate_sql(source_package_path: &Path, target_connection_string: String, publish_profile: &Path, output_file: &Path) -> PsqlpackResult<()> {
-
-        let package = try!(Psqlpack::load_package(source_package_path));
+        let package = Package::from_path(source_package_path)?;
         let publish_profile = PublishProfile::from_path(publish_profile)?;
-        let connection = try!(target_connection_string.parse());
+        let connection = target_connection_string.parse()?;
 
         // Now we generate our instructions
-        let changeset = package.generate_changeset(&connection, publish_profile)?;
+        let changeset = Psqlpack::generate_changeset(&package, &connection, publish_profile)?;
 
         // These instructions turn into a single SQL file
         let mut out = match File::create(output_file) {
@@ -267,13 +214,12 @@ impl Psqlpack {
     }
 
     pub fn generate_report(source_package_path: &Path, target_connection_string: String, publish_profile: &Path, output_file: &Path) -> PsqlpackResult<()> {
-
-        let package = try!(Psqlpack::load_package(source_package_path));
+        let package = Package::from_path(source_package_path)?;
         let publish_profile = PublishProfile::from_path(publish_profile)?;
-        let connection = try!(target_connection_string.parse());
+        let connection = target_connection_string.parse()?;
 
         // Now we generate our instructions
-        let changeset = package.generate_changeset(&connection, publish_profile)?;
+        let changeset = Psqlpack::generate_changeset(&package, &connection, publish_profile)?;
 
         // These instructions turn into a JSON report
         let json = match serde_json::to_string_pretty(&changeset) {
@@ -293,276 +239,7 @@ impl Psqlpack {
         Ok(())
     }
 
-    fn load_package(source_path: &Path) -> PsqlpackResult<Package> {
-        let mut archive =
-            File::open(&source_path)
-            .chain_err(|| PsqlpackErrorKind::PackageReadError(source_path.to_path_buf()))
-            .and_then(|file| {
-                ZipArchive::new(file)
-                .chain_err(|| PsqlpackErrorKind::PackageUnarchiveError(source_path.to_path_buf()))
-            })?;
-
-        let mut extensions = Vec::new();
-        let mut functions = Vec::new();
-        let mut schemas = Vec::new();
-        let mut scripts = Vec::new();
-        let mut tables = Vec::new();
-        let mut types = Vec::new();
-        let mut order = None;
-
-        for i in 0..archive.len()
-        {
-            let mut file = archive.by_index(i).unwrap();
-            if file.size() == 0 {
-                continue;
-            }
-            let name = file.name().to_owned();
-            if name.starts_with("extensions/") {
-                extensions.push(
-                    serde_json::from_reader(file)
-                    .chain_err(|| PsqlpackErrorKind::PackageInternalReadError(name))?);
-            } else if name.starts_with("functions/") {
-                functions.push(
-                    serde_json::from_reader(file)
-                    .chain_err(|| PsqlpackErrorKind::PackageInternalReadError(name))?);
-            } else if name.starts_with("schemas/") {
-                schemas.push(
-                    serde_json::from_reader(file)
-                    .chain_err(|| PsqlpackErrorKind::PackageInternalReadError(name))?);
-            } else if name.starts_with("scripts/") {
-                scripts.push(
-                    serde_json::from_reader(file)
-                    .chain_err(|| PsqlpackErrorKind::PackageInternalReadError(name))?);
-            } else if name.starts_with("tables/") {
-                tables.push(
-                    serde_json::from_reader(file)
-                    .chain_err(|| PsqlpackErrorKind::PackageInternalReadError(name))?);
-            } else if name.starts_with("types/") {
-                types.push(
-                    serde_json::from_reader(file)
-                    .chain_err(|| PsqlpackErrorKind::PackageInternalReadError(name))?);
-            } else if name.eq("order.json") {
-                order = Some(
-                    serde_json::from_reader(file)
-                    .chain_err(|| PsqlpackErrorKind::PackageInternalReadError(name))?);
-            }
-        }
-
-        Ok(Package {
-            extensions: extensions,
-            functions: functions,
-            schemas: schemas,
-            scripts: scripts,
-            tables: tables,
-            types: types,
-            order: order,
-        })
-    }
-}
-
-trait GenerateDependencyGraph {
-    fn generate_dependencies(&self, graph:&mut DependencyGraph, parent:Option<String>) -> Node;
-}
-
-impl GenerateDependencyGraph for TableDefinition {
-    fn generate_dependencies(&self, graph:&mut DependencyGraph, _:Option<String>) -> Node {
-        // Table is dependent on a schema, so add the edge
-        // It will not have a parent - the schema is embedded in the name
-        let full_name = self.name.to_string();
-        let table_node = Node::Table(full_name.clone());
-        graph.add_node(&table_node);
-        for column in &self.columns {
-            // Column doesn't know that it's dependent on this table so add it here
-            let col_node = column.generate_dependencies(graph, Some(full_name.clone()));
-            graph.add_edge(&col_node, Edge::new(&table_node, 1.0));
-        }
-        match self.constraints {
-            Some(ref table_constaints) => {
-                for constraint in table_constaints {
-                    let table_constraint_node = constraint.generate_dependencies(graph, Some(full_name.clone()));
-                    graph.add_edge(&table_constraint_node, Edge::new(&table_node, 1.0));
-                }
-            },
-            None => {}
-        }
-        table_node
-    }
-}
-
-impl GenerateDependencyGraph for ColumnDefinition {
-    fn generate_dependencies(&self, graph:&mut DependencyGraph, parent:Option<String>) -> Node {
-        // Column does have a parent - namely the table
-        let column_node = Node::Column(format!("{}.{}", parent.unwrap(), self.name));
-        graph.add_node(&column_node);
-        column_node
-    }
-}
-
-impl GenerateDependencyGraph for FunctionDefinition {
-    fn generate_dependencies(&self, graph:&mut DependencyGraph, _:Option<String>) -> Node {
-        // Function is dependent on a schema, so add the edge
-        // It will not have a parent - the schema is embedded in the name
-        let function_node = Node::Function(self.name.to_string());
-        graph.add_node(&function_node);
-        function_node
-    }
-}
-
-impl GenerateDependencyGraph for TableConstraint {
-    fn generate_dependencies(&self, graph:&mut DependencyGraph, parent:Option<String>) -> Node {
-        // We currently have two types of table constraints: Primary and Foreign
-        // Primary is easy with a direct dependency to the column
-        // Foreign requires a weighted dependency
-        // This does have a parent - namely the table
-        let table = parent.unwrap();
-        match *self {
-            TableConstraint::Primary { ref name, ref columns, .. } => {
-                // Primary relies on the columns existing (of course)
-                let node = Node::Constraint(format!("{}.{}", table.clone(), name));
-                graph.add_node(&node);
-                for column in columns {
-                    graph.add_edge(&node, Edge::new(&Node::Column(format!("{}.{}", table.clone(), column)), 1.0));
-                }
-                node
-            },
-            TableConstraint::Foreign { ref name, ref columns, ref ref_table, ref ref_columns, .. } => {
-                // Foreign has two types of edges
-                let node = Node::Constraint(format!("{}.{}", table.clone(), name));
-                graph.add_node(&node);
-                for column in columns {
-                    graph.add_edge(&node, Edge::new(&Node::Column(format!("{}.{}", table.clone(), column)), 1.0));
-                }
-                for column in ref_columns {
-                    graph.add_edge(&node, Edge::new(
-                        &Node::Column(
-                            format!("{}.{}", ref_table.to_string(), column)
-                            ), 1.1));
-                }
-                node
-            },
-        }
-    }
-}
-
-enum DbObject<'a> {
-    Extension(&'a ExtensionDefinition), // 2
-    Function(&'a FunctionDefinition), // 6 (ordered)
-    Schema(&'a SchemaDefinition), // 3
-    Script(&'a ScriptDefinition), // 1, 7
-    Table(&'a TableDefinition), // 5 (ordered)
-    Type(&'a TypeDefinition), // 4
-}
-
-struct Package {
-    extensions: Vec<ExtensionDefinition>,
-    functions: Vec<FunctionDefinition>,
-    schemas: Vec<SchemaDefinition>,
-    scripts: Vec<ScriptDefinition>,
-    tables: Vec<TableDefinition>,
-    types: Vec<TypeDefinition>,
-    order: Option<Vec<Node>>,
-}
-
-impl Package {
-    fn new() -> Self {
-        Package {
-            extensions: Vec::new(),
-            functions: Vec::new(),
-            schemas: Vec::new(),
-            scripts: Vec::new(),
-            tables: Vec::new(),
-            types: Vec::new(),
-            order: None,
-        }
-    }
-
-    fn push_extension(&mut self, extension: ExtensionDefinition) {
-        self.extensions.push(extension);
-    }
-
-    fn push_function(&mut self, function: FunctionDefinition) {
-        self.functions.push(function);
-    }
-
-    fn push_script(&mut self, script: ScriptDefinition) {
-        self.scripts.push(script);
-    }
-
-    fn push_schema(&mut self, schema: SchemaDefinition) {
-        self.schemas.push(schema);
-    }
-
-    fn push_table(&mut self, table: TableDefinition) {
-        self.tables.push(table);
-    }
-
-    fn push_type(&mut self, def: TypeDefinition) {
-        self.types.push(def);
-    }
-
-    fn set_defaults(&mut self, project: &Project) {
-        // Make sure the public schema exists
-        let mut has_public = false;
-        for schema in &mut self.schemas {
-            if "public".eq_ignore_ascii_case(&schema.name[..]) {
-                has_public = true;
-                break;
-            }
-        }
-        if !has_public {
-            self.schemas.push(SchemaDefinition { name: "public".to_owned() });
-        }
-
-        // Set default schema's
-        for table in &mut self.tables {
-            if table.name.schema.is_none() {
-                table.name.schema = Some(project.default_schema.clone());
-            }
-            if let Some(ref mut constraints) = table.constraints {
-                for constraint in constraints.iter_mut() {
-                    if let TableConstraint::Foreign { ref mut ref_table, .. } = *constraint {
-                        if ref_table.schema.is_none() {
-                            ref_table.schema = Some(project.default_schema.clone());
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    fn generate_dependency_graph(&mut self) -> PsqlpackResult<()> {
-        let mut graph = DependencyGraph::new();
-
-        // Go through and add each object and add it to the graph
-        // Extensions, schemas and types are always implied
-        for table in &self.tables {
-            table.generate_dependencies(&mut graph, None);
-        }
-        for function in &self.functions {
-            function.generate_dependencies(&mut graph, None);
-        }
-
-        // Make sure it's valid first up
-        match graph.validate() {
-            DependencyGraphValidationResult::Valid => {},
-            DependencyGraphValidationResult::CircularReference => bail!(PsqlpackErrorKind::GenerationError("Circular reference detected".to_owned())),
-            // TODO: List out unresolved references
-            DependencyGraphValidationResult::UnresolvedDependencies => bail!(PsqlpackErrorKind::GenerationError("Unresolved dependencies detected".to_owned())),
-        }
-
-        // Then generate the order
-        let order = graph.topological_sort();
-        // Should we also add schema etc in there? Not really necessary...
-        self.order = Some(order);
-        Ok(())
-    }
-
-    fn validate(&self) -> PsqlpackResult<()> {
-        // TODO: Validate references etc
-        Ok(())
-    }
-
-    fn generate_changeset(&self, connection: &Connection, publish_profile: PublishProfile) -> PsqlpackResult<Vec<ChangeInstruction>> {
+    fn generate_changeset<'package>(package: &'package Package, connection: &Connection, publish_profile: PublishProfile) -> PsqlpackResult<Vec<ChangeInstruction<'package>>> {
         // Start the changeset
         let mut changeset = Vec::new();
 
@@ -570,43 +247,43 @@ impl Package {
         let mut build_order = Vec::new();
 
         // Pre deployment scripts
-        for script in &self.scripts {
+        for script in &package.scripts {
             if script.kind == ScriptKind::PreDeployment {
                 build_order.push(DbObject::Script(script));
             }
         }
 
         // Extensions
-        for extension in &self.extensions {
+        for extension in &package.extensions {
             build_order.push(DbObject::Extension(extension));
         }
 
         // Schemas
-        for schema in &self.schemas {
+        for schema in &package.schemas {
             build_order.push(DbObject::Schema(schema));
         }
 
         // Types
-        for t in &self.types {
+        for t in &package.types {
             build_order.push(DbObject::Type(t));
         }
 
         // Now add everything else per the topological sort
-        if let Some(ref ordered_items) = self.order {
+        if let Some(ref ordered_items) = package.order {
             for item in ordered_items {
                 // Not the most efficient algorithm, perhaps something to cleanup
                 match *item {
                     Node::Column(_) => { /* Necessary for ordering however unused here for now */ },
                     Node::Constraint(_) => { /* Necessary for ordering however unused here for now */ },
                     Node::Function(ref name) => {
-                        if let Some(function) = self.functions.iter().find(|x| x.name.to_string() == *name) {
+                        if let Some(function) = package.functions.iter().find(|x| x.name.to_string() == *name) {
                             build_order.push(DbObject::Function(function));
                         } else {
                             // Warning?
                         }
                     },
                     Node::Table(ref name) => {
-                        if let Some(table) = self.tables.iter().find(|x| x.name.to_string() == *name) {
+                        if let Some(table) = package.tables.iter().find(|x| x.name.to_string() == *name) {
                             build_order.push(DbObject::Table(table));
                         } else {
                             // Warning?
@@ -619,7 +296,7 @@ impl Package {
         }
 
         // Add in post deployment scripts
-        for script in &self.scripts {
+        for script in &package.scripts {
             if script.kind == ScriptKind::PostDeployment {
                 build_order.push(DbObject::Script(script));
             }
@@ -741,6 +418,15 @@ impl Package {
         }
         Ok(changeset)
     }
+}
+
+enum DbObject<'a> {
+    Extension(&'a ExtensionDefinition), // 2
+    Function(&'a FunctionDefinition), // 6 (ordered)
+    Schema(&'a SchemaDefinition), // 3
+    Script(&'a ScriptDefinition), // 1, 7
+    Table(&'a TableDefinition), // 5 (ordered)
+    Type(&'a TypeDefinition), // 4
 }
 
 #[allow(dead_code)]

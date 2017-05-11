@@ -20,6 +20,7 @@ mod errors;
 mod connection;
 mod profiles;
 mod project;
+mod package;
 mod psqlpack;
 mod graph;
 mod lexer;
