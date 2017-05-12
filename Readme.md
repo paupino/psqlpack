@@ -180,9 +180,9 @@ A full profile which drops objects such as functions but not tables:
 ```
 
 
-## psqlpack project structure
+## psqlpack package structure
 
-The psqlpack project structure is not the same as the Microsoft equivalent. Fundamentally, it's a zip file which contains the parsed project within `psqlpack` serialized files. These are conveniently configured within folders:
+The psqlpack package structure is not the same as the Microsoft equivalent. Fundamentally, it's a zip file which contains the packaged project within `psqlpack` serialized files. These are conveniently configured within folders:
 
 * `extensions`: PostgreSQL extension statements.
 * `functions`: All function definitions.
