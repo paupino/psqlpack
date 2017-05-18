@@ -110,8 +110,9 @@ impl DependencyGraph {
         false
     }
 
+    #[cfg(test)]
     pub fn unresolved(&self) -> Vec<Node> {
-        self.unresolved.iter().map(|x| x.clone()).collect()
+        self.unresolved.iter().cloned().collect()
     }
 
     pub fn topological_sort(&self) -> Vec<Node> {
@@ -147,7 +148,7 @@ impl DependencyGraph {
         let mut ordered = Vec::new();
         while !weighted_graph.is_empty() {
             for &(ref node, ..) in &weighted_graph {
-                if let Some(edges) = self.edges.get(&node) {
+                if let Some(edges) = self.edges.get(node) {
                     if edges.is_empty() {
                         ordered.push(node.clone());
                     } else {
@@ -164,7 +165,7 @@ impl DependencyGraph {
                     }
                 }
             }
-            weighted_graph.retain(|ref x| !ordered.contains(&x.0));
+            weighted_graph.retain(|x| !ordered.contains(&x.0));
         }
         ordered
     }
@@ -174,7 +175,7 @@ impl DependencyGraph {
             for edge in edges {
                 let new_weight = edge.weight * weight;
                 if let Some(x) = table.get_mut(&edge.node) {
-                    *x = *x * new_weight;
+                    *x *= new_weight;
                 }
                 self.calculate_weight(table, &edge.node, new_weight);
             }
@@ -182,127 +183,132 @@ impl DependencyGraph {
     }
 }
 
-#[test]
-#[should_panic]
-fn it_panics_if_adding_a_duplicate_node() {
-    let mut graph = DependencyGraph::new();
-    let table = Node::Table("public.users".to_owned());
-    graph.add_node(&table);
-    // Clone just in case
-    graph.add_node(&table.clone());
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-#[test]
-#[should_panic]
-fn it_panics_if_adding_a_dependency_to_a_node_that_doesnt_exist() {
-    let mut graph = DependencyGraph::new();
-    let table_org = Node::Table("public.org".to_owned());
-    let col_id = Node::Column("public.org.id".to_owned());
-    graph.add_node(&table_org);
-    graph.add_edge(&col_id, Edge::new(&table_org, 1.0));
-}
+    #[test]
+    #[should_panic]
+    fn it_panics_if_adding_a_duplicate_node() {
+        let mut graph = DependencyGraph::new();
+        let table = Node::Table("public.users".to_owned());
+        graph.add_node(&table);
+        // Clone just in case
+        graph.add_node(&table.clone());
+    }
 
-#[test]
-fn it_tracks_dependencies() {
-    let mut graph = DependencyGraph::new();
-    let table_user = Node::Table("public.user".to_owned());
-    let col_id = Node::Column("public.user.id".to_owned());
-    let col_name = Node::Column("public.user.name".to_owned());
-    graph.add_node(&col_id);
-    graph.add_node(&col_name);
-    assert_eq!(ValidationResult::Valid, graph.validate());
-    graph.add_edge(&col_id, Edge::new(&table_user, 1.0));
-    graph.add_edge(&col_name, Edge::new(&table_user, 1.0));
-    assert_eq!(ValidationResult::UnresolvedDependencies, graph.validate());
-    let unresolved = graph.unresolved();
-    assert_eq!(1, unresolved.len());
-    assert_eq!(Node::Table("public.user".to_owned()), unresolved[0]);
+    #[test]
+    #[should_panic]
+    fn it_panics_if_adding_a_dependency_to_a_node_that_doesnt_exist() {
+        let mut graph = DependencyGraph::new();
+        let table_org = Node::Table("public.org".to_owned());
+        let col_id = Node::Column("public.org.id".to_owned());
+        graph.add_node(&table_org);
+        graph.add_edge(&col_id, Edge::new(&table_org, 1.0));
+    }
 
-    graph.add_node(&table_user);
-    assert_eq!(ValidationResult::Valid, graph.validate());
-}
+    #[test]
+    fn it_tracks_dependencies() {
+        let mut graph = DependencyGraph::new();
+        let table_user = Node::Table("public.user".to_owned());
+        let col_id = Node::Column("public.user.id".to_owned());
+        let col_name = Node::Column("public.user.name".to_owned());
+        graph.add_node(&col_id);
+        graph.add_node(&col_name);
+        assert_eq!(ValidationResult::Valid, graph.validate());
+        graph.add_edge(&col_id, Edge::new(&table_user, 1.0));
+        graph.add_edge(&col_name, Edge::new(&table_user, 1.0));
+        assert_eq!(ValidationResult::UnresolvedDependencies, graph.validate());
+        let unresolved = graph.unresolved();
+        assert_eq!(1, unresolved.len());
+        assert_eq!(Node::Table("public.user".to_owned()), unresolved[0]);
 
-#[test]
-fn it_detects_circular_dependencies() {
-    let mut graph = DependencyGraph::new();
-    let table_user = Node::Table("public.user".to_owned());
-    let col_id = Node::Column("public.user.id".to_owned());
-    let col_name = Node::Column("public.user.name".to_owned());
-    graph.add_node(&table_user);
-    graph.add_node(&col_id);
-    graph.add_node(&col_name);
-    graph.add_edge(&col_id, Edge::new(&table_user, 1.0));
-    graph.add_edge(&col_name, Edge::new(&table_user, 1.0));
-    // Not realistic, but testing circular references nevertheless
-    graph.add_edge(&col_id, Edge::new(&col_name, 1.0));
-    graph.add_edge(&col_name, Edge::new(&col_id, 1.0));
-    assert_eq!(ValidationResult::CircularReference, graph.validate());
-}
+        graph.add_node(&table_user);
+        assert_eq!(ValidationResult::Valid, graph.validate());
+    }
 
-#[test]
-fn it_can_output_a_topological_sort() {
-    let mut graph = DependencyGraph::new();
-    // This is a more complex test. It represents the following structures:
-    //    CREATE TABLE data.versions(
-    //        id serial NOT NULL
-    //    );
-    //    CREATE TABLE data.coefficients(
-    //        id serial NOT NULL,
-    //        version_id int NOT NULL,
-    //        CONSTRAINT fk_coefficients__version_id FOREIGN KEY (version_id)
-    //          REFERENCES data.versions (id) MATCH SIMPLE
-    //          ON UPDATE NO ACTION ON DELETE NO ACTION
-    //    );
-    let table_versions = Node::Table("data.versions".to_owned());
-    let table_coefficients = Node::Table("data.coefficients".to_owned());
-    let column_versions_id = Node::Column("data.versions.id".to_owned());
-    let column_coefficients_id = Node::Column("data.coefficients.id".to_owned());
-    let column_coefficients_version_id = Node::Column("data.coefficients.version_id".to_owned());
-    let constraint_coefficients_version_id = Node::Constraint("data.coefficients.fk_coefficients__version_id".to_owned());
+    #[test]
+    fn it_detects_circular_dependencies() {
+        let mut graph = DependencyGraph::new();
+        let table_user = Node::Table("public.user".to_owned());
+        let col_id = Node::Column("public.user.id".to_owned());
+        let col_name = Node::Column("public.user.name".to_owned());
+        graph.add_node(&table_user);
+        graph.add_node(&col_id);
+        graph.add_node(&col_name);
+        graph.add_edge(&col_id, Edge::new(&table_user, 1.0));
+        graph.add_edge(&col_name, Edge::new(&table_user, 1.0));
+        // Not realistic, but testing circular references nevertheless
+        graph.add_edge(&col_id, Edge::new(&col_name, 1.0));
+        graph.add_edge(&col_name, Edge::new(&col_id, 1.0));
+        assert_eq!(ValidationResult::CircularReference, graph.validate());
+    }
 
-    // Note: We do this in an unordered way purposely
+    #[test]
+    fn it_can_output_a_topological_sort() {
+        let mut graph = DependencyGraph::new();
+        // This is a more complex test. It represents the following structures:
+        //    CREATE TABLE data.versions(
+        //        id serial NOT NULL
+        //    );
+        //    CREATE TABLE data.coefficients(
+        //        id serial NOT NULL,
+        //        version_id int NOT NULL,
+        //        CONSTRAINT fk_coefficients__version_id FOREIGN KEY (version_id)
+        //          REFERENCES data.versions (id) MATCH SIMPLE
+        //          ON UPDATE NO ACTION ON DELETE NO ACTION
+        //    );
+        let table_versions = Node::Table("data.versions".to_owned());
+        let table_coefficients = Node::Table("data.coefficients".to_owned());
+        let column_versions_id = Node::Column("data.versions.id".to_owned());
+        let column_coefficients_id = Node::Column("data.coefficients.id".to_owned());
+        let column_coefficients_version_id = Node::Column("data.coefficients.version_id".to_owned());
+        let constraint_coefficients_version_id = Node::Constraint("data.coefficients.fk_coefficients__version_id".to_owned());
 
-    // Coefficients table
-    graph.add_node(&table_coefficients);
-    // Add each column for this table, each column needs the table to exist
-    graph.add_node_with_edges(&column_coefficients_id, vec!(
-        Edge::new(&table_coefficients, 1.0)
-        ));
-    graph.add_node_with_edges(&column_coefficients_version_id, vec!(
-        Edge::new(&table_coefficients, 1.0)
-        ));
-    // Add constraint - the constraint needs the columns created
-    graph.add_node_with_edges(&constraint_coefficients_version_id, vec!(
-        Edge::new(&column_coefficients_version_id, 1.0), // FK
-        Edge::new(&column_versions_id, 1.1), // Reference
-        ));
+        // Note: We do this in an unordered way purposely
 
-    // Versions table
-    graph.add_node(&table_versions);
-    // The column needs the table
-    graph.add_node_with_edges(&column_versions_id, vec!(
-        Edge::new(&table_versions, 1.0)
-        ));
+        // Coefficients table
+        graph.add_node(&table_coefficients);
+        // Add each column for this table, each column needs the table to exist
+        graph.add_node_with_edges(&column_coefficients_id, vec!(
+            Edge::new(&table_coefficients, 1.0)
+            ));
+        graph.add_node_with_edges(&column_coefficients_version_id, vec!(
+            Edge::new(&table_coefficients, 1.0)
+            ));
+        // Add constraint - the constraint needs the columns created
+        graph.add_node_with_edges(&constraint_coefficients_version_id, vec!(
+            Edge::new(&column_coefficients_version_id, 1.0), // FK
+            Edge::new(&column_versions_id, 1.1), // Reference
+            ));
 
-    // Now, let's validate to make sure it's a valid graph
-    assert_eq!(ValidationResult::Valid, graph.validate());
+        // Versions table
+        graph.add_node(&table_versions);
+        // The column needs the table
+        graph.add_node_with_edges(&column_versions_id, vec!(
+            Edge::new(&table_versions, 1.0)
+            ));
 
-    // Now, order it.
-    let ordered = graph.topological_sort();
+        // Now, let's validate to make sure it's a valid graph
+        assert_eq!(ValidationResult::Valid, graph.validate());
 
-    //TODO: Need to make this edge weighted as a constraint on a table defines that the other table has to exist first
-    // (i.e. versions before coefficient)
-    // The expected order:
-    let expected = [
-        table_versions, // Versions must be first as coefficients has a constraint against it
-        table_coefficients,
-        column_versions_id,
-        column_coefficients_id,
-        column_coefficients_version_id,
-        constraint_coefficients_version_id,
-    ];
-    assert_eq!(expected.len(), ordered.len());
-    for i in 0..expected.len() {
-        assert_eq!(expected[i], ordered[i]);
+        // Now, order it.
+        let ordered = graph.topological_sort();
+
+        //TODO: Need to make this edge weighted as a constraint on a table defines that the other table has to exist first
+        // (i.e. versions before coefficient)
+        // The expected order:
+        let expected = [
+            table_versions, // Versions must be first as coefficients has a constraint against it
+            table_coefficients,
+            column_versions_id,
+            column_coefficients_id,
+            column_coefficients_version_id,
+            constraint_coefficients_version_id,
+        ];
+        assert_eq!(expected.len(), ordered.len());
+        for i in 0..expected.len() {
+            assert_eq!(expected[i], ordered[i]);
+        }
     }
 }

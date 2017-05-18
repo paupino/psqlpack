@@ -151,7 +151,7 @@ impl Psqlpack {
             }
         }
 
-        package.write_to(&output_path)
+        package.write_to(output_path)
     }
 
     pub fn publish(source_package_path: &Path, target_connection_string: String, publish_profile: &Path) -> PsqlpackResult<()> {
@@ -271,8 +271,9 @@ impl Psqlpack {
             for item in ordered_items {
                 // Not the most efficient algorithm, perhaps something to cleanup
                 match *item {
-                    Node::Column(_) => { /* Necessary for ordering however unused here for now */ },
-                    Node::Constraint(_) => { /* Necessary for ordering however unused here for now */ },
+                    Node::Column(_) | Node::Constraint(_) => {
+                        /* Necessary for ordering however unused here for now */
+                    },
                     Node::Function(ref name) => {
                         if let Some(function) = package.functions.iter().find(|x| x.name.to_string() == *name) {
                             build_order.push(DbObject::Function(function));
@@ -324,7 +325,7 @@ impl Psqlpack {
             // Go through each item in order and figure out what to do with it
             for item in &build_order {
                 match *item {
-                    DbObject::Extension(ref extension) => {
+                    DbObject::Extension(extension) => {
                         // Only add the extension if it does not already exist
                         let mut extension_exists = false;
                         for _ in &conn.query(Q_EXTENSION_EXISTS, &[ &extension.name ]).unwrap() {
@@ -335,13 +336,13 @@ impl Psqlpack {
                             changeset.push(ChangeInstruction::AddExtension(extension));
                         }
                     },
-                    DbObject::Function(ref function) => {
+                    DbObject::Function(function) => {
                         // Since we don't really need to worry about this in PG we just
                         // add it as is and rely on CREATE OR REPLACE. In the future, it'd
                         // be good to check the hash or something to only do this when required
                         changeset.push(ChangeInstruction::ModifyFunction(function));
                     },
-                    DbObject::Schema(ref schema) => {
+                    DbObject::Schema(schema) => {
                         // Only add schema's, we do not drop them at this point
                         let mut schema_exists = false;
                         for _ in &conn.query(Q_SCHEMA_EXISTS, &[ &schema.name ]).unwrap() {
@@ -352,10 +353,10 @@ impl Psqlpack {
                             changeset.push(ChangeInstruction::AddSchema(schema));
                         }
                     },
-                    DbObject::Script(ref script) => {
+                    DbObject::Script(script) => {
                         changeset.push(ChangeInstruction::RunScript(script));
                     },
-                    DbObject::Table(ref table) => {
+                    DbObject::Table(table) => {
                         let mut table_exists = false;
                         for _ in &conn.query(Q_TABLE_EXISTS, &[ &table.name.schema, &table.name.name ]).unwrap() {
                             table_exists = true;
@@ -372,7 +373,7 @@ impl Psqlpack {
                             changeset.push(ChangeInstruction::AddTable(table));
                         }
                     },
-                    DbObject::Type(ref t) => {
+                    DbObject::Type(t) => {
                         let mut type_exists = false;
                         for _ in &conn.query(Q_TYPE_EXISTS, &[ &t.name ]).unwrap() {
                             type_exists = true;
@@ -393,22 +394,22 @@ impl Psqlpack {
             // Since this is a new database add everything (in order)
             for item in &build_order {
                 match *item {
-                    DbObject::Extension(ref extension) => {
+                    DbObject::Extension(extension) => {
                         changeset.push(ChangeInstruction::AddExtension(extension));
                     },
-                    DbObject::Function(ref function) => {
+                    DbObject::Function(function) => {
                         changeset.push(ChangeInstruction::AddFunction(function));
                     },
-                    DbObject::Schema(ref schema) => {
+                    DbObject::Schema(schema) => {
                         changeset.push(ChangeInstruction::AddSchema(schema));
                     },
-                    DbObject::Script(ref script) => {
+                    DbObject::Script(script) => {
                         changeset.push(ChangeInstruction::RunScript(script));
                     },
-                    DbObject::Table(ref table) => {
+                    DbObject::Table(table) => {
                         changeset.push(ChangeInstruction::AddTable(table));
                     },
-                    DbObject::Type(ref t) => {
+                    DbObject::Type(t) => {
                         changeset.push(ChangeInstruction::AddType(t));
                     }
                 }
@@ -480,17 +481,17 @@ impl<'input> ChangeInstruction<'input> {
             },
 
             // Extension level
-            ChangeInstruction::AddExtension(ref ext) => {
+            ChangeInstruction::AddExtension(ext) => {
                 format!("CREATE EXTENSION {}", ext.name)
             },
 
             // Schema level
-            ChangeInstruction::AddSchema(ref schema) => {
+            ChangeInstruction::AddSchema(schema) => {
                 format!("CREATE SCHEMA {}", schema.name)
             },
 
             // Type level
-            ChangeInstruction::AddType(ref t) => {
+            ChangeInstruction::AddType(t) => {
                 let mut def = String::new();
                 def.push_str(&format!("CREATE TYPE {} AS ", t.name)[..]);
                 match t.kind {
@@ -515,7 +516,7 @@ impl<'input> ChangeInstruction<'input> {
             },
 
             // Function level
-            ChangeInstruction::AddFunction(ref function) | ChangeInstruction::ModifyFunction(ref function) => {
+            ChangeInstruction::AddFunction(function) | ChangeInstruction::ModifyFunction(function) => {
                 let mut func = String::new();
                 func.push_str(&format!("CREATE OR REPLACE FUNCTION {} (", function.name)[..]);
                 let mut arg_comma_required = false;
