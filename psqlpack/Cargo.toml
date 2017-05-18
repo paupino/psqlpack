@@ -6,9 +6,9 @@ build = "build.rs"
 
 [dependencies]
 error-chain = "0.10"
-lazy_static = "0.1"
-lalrpop-util = "0.12.5"
-log = "0.3.6"
+lazy_static = "0.2"
+lalrpop-util = "0.13"
+log = "0.3"
 postgres = "0.14"
 regex = "0.2"
 serde = "1.0"
@@ -18,4 +18,4 @@ walkdir = "1"
 zip = "0.2"
 
 [build-dependencies]
-lalrpop = "0.12.5"
+lalrpop = "0.13"

@@ -7,5 +7,5 @@ authors = ["Paul Mason <paul@form1.co.nz>"]
 name = "psqlpack"
 
 [dependencies]
-clap = "2.20.5"
+clap = "2.24"
 psqlpack = { path = "../psqlpack/" }
