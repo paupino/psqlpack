@@ -1,6 +1,6 @@
 //! Profiles are configurations that affect how an operation is applied.
 //!
-//! For instance, a PublishProfile might determine how unknown entities in the
+//! For instance, a `PublishProfile` might determine how unknown entities in the
 //! target are handled when performing a `publish` operation.
 
 use std::path::Path;

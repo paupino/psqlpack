@@ -1,5 +1,5 @@
-use ast::*;
-use lexer::{self};
+use sql::ast::*;
+use sql::lexer::{self};
 
 grammar<'input>;
 
@@ -89,7 +89,7 @@ extern {
         WITH => lexer::Token::WITH,
         WITHOUT => lexer::Token::WITHOUT,
         ZONE => lexer::Token::ZONE,
-        
+
         Ident => lexer::Token::Identifier(<String>),
         Digit => lexer::Token::Digit(<i32>),
         Boolean => lexer::Token::Boolean(<bool>),
@@ -192,7 +192,7 @@ function_argument: FunctionArgument = {
     <name:Ident> <t:sql_type> => FunctionArgument {
         name: name,
         sql_type: t,
-    }    
+    }
 };
 
 function_return_type: FunctionReturnType = {
@@ -204,7 +204,7 @@ function_type: FunctionLanguage = {
     C => FunctionLanguage::C,
     INTERNAL => FunctionLanguage::Internal,
     PLPGSQL => FunctionLanguage::PostgreSQL,
-    SQL => FunctionLanguage::SQL,  
+    SQL => FunctionLanguage::SQL,
 };
 
 table_constraint_list: Vec<TableConstraint> = {
@@ -217,19 +217,19 @@ table_constraint_list: Vec<TableConstraint> = {
 };
 
 table_constraint: TableConstraint = {
-    CONSTRAINT <name:Ident> PRIMARY KEY "(" <columns:column_list> ")" <parameters:index_parameters?> => TableConstraint::Primary { 
-        name: name, 
-        columns: columns, 
-        parameters: parameters 
+    CONSTRAINT <name:Ident> PRIMARY KEY "(" <columns:column_list> ")" <parameters:index_parameters?> => TableConstraint::Primary {
+        name: name,
+        columns: columns,
+        parameters: parameters
     },
-    CONSTRAINT <name:Ident> FOREIGN KEY "(" <columns:column_list> ")" REFERENCES <ref_table:object_name> "(" <ref_columns:column_list> ")" <match_type:match_type?> <events:constraint_events?> => TableConstraint::Foreign { 
-        name: name, 
-        columns: columns, 
-        ref_table: ref_table, 
+    CONSTRAINT <name:Ident> FOREIGN KEY "(" <columns:column_list> ")" REFERENCES <ref_table:object_name> "(" <ref_columns:column_list> ")" <match_type:match_type?> <events:constraint_events?> => TableConstraint::Foreign {
+        name: name,
+        columns: columns,
+        ref_table: ref_table,
         ref_columns: ref_columns,
         match_type: match_type,
         events: events,
-    }, 
+    },
 };
 
 index_parameters: Vec<IndexParameter> = {
@@ -325,7 +325,7 @@ simple_type: SimpleSqlType = {
     TIME WITHOUT TIME ZONE => SimpleSqlType::Time,
     TIME WITH TIME ZONE => SimpleSqlType::TimeWithTimeZone,
     TIMETZ => SimpleSqlType::TimeWithTimeZone,
-    
+
     UUID => SimpleSqlType::Uuid,
 };
 

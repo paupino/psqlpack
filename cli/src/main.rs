@@ -6,7 +6,7 @@ use std::path::Path;
 use std::time::Instant;
 
 use clap::{Arg, ArgMatches, App, SubCommand};
-use psqlpack::{Psqlpack, PsqlpackResult, ChainedError};
+use psqlpack::{Psqlpack, PsqlpackResult, ChainedError, operation};
 
 fn main() {
     let matches = App::new("psqlpack")
@@ -91,7 +91,7 @@ fn main() {
     let time_stamp = Instant::now();
 
     // Handle the user input.
-    match handle(matches) {
+    match handle(&matches) {
         HandleResult::UnknownSubcommand => println!("Command is required"),
         HandleResult::Outcome(action, Err(error)) => {
             println!("Error encountered during {} command:\n{}",
@@ -112,7 +112,7 @@ enum HandleResult {
     Outcome(String, PsqlpackResult<()>),
 }
 
-fn handle(matches: ArgMatches) -> HandleResult {
+fn handle(matches: &ArgMatches) -> HandleResult {
     // TODO: do some validation
     match matches.subcommand() {
         (command @ "package", Some(package)) => {
@@ -127,8 +127,8 @@ fn handle(matches: ArgMatches) -> HandleResult {
                 }
             };
             let output = Path::new(package.value_of("OUT").unwrap());
-            HandleResult::Outcome(command.to_owned(),
-                                  Psqlpack::package_project(&source, &output))
+            let result = operation::package(&source, output);
+            HandleResult::Outcome(command.to_owned(), result)
         }
         (command @ "publish", Some(publish)) => {
             // Source is the psqlpack, target is the DB
@@ -136,7 +136,7 @@ fn handle(matches: ArgMatches) -> HandleResult {
             let target = String::from(publish.value_of("TARGET").unwrap());
             let profile = Path::new(publish.value_of("PROFILE").unwrap());
             HandleResult::Outcome(command.to_owned(),
-                                  Psqlpack::publish(&source, target, &profile))
+                                  Psqlpack::publish(source, target, profile))
         }
         (command @ "script", Some(script)) => {
             // Source is the psqlpack, target is the DB
@@ -145,7 +145,7 @@ fn handle(matches: ArgMatches) -> HandleResult {
             let profile = Path::new(script.value_of("PROFILE").unwrap());
             let output_file = Path::new(script.value_of("OUT").unwrap());
             HandleResult::Outcome(command.to_owned(),
-                                  Psqlpack::generate_sql(&source, target, &profile, &output_file))
+                                  Psqlpack::generate_sql(source, target, profile, output_file))
         }
         (command @ "report", Some(report)) => {
             // Source is the psqlpack, target is the DB
@@ -154,10 +154,7 @@ fn handle(matches: ArgMatches) -> HandleResult {
             let profile = Path::new(report.value_of("PROFILE").unwrap());
             let output_file = Path::new(report.value_of("OUT").unwrap());
             HandleResult::Outcome(command.to_owned(),
-                                  Psqlpack::generate_report(&source,
-                                                            target,
-                                                            &profile,
-                                                            &output_file))
+                                  Psqlpack::generate_report(source, target, profile, output_file))
         }
         _ => HandleResult::UnknownSubcommand,
     }

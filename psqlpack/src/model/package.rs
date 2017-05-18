@@ -6,9 +6,9 @@ use serde_json;
 use zip::{ZipArchive, ZipWriter};
 use zip::write::FileOptions;
 
-use ast::*;
+use sql::ast::*;
 use graph::{DependencyGraph, Node, Edge, ValidationResult};
-use project::Project;
+use model::Project;
 use errors::{PsqlpackResult, PsqlpackResultExt};
 use errors::PsqlpackErrorKind::*;
 
@@ -269,14 +269,11 @@ impl GenerateDependencyGraph for TableDefinition {
             let col_node = column.generate_dependencies(graph, Some(full_name.clone()));
             graph.add_edge(&col_node, Edge::new(&table_node, 1.0));
         }
-        match self.constraints {
-            Some(ref table_constaints) => {
-                for constraint in table_constaints {
-                    let table_constraint_node = constraint.generate_dependencies(graph, Some(full_name.clone()));
-                    graph.add_edge(&table_constraint_node, Edge::new(&table_node, 1.0));
-                }
-            },
-            None => {}
+        if let Some(ref table_constaints) = self.constraints {
+            for constraint in table_constaints {
+                let table_constraint_node = constraint.generate_dependencies(graph, Some(full_name.clone()));
+                graph.add_edge(&table_constraint_node, Edge::new(&table_node, 1.0));
+            }
         }
         table_node
     }

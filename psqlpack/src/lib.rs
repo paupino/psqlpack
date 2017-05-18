@@ -15,16 +15,13 @@ extern crate serde_json;
 extern crate walkdir;
 extern crate zip;
 
-mod ast;
 mod errors;
 mod connection;
-mod profiles;
-mod project;
-mod package;
+mod sql;
+mod model;
 mod psqlpack;
 mod graph;
-mod lexer;
-mod sql;
+pub mod operation;
 
 pub use errors::*;
 pub use psqlpack::Psqlpack;
