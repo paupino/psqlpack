@@ -8,7 +8,7 @@ use zip::write::FileOptions;
 
 use ast::*;
 use graph::{DependencyGraph, Node, Edge, ValidationResult};
-use project::Project;
+use model::Project;
 use errors::{PsqlpackResult, PsqlpackResultExt};
 use errors::PsqlpackErrorKind::*;
 

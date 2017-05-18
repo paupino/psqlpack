@@ -9,9 +9,7 @@ use walkdir::WalkDir;
 
 use ast::*;
 use connection::Connection;
-use profiles::PublishProfile;
-use project::Project;
-use package::Package;
+use model::{PublishProfile, Project, Package};
 use errors::*;
 use graph::Node;
 use lexer;
