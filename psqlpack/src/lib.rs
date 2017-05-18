@@ -25,6 +25,7 @@ mod lexer;
 #[cfg_attr(feature = "cargo-clippy", allow(clippy))]
 #[cfg_attr(rustfmt, rustfmt_skip)]
 mod sql;
+pub mod operation;
 
 pub use errors::*;
 pub use psqlpack::Psqlpack;

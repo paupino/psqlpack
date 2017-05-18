@@ -6,7 +6,7 @@ use std::path::Path;
 use std::time::Instant;
 
 use clap::{Arg, ArgMatches, App, SubCommand};
-use psqlpack::{Psqlpack, PsqlpackResult, ChainedError};
+use psqlpack::{Psqlpack, PsqlpackResult, ChainedError, operation};
 
 fn main() {
     let matches = App::new("psqlpack")
@@ -127,8 +127,8 @@ fn handle(matches: &ArgMatches) -> HandleResult {
                 }
             };
             let output = Path::new(package.value_of("OUT").unwrap());
-            HandleResult::Outcome(command.to_owned(),
-                                  Psqlpack::package_project(&source, output))
+            let result = operation::package(&source, output);
+            HandleResult::Outcome(command.to_owned(), result)
         }
         (command @ "publish", Some(publish)) => {
             // Source is the psqlpack, target is the DB
