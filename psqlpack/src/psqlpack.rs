@@ -5,7 +5,7 @@ use std::path::Path;
 
 use serde_json;
 
-use ast::*;
+use sql::ast::*;
 use connection::Connection;
 use model::{PublishProfile, Package};
 use errors::*;

@@ -6,7 +6,7 @@ use serde_json;
 use zip::{ZipArchive, ZipWriter};
 use zip::write::FileOptions;
 
-use ast::*;
+use sql::ast::*;
 use graph::{DependencyGraph, Node, Edge, ValidationResult};
 use model::Project;
 use errors::{PsqlpackResult, PsqlpackResultExt};

@@ -4,9 +4,9 @@ use std::io::Read;
 
 use walkdir::WalkDir;
 
-use ast::*;
-use lexer;
-use sql;
+use sql::ast::*;
+use sql::lexer;
+use sql::parser;
 use model::{Project, Package};
 use errors::{PsqlpackError, PsqlpackResult, PsqlpackResultExt};
 use errors::PsqlpackErrorKind::*;
@@ -84,7 +84,7 @@ pub fn package(project_path: &Path, output_path: &Path) -> PsqlpackResult<()> {
                 },
             };
 
-            match sql::parse_statement_list(tokens) {
+            match parser::parse_statement_list(tokens) {
                 Ok(statement_list) => {
                     for statement in statement_list {
                         match statement {

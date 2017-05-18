@@ -15,16 +15,12 @@ extern crate serde_json;
 extern crate walkdir;
 extern crate zip;
 
-mod ast;
 mod errors;
 mod connection;
+mod sql;
 mod model;
 mod psqlpack;
 mod graph;
-mod lexer;
-#[cfg_attr(feature = "cargo-clippy", allow(clippy))]
-#[cfg_attr(rustfmt, rustfmt_skip)]
-mod sql;
 pub mod operation;
 
 pub use errors::*;

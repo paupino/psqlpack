@@ -3,7 +3,7 @@ use std::path::PathBuf;
 pub use error_chain::ChainedError;
 pub use lalrpop_util::ParseError;
 
-use lexer;
+use sql::lexer;
 use connection::{ConnectionError, ConnectionErrorKind};
 
 error_chain! {
