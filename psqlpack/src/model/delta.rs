@@ -1,21 +1,21 @@
-use std::fmt;
-use std::fs::File;
-use std::io::prelude::*;
+use std::io::Write;
 use std::path::Path;
+use std::fs::File;
 
 use serde_json;
 
 use sql::ast::*;
 use connection::Connection;
-use model::{PublishProfile, Package};
-use errors::*;
 use graph::Node;
+use model::{Package, PublishProfile};
+use errors::{PsqlpackResult, PsqlpackResultExt};
+use errors::PsqlpackErrorKind::*;
 
 macro_rules! dbtry {
     ($expr:expr) => {
         match $expr {
             Ok(o) => o,
-            Err(e) => bail!(PsqlpackErrorKind::DatabaseError(format!("{}", e))),
+            Err(e) => bail!(DatabaseError(format!("{}", e))),
         }
     };
 }
@@ -33,93 +33,19 @@ static Q_DESCRIBE_COLUMNS : &'static str = "SELECT ordinal_position, column_name
                                             WHERE table_schema = $1 AND table_name = $2
                                             ORDER BY ordinal_position;";
 
-pub struct Psqlpack;
+enum DbObject<'a> {
+    Extension(&'a ExtensionDefinition), // 2
+    Function(&'a FunctionDefinition), // 6 (ordered)
+    Schema(&'a SchemaDefinition), // 3
+    Script(&'a ScriptDefinition), // 1, 7
+    Table(&'a TableDefinition), // 5 (ordered)
+    Type(&'a TypeDefinition), // 4
+}
 
-impl Psqlpack {
-    pub fn publish(source_package_path: &Path, target_connection_string: String, publish_profile: &Path) -> PsqlpackResult<()> {
-        let package = Package::from_path(source_package_path)?;
-        let publish_profile = PublishProfile::from_path(publish_profile)?;
-        let connection = target_connection_string.parse()?;
+pub struct Delta<'package>(Vec<ChangeInstruction<'package>>);
 
-        // Now we generate our instructions
-        let changeset = Psqlpack::generate_changeset(&package, &connection, publish_profile)?;
-
-        // These instructions turn into SQL statements that get executed
-        let mut conn = dbtry!(connection.connect_host());
-        for change in &changeset {
-            if let ChangeInstruction::UseDatabase(..) = *change {
-                dbtry!(conn.finish());
-                conn = dbtry!(connection.connect_database());
-                continue;
-            }
-
-            // Execute SQL directly
-            info!("{}", change.to_progress_message());
-            dbtry!(conn.execute(&change.to_sql()[..], &[]));
-        }
-        // Close the connection
-        dbtry!(conn.finish());
-
-        Ok(())
-    }
-
-    pub fn generate_sql(source_package_path: &Path, target_connection_string: String, publish_profile: &Path, output_file: &Path) -> PsqlpackResult<()> {
-        let package = Package::from_path(source_package_path)?;
-        let publish_profile = PublishProfile::from_path(publish_profile)?;
-        let connection = target_connection_string.parse()?;
-
-        // Now we generate our instructions
-        let changeset = Psqlpack::generate_changeset(&package, &connection, publish_profile)?;
-
-        // These instructions turn into a single SQL file
-        let mut out = match File::create(output_file) {
-            Ok(o) => o,
-            Err(e) => bail!(PsqlpackErrorKind::GenerationError(format!("Failed to generate SQL file: {}", e)))
-        };
-
-        for change in changeset {
-            match out.write_all(change.to_sql().as_bytes()) {
-                Ok(_) => {
-                    // New line
-                    match out.write(&[59u8, 10u8, 10u8]) {
-                        Ok(_) => {},
-                        Err(e) => bail!(PsqlpackErrorKind::GenerationError(format!("Failed to generate SQL file: {}", e)))
-                    }
-                },
-                Err(e) => bail!(PsqlpackErrorKind::GenerationError(format!("Failed to generate SQL file: {}", e)))
-            }
-        }
-
-        Ok(())
-    }
-
-    pub fn generate_report(source_package_path: &Path, target_connection_string: String, publish_profile: &Path, output_file: &Path) -> PsqlpackResult<()> {
-        let package = Package::from_path(source_package_path)?;
-        let publish_profile = PublishProfile::from_path(publish_profile)?;
-        let connection = target_connection_string.parse()?;
-
-        // Now we generate our instructions
-        let changeset = Psqlpack::generate_changeset(&package, &connection, publish_profile)?;
-
-        // These instructions turn into a JSON report
-        let json = match serde_json::to_string_pretty(&changeset) {
-            Ok(j) => j,
-            Err(e) => bail!(PsqlpackErrorKind::GenerationError(format!("Failed to generate report: {}", e)))
-        };
-
-        let mut out = match File::create(output_file) {
-            Ok(o) => o,
-            Err(e) => bail!(PsqlpackErrorKind::GenerationError(format!("Failed to generate report: {}", e)))
-        };
-        match out.write_all(json.as_bytes()) {
-            Ok(_) => {},
-            Err(e) => bail!(PsqlpackErrorKind::GenerationError(format!("Failed to generate report: {}", e)))
-        }
-
-        Ok(())
-    }
-
-    fn generate_changeset<'package>(package: &'package Package, connection: &Connection, publish_profile: PublishProfile) -> PsqlpackResult<Vec<ChangeInstruction<'package>>> {
+impl<'package> Delta<'package> {
+    pub fn generate(package: &'package Package, connection: &Connection, publish_profile: PublishProfile) -> PsqlpackResult<Delta<'package>> {
         // Start the changeset
         let mut changeset = Vec::new();
 
@@ -297,22 +223,72 @@ impl Psqlpack {
                 }
             }
         }
-        Ok(changeset)
+        Ok(Delta(changeset))
     }
-}
 
-enum DbObject<'a> {
-    Extension(&'a ExtensionDefinition), // 2
-    Function(&'a FunctionDefinition), // 6 (ordered)
-    Schema(&'a SchemaDefinition), // 3
-    Script(&'a ScriptDefinition), // 1, 7
-    Table(&'a TableDefinition), // 5 (ordered)
-    Type(&'a TypeDefinition), // 4
+    pub fn apply(&self, connection: &Connection) -> PsqlpackResult<()> {
+        let changeset = &self.0;
+
+        // These instructions turn into SQL statements that get executed
+        let mut conn = dbtry!(connection.connect_host());
+
+        for change in changeset.iter() {
+            if let ChangeInstruction::UseDatabase(..) = *change {
+                dbtry!(conn.finish());
+                conn = dbtry!(connection.connect_database());
+                continue;
+            }
+
+            // Execute SQL directly
+            info!("{}", change.to_progress_message());
+            dbtry!(conn.execute(&change.to_sql()[..], &[]));
+        }
+
+        // Close the connection
+        dbtry!(conn.finish());
+
+        Ok(())
+    }
+
+    pub fn write_report(&self, destination: &Path) -> PsqlpackResult<()> {
+        let changeset = &self.0;
+
+        File::create(destination)
+            .chain_err(|| GenerationError("Failed to generate report".to_owned()))
+            .and_then(|writer| serde_json::to_writer_pretty(writer, &changeset).chain_err(|| GenerationError("Failed to generate report".to_owned())))?;
+
+        Ok(())
+    }
+
+    pub fn write_sql(&self, destination: &Path) -> PsqlpackResult<()> {
+        let changeset = &self.0;
+
+        // These instructions turn into a single SQL file
+        let mut out = match File::create(destination) {
+            Ok(o) => o,
+            Err(e) => bail!(GenerationError(format!("Failed to generate SQL file: {}", e)))
+        };
+
+        for change in changeset.iter() {
+            match out.write_all(change.to_sql().as_bytes()) {
+                Ok(_) => {
+                    // New line
+                    match out.write(&[59u8, 10u8, 10u8]) {
+                        Ok(_) => {},
+                        Err(e) => bail!(GenerationError(format!("Failed to generate SQL file: {}", e)))
+                    }
+                },
+                Err(e) => bail!(GenerationError(format!("Failed to generate SQL file: {}", e)))
+            }
+        }
+
+        Ok(())
+    }
 }
 
 #[allow(dead_code)]
 #[derive(Serialize)]
-enum ChangeInstruction<'input> {
+pub enum ChangeInstruction<'input> {
     // Databases
     DropDatabase(String),
     CreateDatabase(String),
@@ -539,7 +515,7 @@ impl<'input> ChangeInstruction<'input> {
 
     }
 
-    fn to_progress_message(&self) -> String {
+    pub fn to_progress_message(&self) -> String {
         match *self {
             // Database level
             ChangeInstruction::CreateDatabase(ref db) => format!("Creating database {}", db),
@@ -549,104 +525,6 @@ impl<'input> ChangeInstruction<'input> {
             // Table level
             ChangeInstruction::AddTable(def) => format!("Adding table {}", def.name),
             _ => "TODO".to_owned(),
-        }
-
-    }
-}
-
-impl fmt::Display for AnyValue {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            AnyValue::Boolean(ref b) => write!(f, "{}", b),
-            AnyValue::Integer(ref i) => write!(f, "{}", i),
-            AnyValue::String(ref s) => write!(f, "'{}'", s),
-        }
-    }
-}
-
-impl fmt::Display for ForeignConstraintMatchType {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            ForeignConstraintMatchType::Simple => write!(f, "MATCH SIMPLE"),
-            ForeignConstraintMatchType::Partial => write!(f, "MATCH PARTIAL"),
-            ForeignConstraintMatchType::Full => write!(f, "MATCH FULL"),
-        }
-    }
-}
-
-impl fmt::Display for ForeignConstraintAction {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            ForeignConstraintAction::NoAction => write!(f, "NO ACTION"),
-            ForeignConstraintAction::Restrict => write!(f, "RESTRICT"),
-            ForeignConstraintAction::Cascade => write!(f, "CASCADE"),
-            ForeignConstraintAction::SetNull => write!(f, "SET NULL"),
-            ForeignConstraintAction::SetDefault => write!(f, "SET DEFAULT"),
-        }
-    }
-}
-
-impl fmt::Display for ObjectName {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self.schema {
-            Some(ref s) => write!(f, "{}.{}", s, self.name),
-            None => write!(f, "{}", self.name),
-        }
-    }
-}
-
-impl fmt::Display for SqlType {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            SqlType::Simple(ref simple_type) => {
-                write!(f, "{}", simple_type)
-            },
-            SqlType::Array(ref simple_type, dim) => {
-                write!(f, "{}{}", simple_type, (0..dim).map(|_| "[]").collect::<String>())
-            },
-            SqlType::Custom(ref custom_type, ref options) => {
-                if let Some(ref opt) = *options {
-                    write!(f, "{}({})", custom_type, opt)
-                } else {
-                    write!(f, "{}", custom_type)
-                }
-            },
-        }
-    }
-}
-
-impl fmt::Display for SimpleSqlType {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            SimpleSqlType::FixedLengthString(size) => write!(f, "char({})", size),
-            SimpleSqlType::VariableLengthString(size) => write!(f, "varchar({})", size),
-            SimpleSqlType::Text => write!(f, "text"),
-
-            SimpleSqlType::FixedLengthBitString(size) => write!(f, "bit({})", size),
-            SimpleSqlType::VariableLengthBitString(size) => write!(f, "varbit({})", size),
-
-            SimpleSqlType::SmallInteger => write!(f, "smallint"),
-            SimpleSqlType::Integer => write!(f, "int"),
-            SimpleSqlType::BigInteger => write!(f, "bigint"),
-
-            SimpleSqlType::SmallSerial => write!(f, "smallserial"),
-            SimpleSqlType::Serial => write!(f, "serial"),
-            SimpleSqlType::BigSerial => write!(f, "bigserial"),
-
-            SimpleSqlType::Numeric(m, d) => write!(f, "numeric({},{})", m, d),
-            SimpleSqlType::Double => write!(f, "double precision"),
-            SimpleSqlType::Single => write!(f, "real"),
-            SimpleSqlType::Money => write!(f, "money"),
-
-            SimpleSqlType::Boolean => write!(f, "bool"),
-
-            SimpleSqlType::Date => write!(f, "date"),
-            SimpleSqlType::DateTime => write!(f, "timestamp without time zone"),
-            SimpleSqlType::DateTimeWithTimeZone => write!(f, "timestamp with time zone"),
-            SimpleSqlType::Time => write!(f, "time"),
-            SimpleSqlType::TimeWithTimeZone => write!(f, "time with time zone"),
-
-            SimpleSqlType::Uuid => write!(f, "uuid"),
         }
     }
 }
