@@ -19,9 +19,7 @@ mod errors;
 mod connection;
 mod sql;
 mod model;
-mod psqlpack;
 mod graph;
 pub mod operation;
 
 pub use errors::*;
-pub use psqlpack::Psqlpack;

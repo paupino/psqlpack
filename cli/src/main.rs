@@ -6,7 +6,7 @@ use std::path::Path;
 use std::time::Instant;
 
 use clap::{Arg, ArgMatches, App, SubCommand};
-use psqlpack::{Psqlpack, PsqlpackResult, ChainedError, operation};
+use psqlpack::{operation, PsqlpackResult, ChainedError};
 
 fn main() {
     let matches = App::new("psqlpack")
@@ -136,7 +136,7 @@ fn handle(matches: &ArgMatches) -> HandleResult {
             let target = String::from(publish.value_of("TARGET").unwrap());
             let profile = Path::new(publish.value_of("PROFILE").unwrap());
             HandleResult::Outcome(command.to_owned(),
-                                  Psqlpack::publish(source, target, profile))
+                                  operation::publish(source, &target, profile))
         }
         (command @ "script", Some(script)) => {
             // Source is the psqlpack, target is the DB
@@ -145,7 +145,7 @@ fn handle(matches: &ArgMatches) -> HandleResult {
             let profile = Path::new(script.value_of("PROFILE").unwrap());
             let output_file = Path::new(script.value_of("OUT").unwrap());
             HandleResult::Outcome(command.to_owned(),
-                                  Psqlpack::generate_sql(source, target, profile, output_file))
+                                  operation::generate_sql(source, &target, profile, output_file))
         }
         (command @ "report", Some(report)) => {
             // Source is the psqlpack, target is the DB
@@ -154,7 +154,7 @@ fn handle(matches: &ArgMatches) -> HandleResult {
             let profile = Path::new(report.value_of("PROFILE").unwrap());
             let output_file = Path::new(report.value_of("OUT").unwrap());
             HandleResult::Outcome(command.to_owned(),
-                                  Psqlpack::generate_report(source, target, profile, output_file))
+                                  operation::generate_report(source, &target, profile, output_file))
         }
         _ => HandleResult::UnknownSubcommand,
     }

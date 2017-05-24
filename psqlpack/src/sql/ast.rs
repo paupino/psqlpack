@@ -1,3 +1,5 @@
+use std::fmt;
+
 pub enum Statement {
     Extension(ExtensionDefinition),
     Function(FunctionDefinition),
@@ -189,4 +191,101 @@ pub enum FunctionLanguage {
     Internal,
     PostgreSQL,
     SQL,
+}
+
+impl fmt::Display for AnyValue {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            AnyValue::Boolean(ref b) => write!(f, "{}", b),
+            AnyValue::Integer(ref i) => write!(f, "{}", i),
+            AnyValue::String(ref s) => write!(f, "'{}'", s),
+        }
+    }
+}
+
+impl fmt::Display for ForeignConstraintMatchType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            ForeignConstraintMatchType::Simple => write!(f, "MATCH SIMPLE"),
+            ForeignConstraintMatchType::Partial => write!(f, "MATCH PARTIAL"),
+            ForeignConstraintMatchType::Full => write!(f, "MATCH FULL"),
+        }
+    }
+}
+
+impl fmt::Display for ForeignConstraintAction {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            ForeignConstraintAction::NoAction => write!(f, "NO ACTION"),
+            ForeignConstraintAction::Restrict => write!(f, "RESTRICT"),
+            ForeignConstraintAction::Cascade => write!(f, "CASCADE"),
+            ForeignConstraintAction::SetNull => write!(f, "SET NULL"),
+            ForeignConstraintAction::SetDefault => write!(f, "SET DEFAULT"),
+        }
+    }
+}
+
+impl fmt::Display for ObjectName {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self.schema {
+            Some(ref s) => write!(f, "{}.{}", s, self.name),
+            None => write!(f, "{}", self.name),
+        }
+    }
+}
+
+impl fmt::Display for SqlType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            SqlType::Simple(ref simple_type) => {
+                write!(f, "{}", simple_type)
+            },
+            SqlType::Array(ref simple_type, dim) => {
+                write!(f, "{}{}", simple_type, (0..dim).map(|_| "[]").collect::<String>())
+            },
+            SqlType::Custom(ref custom_type, ref options) => {
+                if let Some(ref opt) = *options {
+                    write!(f, "{}({})", custom_type, opt)
+                } else {
+                    write!(f, "{}", custom_type)
+                }
+            },
+        }
+    }
+}
+
+impl fmt::Display for SimpleSqlType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            SimpleSqlType::FixedLengthString(size) => write!(f, "char({})", size),
+            SimpleSqlType::VariableLengthString(size) => write!(f, "varchar({})", size),
+            SimpleSqlType::Text => write!(f, "text"),
+
+            SimpleSqlType::FixedLengthBitString(size) => write!(f, "bit({})", size),
+            SimpleSqlType::VariableLengthBitString(size) => write!(f, "varbit({})", size),
+
+            SimpleSqlType::SmallInteger => write!(f, "smallint"),
+            SimpleSqlType::Integer => write!(f, "int"),
+            SimpleSqlType::BigInteger => write!(f, "bigint"),
+
+            SimpleSqlType::SmallSerial => write!(f, "smallserial"),
+            SimpleSqlType::Serial => write!(f, "serial"),
+            SimpleSqlType::BigSerial => write!(f, "bigserial"),
+
+            SimpleSqlType::Numeric(m, d) => write!(f, "numeric({},{})", m, d),
+            SimpleSqlType::Double => write!(f, "double precision"),
+            SimpleSqlType::Single => write!(f, "real"),
+            SimpleSqlType::Money => write!(f, "money"),
+
+            SimpleSqlType::Boolean => write!(f, "bool"),
+
+            SimpleSqlType::Date => write!(f, "date"),
+            SimpleSqlType::DateTime => write!(f, "timestamp without time zone"),
+            SimpleSqlType::DateTimeWithTimeZone => write!(f, "timestamp with time zone"),
+            SimpleSqlType::Time => write!(f, "time"),
+            SimpleSqlType::TimeWithTimeZone => write!(f, "time with time zone"),
+
+            SimpleSqlType::Uuid => write!(f, "uuid"),
+        }
+    }
 }
