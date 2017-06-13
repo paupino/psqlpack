@@ -1,3 +1,4 @@
+#[macro_use]
 extern crate clap;
 #[macro_use]
 extern crate slog;
@@ -19,8 +20,8 @@ fn main() {
     info!(log, "Application started");
 
     let matches = App::new("psqlpack")
-        .version("1.0")
-        .author("Paul Mason <paul.mason@xero.com>")
+        .version(crate_version!())
+        .author(crate_authors!())
         .subcommand(SubCommand::with_name("package")
             .about("creates a psqlpack from the specified target")
             .arg(Arg::with_name("SOURCE")
