@@ -6,7 +6,7 @@ extern crate error_chain;
 extern crate lazy_static;
 extern crate lalrpop_util;
 #[macro_use]
-extern crate log;
+extern crate slog;
 extern crate postgres;
 extern crate regex;
 #[macro_use]
