@@ -1,4 +1,7 @@
 extern crate clap;
+#[macro_use]
+extern crate slog;
+extern crate slog_term;
 extern crate psqlpack;
 
 use std::env;
@@ -6,9 +9,15 @@ use std::path::Path;
 use std::time::Instant;
 
 use clap::{Arg, ArgMatches, App, SubCommand};
+use slog::Drain;
 use psqlpack::{operation, PsqlpackResult, ChainedError};
 
 fn main() {
+    let decorator = slog_term::TermDecorator::new().build();
+    let drain = std::sync::Mutex::new(slog_term::CompactFormat::new(decorator).build()).fuse();
+    let log = slog::Logger::root(drain, o!());
+    info!(log, "Application started");
+
     let matches = App::new("psqlpack")
         .version("1.0")
         .author("Paul Mason <paul.mason@xero.com>")
@@ -92,17 +101,18 @@ fn main() {
 
     // Handle the user input.
     match handle(&matches) {
-        HandleResult::UnknownSubcommand => println!("Command is required"),
+        HandleResult::UnknownSubcommand => error!(log, "Command is required"),
         HandleResult::Outcome(action, Err(error)) => {
-            println!("Error encountered during {} command:\n{}",
-                     action,
-                     error.display());
+            error!(log,
+                   "encountered during {} command:\n{}",
+                   action,
+                   error.display());
         }
         HandleResult::Outcome(action, _) => {
             // Capture how long was elapsed
             let elapsed = time_stamp.elapsed();
             let elapsed = elapsed.as_secs() as f64 + elapsed.subsec_nanos() as f64 / 1000_000_000.0;
-            println!("Completed {} command in {}s", action, elapsed);
+            info!(log, "Completed {} command in {}s", action, elapsed);
         }
     }
 }

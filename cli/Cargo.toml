@@ -8,4 +8,6 @@ name = "psqlpack"
 
 [dependencies]
 clap = "2.24"
+slog = "2"
+slog-term = "2"
 psqlpack = { path = "../psqlpack/" }
