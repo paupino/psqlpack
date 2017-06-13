@@ -13,5 +13,11 @@
         "scripts/seed/geo.states.sql",
         "scripts/seed/reference_data.countries.sql",
         "scripts/seed/reference_data.states.sql"
-    ]    
+    ],
+    "extensions": [
+        "postgis",
+        "postgis_topology",
+        "fuzzystrmatch",
+        "postgis_tiger_geocoder"
+    ]
 }
