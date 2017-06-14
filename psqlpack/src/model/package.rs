@@ -2,6 +2,7 @@ use std::path::Path;
 use std::fs::File;
 use std::io::Write;
 
+use connection::Connection;
 use serde_json;
 use zip::{ZipArchive, ZipWriter};
 use zip::write::FileOptions;
@@ -44,6 +45,8 @@ macro_rules! zip_collection {
         }
     }};
 }
+
+static Q_EXTENSIONS : &'static str = "SELECT extname, extversion FROM pg_extension WHERE extowner <> 10";
 
 pub struct Package {
     pub extensions: Vec<ExtensionDefinition>,
@@ -119,6 +122,28 @@ impl Package {
             tables: tables,
             types: types,
             order: order,
+        })
+    }
+
+    pub fn from_connection(connection: &Connection) -> PsqlpackResult<Package> {
+        // We do five SQL queries to get the package details
+        let db_conn = dbtry!(connection.connect_database());
+        let mut extensions = Vec::new();
+        for row in &db_conn.query(Q_EXTENSIONS, &[]).unwrap() {
+            let ext_name : String = row.get(0);
+            extensions.push(ExtensionDefinition {
+                name: ext_name
+            });
+        }
+
+        Ok(Package {
+            extensions: extensions,
+            functions: Vec::new(), // functions,
+            schemas: Vec::new(), // schemas,
+            scripts: Vec::new(), // Scripts can't be known from a connection
+            tables: Vec::new(), // tables,
+            types: Vec::new(), // types,
+            order: None,
         })
     }
 
@@ -332,4 +357,19 @@ impl GenerateDependencyGraph for TableConstraint {
             },
         }
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use super::super::super::connection::*;
+    use spectral::prelude::*;
+
+    #[test]
+    fn it_can_create_a_package_from_a_database() {
+        let connection = ConnectionBuilder::new("taxengine", "localhost", "paul").build().unwrap();
+        let package = Package::from_connection(&connection).unwrap();
+        assert_that(&package.extensions).has_length(4);
+    }
+
 }

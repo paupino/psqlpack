@@ -19,3 +19,6 @@ zip = "0.2"
 
 [build-dependencies]
 lalrpop = "0.13"
+
+[dev-dependencies]
+spectral = "0.6.0"
