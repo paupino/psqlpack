@@ -5,6 +5,7 @@ authors = ["Paul Mason <paul@form1.co.nz>"]
 
 [[bin]]
 name = "psqlpack"
+path = "src/main.rs"
 
 [dependencies]
 clap = "2.24"
