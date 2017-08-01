@@ -186,7 +186,7 @@ fn handle(log: &Logger, matches: &ArgMatches) -> HandleResult {
             info!(log, "Project file path"; "source" => source.to_str().unwrap());
             let output = Path::new(package.value_of("OUT").unwrap());
             info!(log, "Output path"; "output" => output.to_str().unwrap());
-            let result = operation::package(&source, output);
+            let result = operation::package(log, &source, output);
             HandleResult::Outcome(command.to_owned(), result)
         }
         (command @ "publish", Some(publish)) => {
