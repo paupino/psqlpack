@@ -8,7 +8,7 @@ name = "psqlpack"
 path = "src/main.rs"
 
 [dependencies]
-clap = "2.24"
+clap = "2.26"
 slog = "2"
 slog-term = "2"
 psqlpack = { path = "../psqlpack/" }
