@@ -1,10 +1,15 @@
 use std::path::Path;
 
+use slog::Logger;
+
 use model::{Project, PublishProfile, Package, Delta};
 use errors::PsqlpackResult;
 
-pub fn package(project_path: &Path, output_path: &Path) -> PsqlpackResult<()> {
+pub fn package<L: Into<Logger>>(log: L, project_path: &Path, output_path: &Path) -> PsqlpackResult<()> {
+    let log = log.into().new(o!("operation" => "package"));
+    info!(log, "Loading Project from path"; "source" => project_path.to_str().unwrap());
     let project = Project::from_path(project_path)?;
+    info!(log, "Writing Project to Package"; "output" => output_path.to_str().unwrap());
     project.to_package(output_path)
 }
 

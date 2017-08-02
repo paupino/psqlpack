@@ -240,7 +240,7 @@ impl<'package> Delta<'package> {
             }
 
             // Execute SQL directly
-            info!("{}", change.to_progress_message());
+            println!("{}", change.to_progress_message());
             dbtry!(conn.execute(&change.to_sql()[..], &[]));
         }
 

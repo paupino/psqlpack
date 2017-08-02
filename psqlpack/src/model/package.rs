@@ -21,15 +21,6 @@ macro_rules! ztry {
     }};
 }
 
-macro_rules! dbtry {
-    ($expr:expr) => {
-        match $expr {
-            Ok(o) => o,
-            Err(e) => bail!(DatabaseError(format!("{}", e))),
-        }
-    };
-}
-
 macro_rules! zip_collection {
     ($zip:ident, $package:ident, $collection:ident) => {{
         let collection_name = stringify!($collection);
