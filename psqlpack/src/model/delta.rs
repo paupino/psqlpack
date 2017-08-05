@@ -11,15 +11,6 @@ use model::{Package, PublishProfile};
 use errors::{PsqlpackResult, PsqlpackResultExt};
 use errors::PsqlpackErrorKind::*;
 
-macro_rules! dbtry {
-    ($expr:expr) => {
-        match $expr {
-            Ok(o) => o,
-            Err(e) => bail!(DatabaseError(format!("{}", e))),
-        }
-    };
-}
-
 static Q_DATABASE_EXISTS : &'static str = "SELECT 1 FROM pg_database WHERE datname=$1;";
 static Q_EXTENSION_EXISTS : &'static str = "SELECT 1 FROM pg_catalog.pg_extension WHERE extname=$1;";
 static Q_SCHEMA_EXISTS : &'static str = "SELECT 1 FROM information_schema.schemata WHERE schema_name=$1;";

@@ -1,3 +1,12 @@
+macro_rules! dbtry {
+    ($expr:expr) => {
+        match $expr {
+            Ok(o) => o,
+            Err(e) => bail!(DatabaseError(format!("{}", e))),
+        }
+    };
+}
+
 mod profiles;
 mod project;
 mod package;
