@@ -175,7 +175,7 @@ column_list: Vec<String> = {
     <Ident> => vec!(<>),
 };
 
-function_argument_list: Vec<FunctionArgument> = {
+pub function_argument_list: Vec<FunctionArgument> = {
     <v:function_argument_list> "," <a:function_argument> => {
         let mut v = v;
         v.push(a);
@@ -191,7 +191,7 @@ function_argument: FunctionArgument = {
     }
 };
 
-function_return_type: FunctionReturnType = {
+pub function_return_type: FunctionReturnType = {
     TABLE "(" <columns:column_definition_list> ")" => FunctionReturnType::Table(columns),
     <t:sql_type> => FunctionReturnType::SqlType(t),
 };

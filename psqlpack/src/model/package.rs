@@ -8,6 +8,7 @@ use serde_json;
 use zip::{ZipArchive, ZipWriter};
 use zip::write::FileOptions;
 
+use sql::{lexer, parser};
 use sql::ast::*;
 use graph::{DependencyGraph, Node, Edge, ValidationResult};
 use model::Project;
@@ -48,11 +49,17 @@ static Q_ENUMS : &'static str = "SELECT enumtypid, enumlabel
                                  FROM pg_catalog.pg_enum
                                  WHERE enumtypid IN ({})
                                  ORDER BY enumtypid, enumsortorder";
-static Q_FUNCTIONS : &'static str = "SELECT *--routines.routine_name, parameters.data_type, parameters.ordinal_position
-                                    FROM information_schema.routines
-                                        JOIN information_schema.parameters ON routines.specific_name=parameters.specific_name
-                                    WHERE routines.specific_catalog='taxengine'
-                                    ORDER BY routines.routine_name, parameters.ordinal_position;";
+static Q_FUNCTIONS : &'static str = "SELECT nspname, proname, prosrc, pg_get_function_arguments(pg_proc.oid), lanname, pg_get_function_result(pg_proc.oid)
+                                     FROM pg_proc
+                                     JOIN pg_namespace ON pg_namespace.oid = pg_proc.pronamespace
+                                     JOIN pg_language ON pg_language.oid = pg_proc.prolang
+                                     LEFT JOIN pg_depend ON pg_depend.objid = pg_proc.oid AND pg_depend.deptype = 'e'
+                                     WHERE pg_depend.objid IS NULL AND nspname NOT IN ('pg_catalog', 'information_schema');";
+static Q_TABLES : &'static str = "SELECT nspname, relname
+                                  FROM pg_class
+                                  JOIN pg_namespace ON pg_namespace.oid = pg_class.relnamespace
+                                  LEFT JOIN pg_depend ON pg_depend.objid = pg_class.oid AND pg_depend.deptype = 'e'
+                                  WHERE pg_class.relkind='r' AND pg_depend.objid IS NULL AND nspname NOT IN ('pg_catalog', 'information_schema')";
 
 pub struct Package {
     pub extensions: Vec<ExtensionDefinition>,
@@ -194,8 +201,64 @@ impl Package {
         }
 
         let mut functions = Vec::new();
+        for row in &db_conn.query(Q_FUNCTIONS, &[]).unwrap() {
+            let schema_name : String = row.get(0);
+            let function_name : String = row.get(1);
+            let function_src : String = row.get(2);
+            let raw_args : String = row.get(3);
+            let lan_name : String = row.get(4);
+            let raw_result : String = row.get(5);
+
+            // Parse some of the results
+            let language = match &lan_name[..] {
+                "internal" => FunctionLanguage::Internal,
+                "c" => FunctionLanguage::C,
+                "sql" => FunctionLanguage::SQL,
+                _ => FunctionLanguage::PostgreSQL,
+            };
+            let function_args_tokens = match lexer::tokenize(&raw_args[..]) {
+                Ok(t) => t,
+                Err(_) => bail!(GenerationError("Failed to tokenize function arguments".into())),
+            };
+            let function_args = match parser::parse_function_argument_list(function_args_tokens) {
+                Ok(arg_list) => arg_list,
+                Err(_) => bail!(GenerationError("Failed to parse function arguments".into())),
+            };
+            let return_type_tokens = match lexer::tokenize(&raw_result[..]) {
+                Ok(t) => t,
+                Err(_) => bail!(GenerationError("Failed to tokenize function return type".into())),
+            };
+            let return_type = match parser::parse_function_return_type(return_type_tokens) {
+                Ok(t) => t,
+                Err(_) => bail!(GenerationError("Failed to parse function return type".into())),
+            };
+
+            // Set up the function definition
+            functions.push(FunctionDefinition {
+                name: ObjectName {
+                    schema: Some(schema_name),
+                    name: function_name,
+                },
+                arguments: function_args,
+                return_type: return_type,
+                body: function_src,
+                language: language,
+            });
+        }
 
         let mut tables = Vec::new();
+        for row in &db_conn.query(Q_TABLES, &[]).unwrap() {
+            let schema_name : String = row.get(0);
+            let table_name : String = row.get(1);
+            tables.push(TableDefinition {
+                name: ObjectName {
+                    schema: Some(schema_name),
+                    name: table_name,
+                },
+                columns: Vec::new(), // TODO
+                constraints: None, // TODO
+            });
+        }
 
         Ok(Package {
             extensions: extensions,
