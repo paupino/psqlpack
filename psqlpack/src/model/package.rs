@@ -1,6 +1,7 @@
 use std::path::Path;
 use std::fs::File;
 use std::io::Write;
+use std::collections::HashMap;
 
 use connection::Connection;
 use serde_json;
@@ -38,6 +39,20 @@ macro_rules! zip_collection {
 }
 
 static Q_EXTENSIONS : &'static str = "SELECT extname, extversion FROM pg_extension WHERE extowner <> 10";
+static Q_SCHEMAS : &'static str = "SELECT schema_name FROM information_schema.schemata
+                                   WHERE catalog_name = $1 AND schema_owner <> 'postgres'";
+static Q_TYPES : &'static str = "SELECT typname, typcategory FROM pg_catalog.pg_type
+                                 INNER JOIN pg_catalog.pg_namespace ON pg_namespace.oid=typnamespace
+                                 WHERE typcategory IN ('E') AND nspname='public' AND substr(typname, 1, 1) <> '_'";
+static Q_ENUMS : &'static str = "SELECT enumtypid, enumlabel
+                                 FROM pg_catalog.pg_enum
+                                 WHERE enumtypid IN ({})
+                                 ORDER BY enumtypid, enumsortorder";
+static Q_FUNCTIONS : &'static str = "SELECT *--routines.routine_name, parameters.data_type, parameters.ordinal_position
+                                    FROM information_schema.routines
+                                        JOIN information_schema.parameters ON routines.specific_name=parameters.specific_name
+                                    WHERE routines.specific_catalog='taxengine'
+                                    ORDER BY routines.routine_name, parameters.ordinal_position;";
 
 pub struct Package {
     pub extensions: Vec<ExtensionDefinition>,
@@ -119,6 +134,7 @@ impl Package {
     pub fn from_connection(connection: &Connection) -> PsqlpackResult<Package> {
         // We do five SQL queries to get the package details
         let db_conn = dbtry!(connection.connect_database());
+
         let mut extensions = Vec::new();
         for row in &db_conn.query(Q_EXTENSIONS, &[]).unwrap() {
             let ext_name : String = row.get(0);
@@ -127,13 +143,67 @@ impl Package {
             });
         }
 
+        let mut schemas = Vec::new();
+        for row in &db_conn.query(Q_SCHEMAS, &[&connection.database()]).unwrap() {
+            let schema_name : String = row.get(0);
+            schemas.push(SchemaDefinition {
+                name: schema_name
+            });
+        }
+
+        let mut types = Vec::new();
+        let mut enums = HashMap::new();
+        for row in &db_conn.query(Q_TYPES, &[]).unwrap() {
+            let oid : i32 = row.get(0);
+            let typname : String = row.get(1);
+            enums.insert(oid, typname);
+        }
+        let mut enum_values = Vec::new();
+        let mut last_oid : i32 = -1;
+        let mut oids = String::new();
+        for oid in enums.keys() {
+            if oids.is_empty() {
+                oids.push_str(&format!("{}", oid)[..]);
+            } else {
+                oids.push_str(&format!(", {}", oid)[..]);
+            }
+        }
+        if oids.len() > 0 {
+            let query = Q_ENUMS.replace("{}", &oids[..]);
+            for row in &db_conn.query(&query[..], &[]).unwrap() {
+                let oid : i32 = row.get(0);
+                let value : String = row.get(1);
+                if oid != last_oid {
+                    if last_oid > 0 {
+                        types.push(TypeDefinition {
+                            name: enums.get(&last_oid).unwrap().to_owned(),
+                            kind: TypeDefinitionKind::Enum(enum_values.clone())
+                        });
+                        enum_values.clear();
+                    }
+                    last_oid = oid;
+                }
+                enum_values.push(value);
+            }
+            if last_oid > 0 {
+                types.push(TypeDefinition {
+                    name: enums.get(&last_oid).unwrap().to_owned(),
+                    kind: TypeDefinitionKind::Enum(enum_values)
+                });
+            }
+        }
+
+        let mut functions = Vec::new();
+
+        let mut tables = Vec::new();
+
         Ok(Package {
             extensions: extensions,
-            functions: Vec::new(), // functions,
-            schemas: Vec::new(), // schemas,
+            functions: functions, // functions,
+            schemas: schemas, // schemas,
             scripts: Vec::new(), // Scripts can't be known from a connection
-            tables: Vec::new(), // tables,
-            types: Vec::new(), // types,
+            tables: tables, // tables,
+            types: types, // types,
             order: None,
         })
     }
@@ -358,6 +428,7 @@ mod tests {
 
     #[test]
     fn it_can_create_a_package_from_a_database() {
+        //TODO: Create database before test
         let connection = ConnectionBuilder::new("taxengine", "localhost", "paul").build().unwrap();
         let package = Package::from_connection(&connection).unwrap();
         assert_that(&package.extensions).has_length(4);

@@ -344,9 +344,6 @@ impl<'input> ChangeInstruction<'input> {
                 let mut def = String::new();
                 def.push_str(&format!("CREATE TYPE {} AS ", t.name)[..]);
                 match t.kind {
-                    TypeDefinitionKind::Alias(ref sql_type) => {
-                        def.push_str(&sql_type.to_string()[..]);
-                    },
                     TypeDefinitionKind::Enum(ref values) => {
                         def.push_str("ENUM (\n");
                         let mut enum_comma_required = false;

@@ -8,7 +8,7 @@ error_chain! {
         ConnectionError, ConnectionErrorKind, ConnectionResultExt, ConnectionResult;
     }
     foreign_links {
-        PostgresConnect(::postgres::error::ConnectError);
+        PostgresConnect(::postgres::error::Error);
     }
     errors {
         MalformedConnectionString {

@@ -142,10 +142,6 @@ statement: Statement = {
         name: name,
         kind: TypeDefinitionKind::Enum(values),
     }),
-    CREATE TYPE <name:Ident> AS <sql_type:sql_type> ";"? => Statement::Type(TypeDefinition {
-        name: name,
-        kind: TypeDefinitionKind::Alias(sql_type),
-    }),
 };
 
 object_name: ObjectName = {
