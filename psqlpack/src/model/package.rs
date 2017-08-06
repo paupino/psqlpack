@@ -55,11 +55,15 @@ static Q_FUNCTIONS : &'static str = "SELECT nspname, proname, prosrc, pg_get_fun
                                      JOIN pg_language ON pg_language.oid = pg_proc.prolang
                                      LEFT JOIN pg_depend ON pg_depend.objid = pg_proc.oid AND pg_depend.deptype = 'e'
                                      WHERE pg_depend.objid IS NULL AND nspname NOT IN ('pg_catalog', 'information_schema');";
-static Q_TABLES : &'static str = "SELECT nspname, relname
+static Q_TABLES : &'static str = "SELECT pg_class.oid, nspname, relname, conname, pg_get_constraintdef(pg_constraint.oid)
                                   FROM pg_class
                                   JOIN pg_namespace ON pg_namespace.oid = pg_class.relnamespace
                                   LEFT JOIN pg_depend ON pg_depend.objid = pg_class.oid AND pg_depend.deptype = 'e'
+                                  LEFT JOIN pg_constraint ON pg_constraint.conrelid = pg_class.oid
                                   WHERE pg_class.relkind='r' AND pg_depend.objid IS NULL AND nspname NOT IN ('pg_catalog', 'information_schema')";
+static Q_COLUMNS : &'static str = "SELECT attrelid, attname, format_type(atttypid, atttypmod), attnotnull
+                                   FROM pg_attribute
+                                   ;WHERE attnum > 0 AND attrelid IN ({})";
 
 pub struct Package {
     pub extensions: Vec<ExtensionDefinition>,
@@ -248,8 +252,9 @@ impl Package {
 
         let mut tables = Vec::new();
         for row in &db_conn.query(Q_TABLES, &[]).unwrap() {
-            let schema_name : String = row.get(0);
-            let table_name : String = row.get(1);
+            let oid : i32 = row.get(0);
+            let schema_name : String = row.get(1);
+            let table_name : String = row.get(2);
             tables.push(TableDefinition {
                 name: ObjectName {
                     schema: Some(schema_name),
