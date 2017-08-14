@@ -8,16 +8,78 @@ extern crate psqlpack;
 use std::env;
 use std::path::Path;
 use std::time::Instant;
+use std::sync::{Arc, atomic};
+use std::sync::atomic::Ordering;
+use std::result;
 
 use clap::{Arg, ArgMatches, App, SubCommand};
 use slog::{Drain, Logger};
 use psqlpack::{operation, PsqlpackResult, ChainedError};
 
+/// A threadsafe toggle.
+#[derive(Clone)]
+struct Toggle(Arc<atomic::AtomicBool>);
+
+impl Toggle {
+    pub fn new() -> Toggle {
+        Toggle(Arc::new(atomic::AtomicBool::new(false)))
+    }
+
+    pub fn get(&self) -> bool {
+        self.0.load(Ordering::Relaxed)
+    }
+
+    pub fn set(&self, value: bool) {
+        self.0.store(value, Ordering::Relaxed)
+    }
+}
+
+/// A slog::Drain that toggles the trace level.
+struct TraceFilter<D: Drain> {
+    drain: D,
+    toggle: Toggle,
+}
+
+impl<D: Drain> TraceFilter<D> {
+    pub fn new(drain: D, toggle: Toggle) -> TraceFilter<D> {
+        TraceFilter {
+            drain: drain,
+            toggle: toggle,
+        }
+    }
+}
+
+impl<D: Drain> Drain for TraceFilter<D> {
+    type Ok = Option<D::Ok>;
+    type Err = Option<D::Err>;
+
+    fn log(
+        &self,
+        record: &slog::Record,
+        values: &slog::OwnedKVList,
+    ) -> result::Result<Self::Ok, Self::Err> {
+        let current_level = if self.toggle.get() {
+            slog::Level::Trace
+        } else {
+            slog::Level::Info
+        };
+
+        if record.level().is_at_least(current_level) {
+            self.drain.log(record, values).map(Some).map_err(Some)
+        } else {
+            Ok(None)
+        }
+    }
+}
+
 fn main() {
+    let trace_on = Toggle::new();
+
     let decorator = slog_term::TermDecorator::new().build();
-    let drain = std::sync::Mutex::new(slog_term::CompactFormat::new(decorator).build()).fuse();
+    let drain = slog_term::CompactFormat::new(decorator).build();
+    let drain = TraceFilter::new(drain, trace_on.clone()).fuse();
+    let drain = std::sync::Mutex::new(drain).fuse();
     let log = slog::Logger::root(drain, o!());
-    trace!(log, "psqlpack started");
 
     let matches = App::new("psqlpack")
         .version(crate_version!())
@@ -133,7 +195,30 @@ fn main() {
                         .help("The report file to generate"),
                 ),
         )
+        .arg(
+            Arg::with_name("trace")
+                .short("t")
+                .long("trace")
+                .global(true)
+                .help("Enables trace level logging"),
+        )
         .get_matches();
+
+    // Checks if a flag is present at the top level or in any subcommand.
+    fn is_present_recursive<'args, S: Into<&'args str>>(
+        matches: &'args ArgMatches,
+        flag: S,
+    ) -> bool {
+        let flag = flag.into();
+        match matches.subcommand() {
+            (_, Some(sub)) => is_present_recursive(sub, flag) || matches.is_present(flag),
+            (_, None) => matches.is_present(flag),
+        }
+    }
+
+    // Enable tracing if required.
+    trace_on.set(is_present_recursive(&matches, "trace"));
+    trace!(log, "psqlpack started");
 
     // Time how long this takes
     let time_stamp = Instant::now();
