@@ -146,7 +146,6 @@ pub struct TypeDefinition {
 
 #[derive(Serialize,Deserialize)]
 pub enum TypeDefinitionKind {
-    Alias(SqlType),
     Enum(Vec<String>),
 }
 

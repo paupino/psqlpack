@@ -15,6 +15,8 @@ extern crate serde_derive;
 extern crate serde_json;
 extern crate walkdir;
 extern crate zip;
+#[cfg(test)]
+extern crate spectral;
 
 mod errors;
 pub use errors::*;

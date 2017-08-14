@@ -11,15 +11,6 @@ use model::{Package, PublishProfile};
 use errors::{PsqlpackResult, PsqlpackResultExt};
 use errors::PsqlpackErrorKind::*;
 
-macro_rules! dbtry {
-    ($expr:expr) => {
-        match $expr {
-            Ok(o) => o,
-            Err(e) => bail!(DatabaseError(format!("{}", e))),
-        }
-    };
-}
-
 static Q_DATABASE_EXISTS : &'static str = "SELECT 1 FROM pg_database WHERE datname=$1;";
 static Q_EXTENSION_EXISTS : &'static str = "SELECT 1 FROM pg_catalog.pg_extension WHERE extname=$1;";
 static Q_SCHEMA_EXISTS : &'static str = "SELECT 1 FROM information_schema.schemata WHERE schema_name=$1;";
@@ -353,9 +344,6 @@ impl<'input> ChangeInstruction<'input> {
                 let mut def = String::new();
                 def.push_str(&format!("CREATE TYPE {} AS ", t.name)[..]);
                 match t.kind {
-                    TypeDefinitionKind::Alias(ref sql_type) => {
-                        def.push_str(&sql_type.to_string()[..]);
-                    },
                     TypeDefinitionKind::Enum(ref values) => {
                         def.push_str("ENUM (\n");
                         let mut enum_comma_required = false;

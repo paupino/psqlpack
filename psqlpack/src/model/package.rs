@@ -1,11 +1,14 @@
 use std::path::Path;
 use std::fs::File;
 use std::io::Write;
+use std::collections::HashMap;
 
+use connection::Connection;
 use serde_json;
 use zip::{ZipArchive, ZipWriter};
 use zip::write::FileOptions;
 
+use sql::{lexer, parser};
 use sql::ast::*;
 use graph::{DependencyGraph, Node, Edge, ValidationResult};
 use model::Project;
@@ -35,6 +38,32 @@ macro_rules! zip_collection {
         }
     }};
 }
+
+static Q_EXTENSIONS : &'static str = "SELECT extname, extversion FROM pg_extension WHERE extowner <> 10";
+static Q_SCHEMAS : &'static str = "SELECT schema_name FROM information_schema.schemata
+                                   WHERE catalog_name = $1 AND schema_owner <> 'postgres'";
+static Q_TYPES : &'static str = "SELECT typname, typcategory FROM pg_catalog.pg_type
+                                 INNER JOIN pg_catalog.pg_namespace ON pg_namespace.oid=typnamespace
+                                 WHERE typcategory IN ('E') AND nspname='public' AND substr(typname, 1, 1) <> '_'";
+static Q_ENUMS : &'static str = "SELECT enumtypid, enumlabel
+                                 FROM pg_catalog.pg_enum
+                                 WHERE enumtypid IN ({})
+                                 ORDER BY enumtypid, enumsortorder";
+static Q_FUNCTIONS : &'static str = "SELECT nspname, proname, prosrc, pg_get_function_arguments(pg_proc.oid), lanname, pg_get_function_result(pg_proc.oid)
+                                     FROM pg_proc
+                                     JOIN pg_namespace ON pg_namespace.oid = pg_proc.pronamespace
+                                     JOIN pg_language ON pg_language.oid = pg_proc.prolang
+                                     LEFT JOIN pg_depend ON pg_depend.objid = pg_proc.oid AND pg_depend.deptype = 'e'
+                                     WHERE pg_depend.objid IS NULL AND nspname NOT IN ('pg_catalog', 'information_schema');";
+static Q_TABLES : &'static str = "SELECT pg_class.oid, nspname, relname, conname, pg_get_constraintdef(pg_constraint.oid)
+                                  FROM pg_class
+                                  JOIN pg_namespace ON pg_namespace.oid = pg_class.relnamespace
+                                  LEFT JOIN pg_depend ON pg_depend.objid = pg_class.oid AND pg_depend.deptype = 'e'
+                                  LEFT JOIN pg_constraint ON pg_constraint.conrelid = pg_class.oid
+                                  WHERE pg_class.relkind='r' AND pg_depend.objid IS NULL AND nspname NOT IN ('pg_catalog', 'information_schema')";
+static Q_COLUMNS : &'static str = "SELECT attrelid, attname, format_type(atttypid, atttypmod), attnotnull
+                                   FROM pg_attribute
+                                   ;WHERE attnum > 0 AND attrelid IN ({})";
 
 pub struct Package {
     pub extensions: Vec<ExtensionDefinition>,
@@ -110,6 +139,140 @@ impl Package {
             tables: tables,
             types: types,
             order: order,
+        })
+    }
+
+    pub fn from_connection(connection: &Connection) -> PsqlpackResult<Package> {
+        // We do five SQL queries to get the package details
+        let db_conn = dbtry!(connection.connect_database());
+
+        let mut extensions = Vec::new();
+        for row in &db_conn.query(Q_EXTENSIONS, &[]).unwrap() {
+            let ext_name : String = row.get(0);
+            extensions.push(ExtensionDefinition {
+                name: ext_name
+            });
+        }
+
+        let mut schemas = Vec::new();
+        for row in &db_conn.query(Q_SCHEMAS, &[&connection.database()]).unwrap() {
+            let schema_name : String = row.get(0);
+            schemas.push(SchemaDefinition {
+                name: schema_name
+            });
+        }
+
+        let mut types = Vec::new();
+        let mut enums = HashMap::new();
+        for row in &db_conn.query(Q_TYPES, &[]).unwrap() {
+            let oid : i32 = row.get(0);
+            let typname : String = row.get(1);
+            enums.insert(oid, typname);
+        }
+        let mut enum_values = Vec::new();
+        let mut last_oid : i32 = -1;
+        let mut oids = String::new();
+        for oid in enums.keys() {
+            if oids.is_empty() {
+                oids.push_str(&format!("{}", oid)[..]);
+            } else {
+                oids.push_str(&format!(", {}", oid)[..]);
+            }
+        }
+        if oids.len() > 0 {
+            let query = Q_ENUMS.replace("{}", &oids[..]);
+            for row in &db_conn.query(&query[..], &[]).unwrap() {
+                let oid : i32 = row.get(0);
+                let value : String = row.get(1);
+                if oid != last_oid {
+                    if last_oid > 0 {
+                        types.push(TypeDefinition {
+                            name: enums.get(&last_oid).unwrap().to_owned(),
+                            kind: TypeDefinitionKind::Enum(enum_values.clone())
+                        });
+                        enum_values.clear();
+                    }
+                    last_oid = oid;
+                }
+                enum_values.push(value);
+            }
+            if last_oid > 0 {
+                types.push(TypeDefinition {
+                    name: enums.get(&last_oid).unwrap().to_owned(),
+                    kind: TypeDefinitionKind::Enum(enum_values)
+                });
+            }
+        }
+
+        let mut functions = Vec::new();
+        for row in &db_conn.query(Q_FUNCTIONS, &[]).unwrap() {
+            let schema_name : String = row.get(0);
+            let function_name : String = row.get(1);
+            let function_src : String = row.get(2);
+            let raw_args : String = row.get(3);
+            let lan_name : String = row.get(4);
+            let raw_result : String = row.get(5);
+
+            // Parse some of the results
+            let language = match &lan_name[..] {
+                "internal" => FunctionLanguage::Internal,
+                "c" => FunctionLanguage::C,
+                "sql" => FunctionLanguage::SQL,
+                _ => FunctionLanguage::PostgreSQL,
+            };
+            let function_args_tokens = match lexer::tokenize(&raw_args[..]) {
+                Ok(t) => t,
+                Err(_) => bail!(GenerationError("Failed to tokenize function arguments".into())),
+            };
+            let function_args = match parser::parse_function_argument_list(function_args_tokens) {
+                Ok(arg_list) => arg_list,
+                Err(_) => bail!(GenerationError("Failed to parse function arguments".into())),
+            };
+            let return_type_tokens = match lexer::tokenize(&raw_result[..]) {
+                Ok(t) => t,
+                Err(_) => bail!(GenerationError("Failed to tokenize function return type".into())),
+            };
+            let return_type = match parser::parse_function_return_type(return_type_tokens) {
+                Ok(t) => t,
+                Err(_) => bail!(GenerationError("Failed to parse function return type".into())),
+            };
+
+            // Set up the function definition
+            functions.push(FunctionDefinition {
+                name: ObjectName {
+                    schema: Some(schema_name),
+                    name: function_name,
+                },
+                arguments: function_args,
+                return_type: return_type,
+                body: function_src,
+                language: language,
+            });
+        }
+
+        let mut tables = Vec::new();
+        for row in &db_conn.query(Q_TABLES, &[]).unwrap() {
+            let oid : i32 = row.get(0);
+            let schema_name : String = row.get(1);
+            let table_name : String = row.get(2);
+            tables.push(TableDefinition {
+                name: ObjectName {
+                    schema: Some(schema_name),
+                    name: table_name,
+                },
+                columns: Vec::new(), // TODO
+                constraints: None, // TODO
+            });
+        }
+
+        Ok(Package {
+            extensions: extensions,
+            functions: functions, // functions,
+            schemas: schemas, // schemas,
+            scripts: Vec::new(), // Scripts can't be known from a connection
+            tables: tables, // tables,
+            types: types, // types,
+            order: None,
         })
     }
 
@@ -323,4 +486,20 @@ impl GenerateDependencyGraph for TableConstraint {
             },
         }
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use super::super::super::connection::*;
+    use spectral::prelude::*;
+
+    #[test]
+    fn it_can_create_a_package_from_a_database() {
+        //TODO: Create database before test
+        let connection = ConnectionBuilder::new("taxengine", "localhost", "paul").build().unwrap();
+        let package = Package::from_connection(&connection).unwrap();
+        assert_that(&package.extensions).has_length(4);
+    }
+
 }
