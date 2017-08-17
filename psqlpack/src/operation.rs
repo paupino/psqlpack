@@ -7,10 +7,10 @@ use errors::PsqlpackResult;
 
 pub fn package<L: Into<Logger>>(log: L, project_path: &Path, output_path: &Path) -> PsqlpackResult<()> {
     let log = log.into().new(o!("operation" => "package"));
-    info!(log, "Loading Project from path"; "source" => project_path.to_str().unwrap());
-    let project = Project::from_path(project_path)?;
-    info!(log, "Writing Project to Package"; "output" => output_path.to_str().unwrap());
-    project.to_package(output_path)
+    trace!(log, "Loading Project from path"; "source" => project_path.to_str().unwrap());
+    let project = Project::from_path(&log, project_path)?;
+    trace!(log, "Writing Project to Package"; "output" => output_path.to_str().unwrap());
+    project.to_package(&log, output_path)
 }
 
 pub fn publish(source_package_path: &Path, target_connection_string: &str, publish_profile: &Path) -> PsqlpackResult<()> {
