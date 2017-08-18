@@ -13,6 +13,16 @@ pub fn package<L: Into<Logger>>(log: L, project_path: &Path, output_path: &Path)
     project.to_package(&log, output_path)
 }
 
+pub fn extract<L: Into<Logger>>(log: L, source_connection_string: &str, target_package_path: &Path) -> PsqlpackResult<()> {
+    let log = log.into().new(o!("operation" => "extract"));
+    let connection = source_connection_string.parse()?;
+
+    trace!(log, "Loading Package from connection");
+    let package = Package::from_connection(&connection)?;
+    trace!(log, "Writing Package"; "output" => target_package_path.to_str().unwrap());
+    package.write_to(target_package_path)
+}
+
 pub fn publish(source_package_path: &Path, target_connection_string: &str, publish_profile: &Path) -> PsqlpackResult<()> {
     let package = Package::from_path(source_package_path)?;
     let publish_profile = PublishProfile::from_path(publish_profile)?;
