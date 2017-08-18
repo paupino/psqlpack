@@ -103,6 +103,24 @@ fn main() {
                 ),
         )
         .subcommand(
+            SubCommand::with_name("extract")
+                .about("creates a psqlpack from an existing database")
+                .arg(
+                    Arg::with_name("SOURCE")
+                        .long("source")
+                        .required(false)
+                        .takes_value(true)
+                        .help("The source database connection string"),
+                )
+                .arg(
+                    Arg::with_name("OUT")
+                        .long("out")
+                        .required(true)
+                        .takes_value(true)
+                        .help("The location of the folder to export the psqlpack to"),
+                ),
+        )
+        .subcommand(
             SubCommand::with_name("publish")
                 .about("publishes a psqlpack to target")
                 .arg(
@@ -272,6 +290,16 @@ fn handle(log: &Logger, matches: &ArgMatches) -> HandleResult {
             let output = Path::new(package.value_of("OUT").unwrap());
             info!(log, "Output path"; "output" => output.to_str().unwrap());
             let result = operation::package(log, &source, output);
+            HandleResult::Outcome(command.to_owned(), result)
+        }
+        (command @ "extract", Some(extract)) => {
+            let log = log.new(o!("command" => command.to_owned()));
+            // Source is a DB, target is a path
+            let source = String::from(extract.value_of("SOURCE").unwrap());
+            info!(log, "Source connection string"; "source" => &source);
+            let output = Path::new(extract.value_of("OUT").unwrap());
+            info!(log, "Output path"; "output" => output.to_str().unwrap());
+            let result = operation::extract(log, &source, &output);
             HandleResult::Outcome(command.to_owned(), result)
         }
         (command @ "publish", Some(publish)) => {

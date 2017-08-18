@@ -252,7 +252,7 @@ impl Package {
 
         let mut tables = Vec::new();
         for row in &db_conn.query(Q_TABLES, &[]).unwrap() {
-            let oid : i32 = row.get(0);
+            let oid : u32 = row.get(0);
             let schema_name : String = row.get(1);
             let table_name : String = row.get(2);
             tables.push(TableDefinition {
