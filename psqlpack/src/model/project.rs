@@ -2,6 +2,7 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::fs::{self, File};
 
+use slog::Logger;
 use serde_json;
 use walkdir::WalkDir;
 
@@ -25,10 +26,13 @@ pub struct Project {
 }
 
 impl Project {
-    pub fn from_path(path: &Path) -> PsqlpackResult<Project> {
+    pub fn from_path(log: &Logger, path: &Path) -> PsqlpackResult<Project> {
+        let log = log.new(o!("project" => "from_path"));
+        trace!(log, "Attempting to open project file"; "path" => path.to_str().unwrap());
         File::open(path)
         .chain_err(|| ProjectReadError(path.to_path_buf()))
         .and_then(|file| {
+            trace!(log, "Parsing project file");
             serde_json::from_reader(file)
             .chain_err(|| ProjectParseError(path.to_path_buf()))
         })
@@ -38,7 +42,9 @@ impl Project {
         })
     }
 
-    pub fn to_package(&self, output_path: &Path) -> PsqlpackResult<()> {
+    pub fn to_package(&self, log: &Logger, output_path: &Path) -> PsqlpackResult<()> {
+        let log = log.new(o!("project" => "to_package"));
+
         // Turn the pre/post into paths to quickly check
         let parent = match self.path {
             Some(ref path) => path.parent().unwrap(),
@@ -51,15 +57,19 @@ impl Project {
                 .chain_err(|| InvalidScriptPath(script.to_owned()))
         };
 
+        trace!(log, "Canonicalizing predeploy paths");
         let mut predeploy_paths = Vec::new();
         for script in &self.pre_deploy_scripts {
             predeploy_paths.push(make_path(script)?);
         }
+        trace!(log, "Done predeploy paths"; "count" => predeploy_paths.len());
 
+        trace!(log, "Canonicalizing postdeploy paths");
         let mut postdeploy_paths = Vec::new();
         for script in &self.post_deploy_scripts {
             postdeploy_paths.push(make_path(script)?);
         }
+        trace!(log, "Done postdeploy paths"; "count" => postdeploy_paths.len());
 
         // Start the package
         let mut package = Package::new();
@@ -74,8 +84,11 @@ impl Project {
                 continue;
             }
 
+            let log = log.new(o!("file" => path.to_str().unwrap().to_owned()));
+
             let mut contents = String::new();
             if let Err(err) = File::open(&path).and_then(|mut f| f.read_to_string(&mut contents)) {
+                error!(log, "Error reading file");
                 errors.push(IOError(format!("{}", path.display()), format!("{}", err)).into());
                 continue;
             }
@@ -83,6 +96,7 @@ impl Project {
             // Figure out if it's a pre/post deployment script
             let real_path = path.to_path_buf().canonicalize().unwrap();
             if let Some(pos) = predeploy_paths.iter().position(|x| real_path.eq(x)) {
+                trace!(log, "Found predeploy script");
                 package.push_script(ScriptDefinition {
                     name: path.file_name().unwrap().to_str().unwrap().to_owned(),
                     kind: ScriptKind::PreDeployment,
@@ -90,6 +104,7 @@ impl Project {
                     contents: contents
                 });
             } else if let Some(pos) = postdeploy_paths.iter().position(|x| real_path.eq(x)) {
+                trace!(log, "Found postdeploy script");
                 package.push_script(ScriptDefinition {
                     name: path.file_name().unwrap().to_str().unwrap().to_owned(),
                     kind: ScriptKind::PostDeployment,
@@ -97,6 +112,7 @@ impl Project {
                     contents: contents
                 });
             } else {
+                trace!(log, "Tokenizing file");
                 let tokens = match lexer::tokenize(&contents[..]) {
                     Ok(t) => t,
                     Err(e) => {
@@ -110,9 +126,12 @@ impl Project {
                         continue;
                     },
                 };
+                trace!(log, "Finished tokenizing"; "count" => tokens.len());
 
+                trace!(log, "Parsing file");
                 match parser::parse_statement_list(tokens) {
                     Ok(statement_list) => {
+                        trace!(log, "Finished parsing statements"; "count" => statement_list.len());
                         for statement in statement_list {
                             match statement {
                                 Statement::Extension(extension_definition) => package.push_extension(extension_definition),
@@ -138,17 +157,21 @@ impl Project {
 
         // Update any missing defaults, create a dependency graph and then try to validate the project
         package.set_defaults(self);
+        trace!(log, "Generating dependency graph");
         try!(package.generate_dependency_graph());
+        trace!(log, "Validating package");
         try!(package.validate());
 
-        // Now generate the prackage
+        // Now generate the package
+        trace!(log, "Creating package directory");
         if let Some(parent) = output_path.parent() {
-            match fs::create_dir_all(format!("{}", parent.display())) {
+            match fs::create_dir_all(parent) {
                 Ok(_) => {},
                 Err(e) => bail!(GenerationError(format!("Failed to create package directory: {}", e))),
             }
         }
 
+        trace!(log, "Writing package file"; "output" => output_path.to_str().unwrap());
         package.write_to(output_path)
     }
 }
