@@ -158,9 +158,9 @@ impl Project {
         // Update any missing defaults, create a dependency graph and then try to validate the project
         package.set_defaults(self);
         trace!(log, "Generating dependency graph");
-        try!(package.generate_dependency_graph());
+        package.generate_dependency_graph(&log)?;
         trace!(log, "Validating package");
-        try!(package.validate());
+        package.validate()?;
 
         // Now generate the package
         trace!(log, "Creating package directory");

@@ -3,11 +3,12 @@ use std::fs::File;
 use std::io::Write;
 use std::collections::HashMap;
 
-use connection::Connection;
+use slog::Logger;
 use serde_json;
 use zip::{ZipArchive, ZipWriter};
 use zip::write::FileOptions;
 
+use connection::Connection;
 use sql::{lexer, parser};
 use sql::ast::*;
 use graph::{DependencyGraph, Node, Edge, ValidationResult};
@@ -373,19 +374,26 @@ impl Package {
         }
     }
 
-    pub fn generate_dependency_graph(&mut self) -> PsqlpackResult<()> {
+    pub fn generate_dependency_graph(&mut self, log: &Logger) -> PsqlpackResult<()> {
+        let log = log.new(o!("graph" => "generate"));
+
         let mut graph = DependencyGraph::new();
 
         // Go through and add each object and add it to the graph
         // Extensions, schemas and types are always implied
+        trace!(log, "Scanning table dependencies");
         for table in &self.tables {
-            table.generate_dependencies(&mut graph, None);
+            let log = log.new(o!("table" => table.name.to_string()));
+            table.generate_dependencies(&log, &mut graph, None);
         }
+        trace!(log, "Scanning function dependencies");
         for function in &self.functions {
-            function.generate_dependencies(&mut graph, None);
+            let log = log.new(o!("table" => function.name.to_string()));
+            function.generate_dependencies(&log, &mut graph, None);
         }
 
         // Make sure it's valid first up
+        trace!(log, "Validating graph");
         match graph.validate() {
             ValidationResult::Valid => {},
             ValidationResult::CircularReference => bail!(GenerationError("Circular reference detected".to_owned())),
@@ -394,7 +402,14 @@ impl Package {
         }
 
         // Then generate the order
+        trace!(log, "Sorting graph");
         let order = graph.topological_sort();
+        {
+            let log = log.new(o!("order" => "sorted"));
+            for node in &order {
+                trace!(log, ""; "node" => format!("{:?}", node));
+            }
+        }
         // Should we also add schema etc in there? Not really necessary...
         self.order = Some(order);
         Ok(())
@@ -408,24 +423,29 @@ impl Package {
 
 
 trait GenerateDependencyGraph {
-    fn generate_dependencies(&self, graph:&mut DependencyGraph, parent:Option<String>) -> Node;
+    fn generate_dependencies(&self, log: &Logger, graph:&mut DependencyGraph, parent:Option<String>) -> Node;
 }
 
 impl GenerateDependencyGraph for TableDefinition {
-    fn generate_dependencies(&self, graph:&mut DependencyGraph, _:Option<String>) -> Node {
+    fn generate_dependencies(&self, log: &Logger, graph:&mut DependencyGraph, _:Option<String>) -> Node {
         // Table is dependent on a schema, so add the edge
         // It will not have a parent - the schema is embedded in the name
         let full_name = self.name.to_string();
         let table_node = Node::Table(full_name.clone());
+        trace!(log, "Adding");
         graph.add_node(&table_node);
+
+        trace!(log, "Scanning columns");
         for column in &self.columns {
+            let log = log.new(o!("column" => column.name.to_string()));
             // Column doesn't know that it's dependent on this table so add it here
-            let col_node = column.generate_dependencies(graph, Some(full_name.clone()));
+            let col_node = column.generate_dependencies(&log, graph, Some(full_name.clone()));
             graph.add_edge(&col_node, Edge::new(&table_node, 1.0));
         }
         if let Some(ref table_constaints) = self.constraints {
+            trace!(log, "Scanning constraints");
             for constraint in table_constaints {
-                let table_constraint_node = constraint.generate_dependencies(graph, Some(full_name.clone()));
+                let table_constraint_node = constraint.generate_dependencies(&log, graph, Some(full_name.clone()));
                 graph.add_edge(&table_constraint_node, Edge::new(&table_node, 1.0));
             }
         }
@@ -434,26 +454,28 @@ impl GenerateDependencyGraph for TableDefinition {
 }
 
 impl GenerateDependencyGraph for ColumnDefinition {
-    fn generate_dependencies(&self, graph:&mut DependencyGraph, parent:Option<String>) -> Node {
+    fn generate_dependencies(&self, log: &Logger, graph:&mut DependencyGraph, parent:Option<String>) -> Node {
         // Column does have a parent - namely the table
         let column_node = Node::Column(format!("{}.{}", parent.unwrap(), self.name));
+        trace!(log, "Adding");
         graph.add_node(&column_node);
         column_node
     }
 }
 
 impl GenerateDependencyGraph for FunctionDefinition {
-    fn generate_dependencies(&self, graph:&mut DependencyGraph, _:Option<String>) -> Node {
+    fn generate_dependencies(&self, log: &Logger, graph:&mut DependencyGraph, _:Option<String>) -> Node {
         // Function is dependent on a schema, so add the edge
         // It will not have a parent - the schema is embedded in the name
         let function_node = Node::Function(self.name.to_string());
+        trace!(log, "Adding");
         graph.add_node(&function_node);
         function_node
     }
 }
 
 impl GenerateDependencyGraph for TableConstraint {
-    fn generate_dependencies(&self, graph:&mut DependencyGraph, parent:Option<String>) -> Node {
+    fn generate_dependencies(&self, log: &Logger, graph:&mut DependencyGraph, parent:Option<String>) -> Node {
         // We currently have two types of table constraints: Primary and Foreign
         // Primary is easy with a direct dependency to the column
         // Foreign requires a weighted dependency
@@ -461,26 +483,35 @@ impl GenerateDependencyGraph for TableConstraint {
         let table = parent.unwrap();
         match *self {
             TableConstraint::Primary { ref name, ref columns, .. } => {
+                let full_name = format!("{}.{}", table.clone(), name);
+                let log = log.new(o!("primary constraint" => full_name.clone()));
                 // Primary relies on the columns existing (of course)
-                let node = Node::Constraint(format!("{}.{}", table.clone(), name));
+                let node = Node::Constraint(full_name);
+                trace!(log, "Adding");
                 graph.add_node(&node);
                 for column in columns {
-                    graph.add_edge(&node, Edge::new(&Node::Column(format!("{}.{}", table.clone(), column)), 1.0));
+                    let name = format!("{}.{}", table.clone(), column);
+                    trace!(log, "Adding edge to column"; "column" => &name);
+                    graph.add_edge(&node, Edge::new(&Node::Column(name), 1.0));
                 }
                 node
             },
             TableConstraint::Foreign { ref name, ref columns, ref ref_table, ref ref_columns, .. } => {
+                let full_name = format!("{}.{}", table.clone(), name);
+                let log = log.new(o!("foreign constraint" => full_name.clone()));
                 // Foreign has two types of edges
-                let node = Node::Constraint(format!("{}.{}", table.clone(), name));
+                let node = Node::Constraint(full_name);
+                trace!(log, "Adding");
                 graph.add_node(&node);
                 for column in columns {
-                    graph.add_edge(&node, Edge::new(&Node::Column(format!("{}.{}", table.clone(), column)), 1.0));
+                    let name = format!("{}.{}", table.clone(), column);
+                    trace!(log, "Adding edge to column"; "column" => &name);
+                    graph.add_edge(&node, Edge::new(&Node::Column(name), 1.0));
                 }
                 for column in ref_columns {
-                    graph.add_edge(&node, Edge::new(
-                        &Node::Column(
-                            format!("{}.{}", ref_table.to_string(), column)
-                            ), 1.1));
+                    let name = format!("{}.{}", ref_table.to_string(), column);
+                    trace!(log, "Adding edge to refrenced column"; "column" => &name);
+                    graph.add_edge(&node, Edge::new(&Node::Column(name), 1.1));
                 }
                 node
             },
