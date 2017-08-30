@@ -1,5 +1,13 @@
 use std::fmt;
 
+#[derive(Debug,Serialize,Deserialize)]
+pub enum Ordered {
+    Column(String),
+    Constraint(String),
+    Function(String),
+    Table(String),   
+}
+
 pub enum Statement {
     Extension(ExtensionDefinition),
     Function(FunctionDefinition),
@@ -115,7 +123,7 @@ pub struct TableDefinition {
     pub constraints: Option<Vec<TableConstraint>>,
 }
 
-#[derive(Clone,Serialize,Deserialize)]
+#[derive(Debug,PartialEq,PartialOrd,Eq,Ord,Hash,Clone,Serialize,Deserialize)]
 pub struct ObjectName {
     pub schema: Option<String>,
     pub name: String,

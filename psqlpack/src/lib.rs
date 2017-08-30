@@ -15,6 +15,7 @@ extern crate serde_derive;
 extern crate serde_json;
 extern crate walkdir;
 extern crate zip;
+extern crate petgraph;
 #[cfg(test)]
 extern crate spectral;
 
@@ -23,7 +24,6 @@ pub use errors::*;
 mod connection;
 mod sql;
 mod model;
-mod graph;
 pub mod operation;
 
 /// Allows usage of no logging, std `log`, or slog.
