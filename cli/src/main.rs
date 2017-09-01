@@ -34,7 +34,7 @@ impl Toggle {
     }
 }
 
-/// A slog::Drain that toggles the trace level.
+/// A `slog::Drain` that toggles the trace level.
 struct TraceFilter<D: Drain> {
     drain: D,
     toggle: Toggle,
@@ -224,7 +224,7 @@ fn main() {
 
     // Checks if a flag is present at the top level or in any subcommand.
     fn is_present_recursive<'args, S: Into<&'args str>>(
-        matches: &'args ArgMatches,
+        matches: &ArgMatches,
         flag: S,
     ) -> bool {
         let flag = flag.into();
@@ -299,7 +299,7 @@ fn handle(log: &Logger, matches: &ArgMatches) -> HandleResult {
             info!(log, "Source connection string"; "source" => &source);
             let output = Path::new(extract.value_of("OUT").unwrap());
             info!(log, "Output path"; "output" => output.to_str().unwrap());
-            let result = operation::extract(log, &source, &output);
+            let result = operation::extract(log, &source, output);
             HandleResult::Outcome(command.to_owned(), result)
         }
         (command @ "publish", Some(publish)) => {

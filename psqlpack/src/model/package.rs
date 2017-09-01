@@ -459,7 +459,7 @@ impl Graphable for TableDefinition {
         if let Some(ref table_constaints) = self.constraints {
             trace!(log, "Scanning constraints");
             for constraint in table_constaints {
-                let constraint_node = constraint.graph(&log, graph, Some(&table_node));
+                let constraint_node = constraint.graph(log, graph, Some(&table_node));
                 graph.add_edge(table_node, constraint_node, ());
             }
         }
@@ -471,8 +471,8 @@ impl Graphable for TableDefinition {
 impl Graphable for ColumnDefinition {
     fn graph<'graph, 'def: 'graph>(&'def self, log: &Logger, graph: &mut Graph<'graph>, parent: Option<&Node<'graph>>) -> Node<'graph> {
         // Column does have a parent - namely the table
-        let table_name = match parent.unwrap() {
-            &Node::Table(name) => name,
+        let table_name = match *parent.unwrap() {
+            Node::Table(name) => name,
             _ => panic!("Non table parent for column."),
         };
         trace!(log, "Adding");
@@ -494,8 +494,8 @@ impl Graphable for TableConstraint {
         // Primary is easy with a direct dependency to the column
         // Foreign requires a weighted dependency
         // This does have a parent - namely the table
-        let table_name = match parent.unwrap() {
-            &Node::Table(name) => name,
+        let table_name = match *parent.unwrap() {
+            Node::Table(name) => name,
             _ => panic!("Non table parent for column."),
         };
         match *self {
@@ -506,7 +506,7 @@ impl Graphable for TableConstraint {
                 let constraint = graph.add_node(Node::Constraint(table_name, name));
                 for column in columns {
                     trace!(log, "Adding edge to column"; "column" => &column);
-                    graph.add_edge(Node::Column(table_name, &column), constraint, ());
+                    graph.add_edge(Node::Column(table_name, column), constraint, ());
                 }
                 constraint
             },
@@ -517,11 +517,11 @@ impl Graphable for TableConstraint {
                 let constraint = graph.add_node(Node::Constraint(table_name, name));
                 for column in columns {
                     trace!(log, "Adding edge to column"; "column" => &column);
-                    graph.add_edge(Node::Column(table_name, &column), constraint, ());
+                    graph.add_edge(Node::Column(table_name, column), constraint, ());
                 }
                 for column in ref_columns {
                     trace!(log, "Adding edge to refrenced column"; "table" => ref_table.to_string(), "column" => &column);
-                    graph.add_edge(Node::Column(ref_table, &column), constraint, ());
+                    graph.add_edge(Node::Column(ref_table, column), constraint, ());
                 }
                 constraint
             },
