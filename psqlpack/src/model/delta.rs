@@ -2,6 +2,7 @@ use std::io::Write;
 use std::path::Path;
 use std::fs::File;
 
+use slog::Logger;
 use serde_json;
 
 use sql::ast::*;
@@ -35,7 +36,7 @@ enum DbObject<'a> {
 pub struct Delta<'package>(Vec<ChangeInstruction<'package>>);
 
 impl<'package> Delta<'package> {
-    pub fn generate(package: &'package Package, connection: &Connection, publish_profile: PublishProfile) -> PsqlpackResult<Delta<'package>> {
+    pub fn generate(log: &Logger, package: &'package Package, connection: &Connection, publish_profile: PublishProfile) -> PsqlpackResult<Delta<'package>> {
         // Start the changeset
         let mut changeset = Vec::new();
 
@@ -65,31 +66,27 @@ impl<'package> Delta<'package> {
         }
 
         // Now add everything else per the topological sort
-        if let Some(ref ordered_items) = package.order {
-            for item in ordered_items {
-                // Not the most efficient algorithm, perhaps something to cleanup
-                match *item {
-                    Ordered::Column(_) | Ordered::Constraint(_) => {
-                        /* Necessary for ordering however unused here for now */
-                    },
-                    Ordered::Function(ref name) => {
-                        if let Some(function) = package.functions.iter().find(|x| x.name.to_string() == *name) {
-                            build_order.push(DbObject::Function(function));
-                        } else {
-                            // Warning?
-                        }
-                    },
-                    Ordered::Table(ref name) => {
-                        if let Some(table) = package.tables.iter().find(|x| x.name.to_string() == *name) {
-                            build_order.push(DbObject::Table(table));
-                        } else {
-                            // Warning?
-                        }
-                    },
-                }
+        for item in package.generate_dependency_graph(log).unwrap() {
+            // Not the most efficient algorithm, perhaps something to cleanup
+            match item {
+                Ordered::Column(_) | Ordered::Constraint(_) => {
+                    /* Necessary for ordering however unused here for now */
+                },
+                Ordered::Function(ref name) => {
+                    if let Some(function) = package.functions.iter().find(|x| x.name.to_string() == *name) {
+                        build_order.push(DbObject::Function(function));
+                    } else {
+                        // Warning?
+                    }
+                },
+                Ordered::Table(ref name) => {
+                    if let Some(table) = package.tables.iter().find(|x| x.name.to_string() == *name) {
+                        build_order.push(DbObject::Table(table));
+                    } else {
+                        // Warning?
+                    }
+                },
             }
-        } else {
-            panic!("Internal state error: order was not generated");
         }
 
         // Add in post deployment scripts

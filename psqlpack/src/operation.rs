@@ -23,32 +23,35 @@ pub fn extract<L: Into<Logger>>(log: L, source_connection_string: &str, target_p
     package.write_to(target_package_path)
 }
 
-pub fn publish(source_package_path: &Path, target_connection_string: &str, publish_profile: &Path) -> PsqlpackResult<()> {
+pub fn publish<L: Into<Logger>>(log: L, source_package_path: &Path, target_connection_string: &str, publish_profile: &Path) -> PsqlpackResult<()> {
+    let log = log.into().new(o!("operation" => "publish"));
     let package = Package::from_path(source_package_path)?;
     let publish_profile = PublishProfile::from_path(publish_profile)?;
     let connection = target_connection_string.parse()?;
 
     // Now we generate our instructions
-    let delta = Delta::generate(&package, &connection, publish_profile)?;
+    let delta = Delta::generate(&log, &package, &connection, publish_profile)?;
     delta.apply(&connection)
 }
 
-pub fn generate_sql(source_package_path: &Path, target_connection_string: &str, publish_profile: &Path, output_file: &Path) -> PsqlpackResult<()> {
+pub fn generate_sql<L: Into<Logger>>(log: L, source_package_path: &Path, target_connection_string: &str, publish_profile: &Path, output_file: &Path) -> PsqlpackResult<()> {
+    let log = log.into().new(o!("operation" => "generate_sql"));
     let package = Package::from_path(source_package_path)?;
     let publish_profile = PublishProfile::from_path(publish_profile)?;
     let connection = target_connection_string.parse()?;
 
     // Now we generate our instructions
-    let delta = Delta::generate(&package, &connection, publish_profile)?;
+    let delta = Delta::generate(&log, &package, &connection, publish_profile)?;
     delta.write_sql(output_file)
 }
 
-pub fn generate_report(source_package_path: &Path, target_connection_string: &str, publish_profile: &Path, output_file: &Path) -> PsqlpackResult<()> {
+pub fn generate_report<L: Into<Logger>>(log: L, source_package_path: &Path, target_connection_string: &str, publish_profile: &Path, output_file: &Path) -> PsqlpackResult<()> {
+    let log = log.into().new(o!("operation" => "generate_report"));
     let package = Package::from_path(source_package_path)?;
     let publish_profile = PublishProfile::from_path(publish_profile)?;
     let connection = target_connection_string.parse()?;
 
     // Now we generate our instructions
-    let delta = Delta::generate(&package, &connection, publish_profile)?;
+    let delta = Delta::generate(&log, &package, &connection, publish_profile)?;
     delta.write_report(output_file)
 }

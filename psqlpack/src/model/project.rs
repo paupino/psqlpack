@@ -155,10 +155,8 @@ impl Project {
             bail!(MultipleErrors(errors));
         }
 
-        // Update any missing defaults, create a dependency graph and then try to validate the project
+        // Update any missing defaults, then try to validate the project
         package.set_defaults(self);
-        trace!(log, "Generating dependency graph");
-        package.generate_dependency_graph(&log)?;
         trace!(log, "Validating package");
         package.validate()?;
 

@@ -73,7 +73,6 @@ pub struct Package {
     pub scripts: Vec<ScriptDefinition>,
     pub tables: Vec<TableDefinition>,
     pub types: Vec<TypeDefinition>,
-    pub order: Option<Vec<Ordered>>,
 }
 
 impl Package {
@@ -92,7 +91,6 @@ impl Package {
         let mut scripts = Vec::new();
         let mut tables = Vec::new();
         let mut types = Vec::new();
-        let mut order = None;
 
         for i in 0..archive.len()
         {
@@ -125,10 +123,6 @@ impl Package {
                 types.push(
                     serde_json::from_reader(file)
                     .chain_err(|| PackageInternalReadError(name))?);
-            } else if name.eq("order.json") {
-                order = Some(
-                    serde_json::from_reader(file)
-                    .chain_err(|| PackageInternalReadError(name))?);
             }
         }
 
@@ -139,7 +133,6 @@ impl Package {
             scripts: scripts,
             tables: tables,
             types: types,
-            order: order,
         })
     }
 
@@ -273,7 +266,6 @@ impl Package {
             scripts: Vec::new(), // Scripts can't be known from a connection
             tables: tables, // tables,
             types: types, // types,
-            order: None,
         })
     }
 
@@ -290,16 +282,6 @@ impl Package {
             zip_collection!(zip, self, tables);
             zip_collection!(zip, self, types);
 
-            // Also, do the order if we have it defined
-            if let Some(ref order) = self.order {
-                ztry!(zip.start_file("order.json", FileOptions::default()));
-                let json = match serde_json::to_string_pretty(&order) {
-                    Ok(j) => j,
-                    Err(e) => bail!(GenerationError(format!("Failed to write package: {}", e))),
-                };
-                ztry!(zip.write_all(json.as_bytes()));
-            }
-
             ztry!(zip.finish());
 
             Ok(())
@@ -314,7 +296,6 @@ impl Package {
             scripts: Vec::new(),
             tables: Vec::new(),
             types: Vec::new(),
-            order: None,
         }
     }
 
@@ -374,7 +355,7 @@ impl Package {
         }
     }
 
-    pub fn generate_dependency_graph(&mut self, log: &Logger) -> PsqlpackResult<()> {
+    pub fn generate_dependency_graph(&self, log: &Logger) -> PsqlpackResult<Vec<Ordered>> {
         let log = log.new(o!("graph" => "generate"));
 
         let mut graph = Graph::new();
@@ -404,11 +385,8 @@ impl Package {
                     trace!(log, ""; "node" => format!("{:?}", node));
                 }
 
-                // Should we also add schema etc in there? Not really necessary...
-                self.order = Some(order);
-                Ok(())
+                Ok(order)
             }
-            
         }
     }
 

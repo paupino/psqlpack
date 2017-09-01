@@ -303,29 +303,32 @@ fn handle(log: &Logger, matches: &ArgMatches) -> HandleResult {
             HandleResult::Outcome(command.to_owned(), result)
         }
         (command @ "publish", Some(publish)) => {
+            let log = log.new(o!("command" => command.to_owned()));
             // Source is the psqlpack, target is the DB
             let source = Path::new(publish.value_of("SOURCE").unwrap());
             let target = String::from(publish.value_of("TARGET").unwrap());
             let profile = Path::new(publish.value_of("PROFILE").unwrap());
-            let result = operation::publish(source, &target, profile);
+            let result = operation::publish(log, source, &target, profile);
             HandleResult::Outcome(command.to_owned(), result)
         }
         (command @ "script", Some(script)) => {
+            let log = log.new(o!("command" => command.to_owned()));
             // Source is the psqlpack, target is the DB
             let source = Path::new(script.value_of("SOURCE").unwrap());
             let target = String::from(script.value_of("TARGET").unwrap());
             let profile = Path::new(script.value_of("PROFILE").unwrap());
             let output_file = Path::new(script.value_of("OUT").unwrap());
-            let result = operation::generate_sql(source, &target, profile, output_file);
+            let result = operation::generate_sql(log, source, &target, profile, output_file);
             HandleResult::Outcome(command.to_owned(), result)
         }
         (command @ "report", Some(report)) => {
+            let log = log.new(o!("command" => command.to_owned()));
             // Source is the psqlpack, target is the DB
             let source = Path::new(report.value_of("SOURCE").unwrap());
             let target = String::from(report.value_of("TARGET").unwrap());
             let profile = Path::new(report.value_of("PROFILE").unwrap());
             let output_file = Path::new(report.value_of("OUT").unwrap());
-            let result = operation::generate_report(source, &target, profile, output_file);
+            let result = operation::generate_report(log, source, &target, profile, output_file);
             HandleResult::Outcome(command.to_owned(), result)
         }
         _ => HandleResult::UnknownSubcommand,
