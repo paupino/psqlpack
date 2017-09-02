@@ -1,3 +1,4 @@
+use std::fmt;
 use std::path::Path;
 use std::fs::File;
 use std::io::Write;
@@ -355,7 +356,7 @@ impl Package {
         }
     }
 
-    pub fn generate_dependency_graph(&self, log: &Logger) -> PsqlpackResult<Vec<Ordered>> {
+    pub fn generate_dependency_graph<'out>(&'out self, log: &Logger) -> PsqlpackResult<Vec<Node<'out>>> {
         let log = log.new(o!("graph" => "generate"));
 
         let mut graph = Graph::new();
@@ -378,14 +379,11 @@ impl Package {
         match petgraph::algo::toposort(&graph, None) {
             Err(_) => bail!(GenerationError("Circular reference detected".to_owned())),
             Ok(index_order) => {
-                let order = index_order.iter().map(|node| node.to_ordered()).collect();
-
                 let log = log.new(o!("order" => "sorted"));
-                for node in &order {
-                    trace!(log, ""; "node" => format!("{:?}", node));
+                for node in &index_order {
+                    trace!(log, ""; "node" => node.to_string());
                 }
-
-                Ok(order)
+                Ok(index_order)
             }
         }
     }
@@ -396,7 +394,7 @@ impl Package {
     }
 }
 
-#[derive(Clone,Copy,Debug,PartialEq,Eq,PartialOrd,Ord,Hash)]
+#[derive(Clone,Copy,PartialEq,Eq,PartialOrd,Ord,Hash)]
 pub enum Node<'def> {
     Table(&'def ObjectName),
     Column(&'def ObjectName, &'def str),
@@ -404,13 +402,13 @@ pub enum Node<'def> {
     Function(&'def ObjectName),
 }
 
-impl<'a> Node<'a> {
-    fn to_ordered(&self) -> Ordered {
+impl<'def> fmt::Display for Node<'def> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            Node::Table(name) => Ordered::Table(name.to_string()),
-            Node::Column(table, name) => Ordered::Column(format!("{}.{}", table, name)),
-            Node::Constraint(table, name) => Ordered::Constraint(format!("{}.{}", table, name)),
-            Node::Function(name) => Ordered::Function(name.to_string()),
+            Node::Table(name) => write!(f, "Table:      {}", name.to_string()),
+            Node::Column(table, name) => write!(f, "Column:     {}.{}", table, name),
+            Node::Constraint(table, name) => write!(f, "Constraint: {}.{}", table, name),
+            Node::Function(name) => write!(f, "Function:   {}", name.to_string()),
         }
     }
 }

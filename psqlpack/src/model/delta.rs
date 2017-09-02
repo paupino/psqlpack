@@ -7,7 +7,7 @@ use serde_json;
 
 use sql::ast::*;
 use connection::Connection;
-use model::{Package, PublishProfile};
+use model::{Package, Node, PublishProfile};
 use errors::{PsqlpackResult, PsqlpackResultExt};
 use errors::PsqlpackErrorKind::*;
 
@@ -69,18 +69,20 @@ impl<'package> Delta<'package> {
         for item in package.generate_dependency_graph(log).unwrap() {
             // Not the most efficient algorithm, perhaps something to cleanup
             match item {
-                Ordered::Column(_) | Ordered::Constraint(_) => {
+                Node::Column(_, _) | Node::Constraint(_, _) => {
                     /* Necessary for ordering however unused here for now */
                 },
-                Ordered::Function(ref name) => {
-                    if let Some(function) = package.functions.iter().find(|x| x.name.to_string() == *name) {
+                Node::Function(ref name) => {
+                    let function_name = name.to_string();
+                    if let Some(function) = package.functions.iter().find(|x| x.name.to_string() == function_name) {
                         build_order.push(DbObject::Function(function));
                     } else {
                         // Warning?
                     }
                 },
-                Ordered::Table(ref name) => {
-                    if let Some(table) = package.tables.iter().find(|x| x.name.to_string() == *name) {
+                Node::Table(ref name) => {
+                    let table_name = name.to_string();
+                    if let Some(table) = package.tables.iter().find(|x| x.name.to_string() == table_name) {
                         build_order.push(DbObject::Table(table));
                     } else {
                         // Warning?

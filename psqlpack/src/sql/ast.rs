@@ -1,13 +1,5 @@
 use std::fmt;
 
-#[derive(Debug,Serialize,Deserialize)]
-pub enum Ordered {
-    Column(String),
-    Constraint(String),
-    Function(String),
-    Table(String),   
-}
-
 pub enum Statement {
     Extension(ExtensionDefinition),
     Function(FunctionDefinition),
