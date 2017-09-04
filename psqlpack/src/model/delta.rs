@@ -334,7 +334,11 @@ impl<'input> ChangeInstruction<'input> {
 
             // Schema level
             ChangeInstruction::AddSchema(schema) => {
-                format!("CREATE SCHEMA {}", schema.name)
+                if schema.name == "public" {
+                    format!("CREATE SCHEMA IF NOT EXISTS {}", schema.name)
+                } else {
+                    format!("CREATE SCHEMA {}", schema.name)
+                }
             },
 
             // Type level
