@@ -72,6 +72,14 @@ error_chain! {
             description("Database error")
             display("Database error: {}", message)
         }
+        DatabaseExecuteError(query: String) {
+            description("Database error executing query")
+            display("Database error executing: {}", query)
+        }
+        DatabaseConnectionFinishError {
+            description("Database connection couldn't finish")
+            display("Database connection couldn't finish")
+        }
         ProjectError(message: String) {
             description("Project format error")
             display("Project format error: {}", message)

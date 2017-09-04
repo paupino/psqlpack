@@ -31,7 +31,7 @@ pub fn publish<L: Into<Logger>>(log: L, source_package_path: &Path, target_conne
 
     // Now we generate our instructions
     let delta = Delta::generate(&log, &package, &connection, publish_profile)?;
-    delta.apply(&connection)
+    delta.apply(&log, &connection)
 }
 
 pub fn generate_sql<L: Into<Logger>>(log: L, source_package_path: &Path, target_connection_string: &str, publish_profile: &Path, output_file: &Path) -> PsqlpackResult<()> {
@@ -42,7 +42,7 @@ pub fn generate_sql<L: Into<Logger>>(log: L, source_package_path: &Path, target_
 
     // Now we generate our instructions
     let delta = Delta::generate(&log, &package, &connection, publish_profile)?;
-    delta.write_sql(output_file)
+    delta.write_sql(&log, output_file)
 }
 
 pub fn generate_report<L: Into<Logger>>(log: L, source_package_path: &Path, target_connection_string: &str, publish_profile: &Path, output_file: &Path) -> PsqlpackResult<()> {

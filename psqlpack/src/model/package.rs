@@ -139,7 +139,7 @@ impl Package {
 
     pub fn from_connection(connection: &Connection) -> PsqlpackResult<Package> {
         // We do five SQL queries to get the package details
-        let db_conn = dbtry!(connection.connect_database());
+        let db_conn = connection.connect_database()?;
 
         let mut extensions = Vec::new();
         for row in &db_conn.query(Q_EXTENSIONS, &[]).unwrap() {
@@ -368,6 +368,19 @@ impl Package {
             let log = log.new(o!("table" => table.name.to_string()));
             table.graph(&log, &mut graph, None);
         }
+        trace!(log, "Scanning table constraints");
+        for table in &self.tables {
+            if let Some(ref table_constaints) = table.constraints {
+                let log = log.new(o!("table" => table.name.to_string()));
+                let table_node = Node::Table(&table);
+                trace!(log, "Scanning constraints");
+                for constraint in table_constaints {
+                    let constraint_node = constraint.graph(&log, &mut graph, Some(&table_node));
+                    graph.add_edge(table_node, constraint_node, ());
+                }
+            }
+        }
+        
         trace!(log, "Scanning function dependencies");
         for function in &self.functions {
             let log = log.new(o!("function" => function.name.to_string()));
@@ -396,19 +409,19 @@ impl Package {
 
 #[derive(Clone,Copy,PartialEq,Eq,PartialOrd,Ord,Hash)]
 pub enum Node<'def> {
-    Table(&'def ObjectName),
-    Column(&'def ObjectName, &'def str),
-    Constraint(&'def ObjectName, &'def str),
-    Function(&'def ObjectName),
+    Table(&'def TableDefinition),
+    Column(&'def TableDefinition, &'def ColumnDefinition),
+    Constraint(&'def TableDefinition, &'def TableConstraint),
+    Function(&'def FunctionDefinition),
 }
 
 impl<'def> fmt::Display for Node<'def> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            Node::Table(name) => write!(f, "Table:      {}", name.to_string()),
-            Node::Column(table, name) => write!(f, "Column:     {}.{}", table, name),
-            Node::Constraint(table, name) => write!(f, "Constraint: {}.{}", table, name),
-            Node::Function(name) => write!(f, "Function:   {}", name.to_string()),
+            Node::Table(table) => write!(f, "Table:      {}", table.name.to_string()),
+            Node::Column(table, column) => write!(f, "Column:     {}.{}", table.name.to_string(), column.name),
+            Node::Constraint(table, constraint) => write!(f, "Constraint: {}.{}", table.name.to_string(), constraint.name()),
+            Node::Function(function) => write!(f, "Function:   {}", function.name.to_string()),
         }
     }
 }
@@ -424,20 +437,13 @@ impl Graphable for TableDefinition {
         // Table is dependent on a schema, so add the edge
         // It will not have a parent - the schema is embedded in the name
         trace!(log, "Adding");
-        let table_node = graph.add_node(Node::Table(&self.name));
+        let table_node = graph.add_node(Node::Table(self));
 
         trace!(log, "Scanning columns");
         for column in &self.columns {
             let log = log.new(o!("column" => column.name.to_string()));
             let column_node = column.graph(&log, graph, Some(&table_node));
             graph.add_edge(table_node, column_node, ());
-        }
-        if let Some(ref table_constaints) = self.constraints {
-            trace!(log, "Scanning constraints");
-            for constraint in table_constaints {
-                let constraint_node = constraint.graph(log, graph, Some(&table_node));
-                graph.add_edge(table_node, constraint_node, ());
-            }
         }
 
         table_node
@@ -447,12 +453,12 @@ impl Graphable for TableDefinition {
 impl Graphable for ColumnDefinition {
     fn graph<'graph, 'def: 'graph>(&'def self, log: &Logger, graph: &mut Graph<'graph>, parent: Option<&Node<'graph>>) -> Node<'graph> {
         // Column does have a parent - namely the table
-        let table_name = match *parent.unwrap() {
-            Node::Table(name) => name,
+        let table = match *parent.unwrap() {
+            Node::Table(table) => table,
             _ => panic!("Non table parent for column."),
         };
         trace!(log, "Adding");
-        graph.add_node(Node::Column(table_name, &self.name))
+        graph.add_node(Node::Column(table, &self))
     }
 }
 
@@ -460,7 +466,7 @@ impl Graphable for FunctionDefinition {
     fn graph<'graph, 'def: 'graph>(&'def self, log: &Logger, graph: &mut Graph<'graph>, _: Option<&Node<'graph>>) -> Node<'graph> {
         // It will not have a parent - the schema is embedded in the name
         trace!(log, "Adding");
-        graph.add_node(Node::Function(&self.name))
+        graph.add_node(Node::Function(self))
     }
 }
 
@@ -470,8 +476,8 @@ impl Graphable for TableConstraint {
         // Primary is easy with a direct dependency to the column
         // Foreign requires a weighted dependency
         // This does have a parent - namely the table
-        let table_name = match *parent.unwrap() {
-            Node::Table(name) => name,
+        let table = match *parent.unwrap() {
+            Node::Table(table) => table,
             _ => panic!("Non table parent for column."),
         };
         match *self {
@@ -479,10 +485,11 @@ impl Graphable for TableConstraint {
                 let log = log.new(o!("primary constraint" => name.to_owned()));
                 // Primary relies on the columns existing (of course)
                 trace!(log, "Adding");
-                let constraint = graph.add_node(Node::Constraint(table_name, name));
-                for column in columns {
-                    trace!(log, "Adding edge to column"; "column" => &column);
-                    graph.add_edge(Node::Column(table_name, column), constraint, ());
+                let constraint = graph.add_node(Node::Constraint(table, self));
+                for column_name in columns {
+                    trace!(log, "Adding edge to column"; "column" => &column_name);
+                    let column = table.columns.iter().find(|x| &x.name == column_name).unwrap();
+                    graph.add_edge(Node::Column(table, column), constraint, ());
                 }
                 constraint
             },
@@ -490,14 +497,21 @@ impl Graphable for TableConstraint {
                 let log = log.new(o!("foreign constraint" => name.to_owned()));
                 // Foreign has two types of edges
                 trace!(log, "Adding");
-                let constraint = graph.add_node(Node::Constraint(table_name, name));
-                for column in columns {
-                    trace!(log, "Adding edge to column"; "column" => &column);
-                    graph.add_edge(Node::Column(table_name, column), constraint, ());
+                let constraint = graph.add_node(Node::Constraint(table, self));
+                for column_name in columns {
+                    trace!(log, "Adding edge to column"; "column" => &column_name);
+                    let column = table.columns.iter().find(|x| &x.name == column_name).unwrap();
+                    graph.add_edge(Node::Column(table, column), constraint, ());
                 }
-                for column in ref_columns {
-                    trace!(log, "Adding edge to refrenced column"; "table" => ref_table.to_string(), "column" => &column);
-                    graph.add_edge(Node::Column(ref_table, column), constraint, ());
+                for column_name in ref_columns {
+                    trace!(log, "Adding edge to refrenced column"; "table" => ref_table.to_string(), "column" => &column_name);
+                    let table = graph.nodes().find(|x| match *x { Node::Table(table) => &table.name == ref_table, _ => false }).unwrap();
+                    let table_def = match table {
+                        Node::Table(table_def) => table_def,
+                        _ => panic!("Non table node found"),
+                    };
+                    let column = table_def.columns.iter().find(|x| &x.name == column_name).unwrap();
+                    graph.add_edge(Node::Column(table_def, column), constraint, ());
                 }
                 constraint
             },
