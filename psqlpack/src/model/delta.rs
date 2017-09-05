@@ -1,13 +1,14 @@
+use std::fmt;
 use std::io::Write;
 use std::path::Path;
 use std::fs::File;
 
+use slog::Logger;
 use serde_json;
 
 use sql::ast::*;
 use connection::Connection;
-use graph::Node;
-use model::{Package, PublishProfile};
+use model::{Package, Node, PublishProfile};
 use errors::{PsqlpackResult, PsqlpackResultExt};
 use errors::PsqlpackErrorKind::*;
 
@@ -30,13 +31,32 @@ enum DbObject<'a> {
     Schema(&'a SchemaDefinition), // 3
     Script(&'a ScriptDefinition), // 1, 7
     Table(&'a TableDefinition), // 5 (ordered)
+    Column(&'a TableDefinition, &'a ColumnDefinition),
+    Constraint(&'a TableDefinition, &'a TableConstraint),
     Type(&'a TypeDefinition), // 4
+}
+
+impl<'a> fmt::Display for DbObject<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            DbObject::Extension(extension) => write!(f, "Extension: {}", extension.name), // 2
+            DbObject::Function(function) => write!(f, "Function: {}", function.name), // 6 (ordered)
+            DbObject::Schema(schema) => write!(f, "Schema: {}", schema.name), // 3
+            DbObject::Script(script) => write!(f, "Script: {}", script.name), // 1, 7
+            DbObject::Table(table) => write!(f, "Table: {}", table.name), // 5 (ordered)
+            DbObject::Column(table, column) => write!(f, "Table: {}, Column: {}", table.name, column.name),
+            DbObject::Constraint(table, constraint) => write!(f, "Table: {}, Constraint: {}", table.name, constraint.name()),
+            DbObject::Type(tipe) => write!(f, "Type: {}", tipe.name), // 4
+        }
+    }
 }
 
 pub struct Delta<'package>(Vec<ChangeInstruction<'package>>);
 
 impl<'package> Delta<'package> {
-    pub fn generate(package: &'package Package, connection: &Connection, publish_profile: PublishProfile) -> PsqlpackResult<Delta<'package>> {
+    pub fn generate(log: &Logger, package: &'package Package, connection: &Connection, publish_profile: PublishProfile) -> PsqlpackResult<Delta<'package>> {
+        let log = log.new(o!("delta" => "generate"));
+        
         // Start the changeset
         let mut changeset = Vec::new();
 
@@ -66,31 +86,25 @@ impl<'package> Delta<'package> {
         }
 
         // Now add everything else per the topological sort
-        if let Some(ref ordered_items) = package.order {
-            for item in ordered_items {
-                // Not the most efficient algorithm, perhaps something to cleanup
-                match *item {
-                    Node::Column(_) | Node::Constraint(_) => {
-                        /* Necessary for ordering however unused here for now */
-                    },
-                    Node::Function(ref name) => {
-                        if let Some(function) = package.functions.iter().find(|x| x.name.to_string() == *name) {
-                            build_order.push(DbObject::Function(function));
-                        } else {
-                            // Warning?
-                        }
-                    },
-                    Node::Table(ref name) => {
-                        if let Some(table) = package.tables.iter().find(|x| x.name.to_string() == *name) {
-                            build_order.push(DbObject::Table(table));
-                        } else {
-                            // Warning?
-                        }
-                    },
-                }
+        for item in package.generate_dependency_graph(&log)? {
+            match item {
+                Node::Function(_) => {
+                    // for the moment, add these later.
+                },
+                Node::Table(table) => {
+                    build_order.push(DbObject::Table(table));
+                },
+                Node::Column(table, column) => {
+                    build_order.push(DbObject::Column(table, column));
+                },
+                Node::Constraint(table, constraint) => {
+                    build_order.push(DbObject::Constraint(table, constraint));
+                },
             }
-        } else {
-            panic!("Internal state error: order was not generated");
+        }
+
+        for function in &package.functions {
+            build_order.push(DbObject::Function(function));
         }
 
         // Add in post deployment scripts
@@ -183,7 +197,8 @@ impl<'package> Delta<'package> {
                         } else {
                             changeset.push(ChangeInstruction::AddType(t));
                         }
-                    }
+                    },
+                    ref unhandled => warn!(log, "TODO - unhandled DBObject: {}", unhandled),
                 }
             }
         } else {
@@ -208,6 +223,12 @@ impl<'package> Delta<'package> {
                     DbObject::Table(table) => {
                         changeset.push(ChangeInstruction::AddTable(table));
                     },
+                    DbObject::Column(table, column) => {
+                        changeset.push(ChangeInstruction::AddColumn(table, column));
+                    }
+                    DbObject::Constraint(table, constraint) => {
+                        changeset.push(ChangeInstruction::AddConstraint(table, constraint));
+                    }
                     DbObject::Type(t) => {
                         changeset.push(ChangeInstruction::AddType(t));
                     }
@@ -217,26 +238,29 @@ impl<'package> Delta<'package> {
         Ok(Delta(changeset))
     }
 
-    pub fn apply(&self, connection: &Connection) -> PsqlpackResult<()> {
+    pub fn apply(&self, log: &Logger, connection: &Connection) -> PsqlpackResult<()> {
+        let log = log.new(o!("delta" => "apply"));
+
         let changeset = &self.0;
 
         // These instructions turn into SQL statements that get executed
-        let mut conn = dbtry!(connection.connect_host());
+        let mut conn = connection.connect_host()?;
 
         for change in changeset.iter() {
             if let ChangeInstruction::UseDatabase(..) = *change {
-                dbtry!(conn.finish());
-                conn = dbtry!(connection.connect_database());
+                conn.finish().chain_err(|| DatabaseConnectionFinishError)?;
+                conn = connection.connect_database()?;
                 continue;
             }
 
             // Execute SQL directly
-            println!("{}", change.to_progress_message());
-            dbtry!(conn.execute(&change.to_sql()[..], &[]));
+            trace!(log, "Executing: {}", change);
+            let sql = change.to_sql(&log);
+            conn.batch_execute(&sql).chain_err(|| DatabaseExecuteError(sql))?;
         }
 
         // Close the connection
-        dbtry!(conn.finish());
+        conn.finish().chain_err(|| DatabaseConnectionFinishError)?;
 
         Ok(())
     }
@@ -251,7 +275,7 @@ impl<'package> Delta<'package> {
         Ok(())
     }
 
-    pub fn write_sql(&self, destination: &Path) -> PsqlpackResult<()> {
+    pub fn write_sql(&self, log: &Logger, destination: &Path) -> PsqlpackResult<()> {
         let changeset = &self.0;
 
         // These instructions turn into a single SQL file
@@ -261,7 +285,8 @@ impl<'package> Delta<'package> {
         };
 
         for change in changeset.iter() {
-            match out.write_all(change.to_sql().as_bytes()) {
+            let sql = change.to_sql(log);
+            match out.write_all(sql.as_bytes()) {
                 Ok(_) => {
                     // New line
                     match out.write(&[59u8, 10u8, 10u8]) {
@@ -304,19 +329,65 @@ pub enum ChangeInstruction<'input> {
     RemoveTable(String),
 
     // Columns
-    AddColumn(&'input ColumnDefinition),
+    AddColumn(&'input TableDefinition, &'input ColumnDefinition),
     ModifyColumn(&'input ColumnDefinition),
     RemoveColumn(String),
+
+    // Constraints
+    AddConstraint(&'input TableDefinition, &'input TableConstraint),
 
     // Functions
     AddFunction(&'input FunctionDefinition),
     ModifyFunction(&'input FunctionDefinition), // This is identical to add however it's for future possible support
     DropFunction(String),
+}
 
+impl<'input> fmt::Display for ChangeInstruction<'input> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::ChangeInstruction::*;
+
+        match *self {
+            // Databases
+            DropDatabase(ref database) => write!(f, "Drop database: {}", database),
+            CreateDatabase(ref database) => write!(f, "Create database: {}", database),
+            UseDatabase(ref database) => write!(f, "Use database: {}", database),
+
+            // Extensions
+            AddExtension(extension) => write!(f, "Add extension: {}", extension.name),
+
+            // Schema
+            AddSchema(schema) => write!(f, "Add schema: {}", schema.name),
+            //RemoveSchema(String),
+
+            // Scripts
+            RunScript(script) => write!(f, "Run script: {}", script.name),
+
+            // Types
+            AddType(tipe) => write!(f, "Add type: {}", tipe.name),
+            RemoveType(ref type_name) => write!(f, "Remove type: {}", type_name),
+
+            // Tables
+            AddTable(table) => write!(f, "Add table: {}", table.name),
+            RemoveTable(ref table_name) => write!(f, "Remove table: {}", table_name),
+
+            // Columns
+            AddColumn(table, column) => write!(f, "Add column: {} to table: {}", column.name, table.name),
+            ModifyColumn(column) => write!(f, "Modify column: {}", column.name),
+            RemoveColumn(ref column_name) => write!(f, "Remove column: {}", column_name),
+
+            // Constraints
+            AddConstraint(table, constraint) => write!(f, "Add constraint: {} to table: {}", constraint.name(), table.name),
+
+            // Functions
+            AddFunction(function) => write!(f, "Add function: {}", function.name),
+            ModifyFunction(function) => write!(f, "Modify function: {}", function.name), // This is identical to add however it's for future possible support
+            DropFunction(ref function_name) => write!(f, "Drop function: {}", function_name),
+        }
+    }
 }
 
 impl<'input> ChangeInstruction<'input> {
-    fn to_sql(&self) -> String {
+    fn to_sql(&self, log: &Logger) -> String {
         match *self {
             // Database level
             ChangeInstruction::CreateDatabase(ref db) => {
@@ -336,7 +407,11 @@ impl<'input> ChangeInstruction<'input> {
 
             // Schema level
             ChangeInstruction::AddSchema(schema) => {
-                format!("CREATE SCHEMA {}", schema.name)
+                if schema.name == "public" {
+                    format!("CREATE SCHEMA IF NOT EXISTS {}", schema.name)
+                } else {
+                    format!("CREATE SCHEMA {}", schema.name)
+                }
             },
 
             // Type level
@@ -410,80 +485,76 @@ impl<'input> ChangeInstruction<'input> {
 
             // Table level
             ChangeInstruction::AddTable(def) => {
+                format!("CREATE TABLE {} ()", def.name)
+            }
+
+            // Column level
+            ChangeInstruction::AddColumn(table, column) => {
                 let mut instr = String::new();
-                instr.push_str(&format!("CREATE TABLE {} (\n", def.name)[..]);
-                for (index, column) in def.columns.iter().enumerate() {
-                    if index > 0 {
-                        instr.push_str(",\n");
+                instr.push_str(&format!("ALTER TABLE {}\n", table.name));
+                instr.push_str(&format!("ADD COLUMN {} {}", column.name, column.sql_type));
+                if let Some(ref constraints) = column.constraints {
+                    for constraint in constraints.iter() {
+                        match *constraint {
+                            ColumnConstraint::Default(ref any_type) => instr.push_str(&format!(" DEFAULT {}", any_type)),
+                            ColumnConstraint::NotNull => instr.push_str(" NOT NULL"),
+                            ColumnConstraint::Null => instr.push_str(" NULL"),
+                            ColumnConstraint::Unique => instr.push_str(" UNIQUE"),
+                            ColumnConstraint::PrimaryKey => instr.push_str(" PRIMARY KEY"),
+                        }
                     }
-                    instr.push_str(&format!("  {} {}", column.name, column.sql_type)[..]);
-                    // Evaluate column constraints
-                    if let Some(ref constraints) = column.constraints {
-                        for constraint in constraints.iter() {
-                            match *constraint {
-                                ColumnConstraint::Default(ref any_type) => instr.push_str(&format!(" DEFAULT {}", any_type)),
-                                ColumnConstraint::NotNull => instr.push_str(" NOT NULL"),
-                                ColumnConstraint::Null => instr.push_str(" NULL"),
-                                ColumnConstraint::Unique => instr.push_str(" UNIQUE"),
-                                ColumnConstraint::PrimaryKey => instr.push_str(" PRIMARY KEY"),
+                }
+                instr
+            }
+
+            ChangeInstruction::AddConstraint(table, constraint) => {
+                let mut instr = String::new();
+                instr.push_str(&format!("ALTER TABLE {}\nADD ", table.name));
+                match *constraint {
+                    TableConstraint::Primary {
+                        ref name,
+                        ref columns,
+                        ref parameters
+                    } => {
+                        instr.push_str(&format!("CONSTRAINT {} PRIMARY KEY ({})", name, columns.join(", ")));
+
+                        // Do the WITH options too
+                        if let Some(ref unwrapped) = *parameters {
+                            instr.push_str(" WITH (");
+                            for (position, value) in unwrapped.iter().enumerate() {
+                                if position > 0 {
+                                    instr.push_str(", ");
+                                }
+                                match *value {
+                                    IndexParameter::FillFactor(i) => instr.push_str(&format!("FILLFACTOR={}", i)[..]),
+                                }
+                            }
+                            instr.push_str(")");
+                        }
+                    },
+                    TableConstraint::Foreign {
+                        ref name,
+                        ref columns,
+                        ref ref_table,
+                        ref ref_columns,
+                        ref match_type,
+                        ref events,
+                    } => {
+                        instr.push_str(&format!("CONSTRAINT {} FOREIGN KEY ({})", name, columns.join(", "))[..]);
+                        instr.push_str(&format!(" REFERENCES {} ({})", ref_table, ref_columns.join(", "))[..]);
+                        if let Some(ref m) = *match_type {
+                            instr.push_str(&format!(" {}", m));
+                        }
+                        if let Some(ref events) = *events {
+                            for e in events {
+                                match *e {
+                                    ForeignConstraintEvent::Delete(ref action) => instr.push_str(&format!(" ON DELETE {}", action)),
+                                    ForeignConstraintEvent::Update(ref action) => instr.push_str(&format!(" ON UPDATE {}", action)),
+                                }
                             }
                         }
-                    }
+                    },
                 }
-                if let Some(ref constraints) = def.constraints {
-                    instr.push_str(",\n");
-                    for (index, constraint) in constraints.iter().enumerate() {
-                        if index > 0 {
-                            instr.push_str(",\n");
-                        }
-                        match *constraint {
-                            TableConstraint::Primary {
-                                ref name,
-                                ref columns,
-                                ref parameters
-                            } => {
-                                instr.push_str(&format!("  CONSTRAINT {} PRIMARY KEY ({})", name, columns.join(", "))[..]);
-
-                                // Do the WITH options too
-                                if let Some(ref unwrapped) = *parameters {
-                                    instr.push_str(" WITH (");
-                                    for (position, value) in unwrapped.iter().enumerate() {
-                                        if position > 0 {
-                                            instr.push_str(", ");
-                                        }
-                                        match *value {
-                                            IndexParameter::FillFactor(i) => instr.push_str(&format!("FILLFACTOR={}", i)[..]),
-                                        }
-                                    }
-                                    instr.push_str(")");
-                                }
-                            },
-                            TableConstraint::Foreign {
-                                ref name,
-                                ref columns,
-                                ref ref_table,
-                                ref ref_columns,
-                                ref match_type,
-                                ref events,
-                            } => {
-                                instr.push_str(&format!("  CONSTRAINT {} FOREIGN KEY ({})", name, columns.join(", "))[..]);
-                                instr.push_str(&format!(" REFERENCES {} ({})", ref_table, ref_columns.join(", "))[..]);
-                                if let Some(ref m) = *match_type {
-                                    instr.push_str(&format!(" {}", m));
-                                }
-                                if let Some(ref events) = *events {
-                                    for e in events {
-                                        match *e {
-                                            ForeignConstraintEvent::Delete(ref action) => instr.push_str(&format!(" ON DELETE {}", action)),
-                                            ForeignConstraintEvent::Update(ref action) => instr.push_str(&format!(" ON UPDATE {}", action)),
-                                        }
-                                    }
-                                }
-                            },
-                        }
-                    }
-                }
-                instr.push_str("\n)");
                 instr
             },
 
@@ -496,23 +567,11 @@ impl<'input> ChangeInstruction<'input> {
                 instr
             }
 
-            _ => {
-                "TODO".to_owned()
+            ref unimplemented => {
+                warn!(log, "TODO - not creating SQL for {}", unimplemented);
+                "".to_owned()
             }
         }
 
-    }
-
-    pub fn to_progress_message(&self) -> String {
-        match *self {
-            // Database level
-            ChangeInstruction::CreateDatabase(ref db) => format!("Creating database {}", db),
-            ChangeInstruction::DropDatabase(ref db) => format!("Dropping database {}", db),
-            ChangeInstruction::UseDatabase(ref db) => format!("Using database {}", db),
-
-            // Table level
-            ChangeInstruction::AddTable(def) => format!("Adding table {}", def.name),
-            _ => "TODO".to_owned(),
-        }
     }
 }
