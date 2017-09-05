@@ -498,20 +498,38 @@ impl Graphable for TableConstraint {
                 // Foreign has two types of edges
                 trace!(log, "Adding");
                 let constraint = graph.add_node(Node::Constraint(table, self));
+                // Add edges to the columns in this table.
                 for column_name in columns {
                     trace!(log, "Adding edge to column"; "column" => &column_name);
                     let column = table.columns.iter().find(|x| &x.name == column_name).unwrap();
                     graph.add_edge(Node::Column(table, column), constraint, ());
                 }
-                for column_name in ref_columns {
-                    trace!(log, "Adding edge to refrenced column"; "table" => ref_table.to_string(), "column" => &column_name);
-                    let table = graph.nodes().find(|x| match *x { Node::Table(table) => &table.name == ref_table, _ => false }).unwrap();
-                    let table_def = match table {
-                        Node::Table(table_def) => table_def,
-                        _ => panic!("Non table node found"),
-                    };
-                    let column = table_def.columns.iter().find(|x| &x.name == column_name).unwrap();
-                    graph.add_edge(Node::Column(table_def, column), constraint, ());
+                // Find the details of the referenced table.
+                let table_named = |node: &Node| match *node {
+                    Node::Table(table) => &table.name == ref_table,
+                    _ => false,
+                };
+                let table_def = match graph.nodes().find(table_named) {
+                    Some(Node::Table(table_def)) => table_def,
+                    _ => panic!("Non table node found"),
+                };
+                // Add edges to the referenced columns.
+                for ref_column_name in ref_columns {
+                    trace!(log, "Adding edge to refrenced column"; "table" => ref_table.to_string(), "column" => &ref_column_name);
+                    
+                    let ref_column = table_def.columns.iter().find(|x| &x.name == ref_column_name).unwrap();
+                    graph.add_edge(Node::Column(table_def, ref_column), constraint, ());
+
+                    // If required, add an edge to any primary keys.
+                    if let Some(ref constraints) = table_def.constraints {
+                        for primary in constraints {
+                            if let TableConstraint::Primary { ref columns, .. } = *primary {
+                                if columns.contains(ref_column_name) {
+                                    graph.add_edge(Node::Constraint(table_def, &primary), constraint, ());
+                                }
+                            }
+                        }
+                    }
                 }
                 constraint
             },
