@@ -6,6 +6,8 @@ use std::fs::File;
 use slog::Logger;
 use serde_json;
 
+use slog::Logger;
+
 use sql::ast::*;
 use connection::Connection;
 use model::{Package, Node, PublishProfile};
@@ -116,7 +118,9 @@ impl<'package> Delta<'package> {
 
         // First up, detect if there is no database (or it needs to be recreated)
         // If so, we assume everything is new
+        trace!(log, "Connecting to host");
         let db_conn = dbtry!(connection.connect_host());
+        trace!(log, "Checking for database `{}`", &connection.database()[..]);
         let db_result = dbtry!(db_conn.query(Q_DATABASE_EXISTS, &[ &connection.database() ]));
         let mut has_db = !db_result.is_empty();
 
