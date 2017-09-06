@@ -25,9 +25,7 @@ pub fn extract<L: Into<Logger>>(log: L, source_connection_string: &str, target_p
 
 pub fn publish<L: Into<Logger>>(log: L, source_package_path: &Path, target_connection_string: &str, publish_profile: &Path) -> PsqlpackResult<()> {
     let log = log.into().new(o!("operation" => "publish"));
-    trace!(log, "Loading Package from path");
     let package = Package::from_path(source_package_path)?;
-    trace!(log, "Loading Publish Profile from path");
     let publish_profile = PublishProfile::from_path(publish_profile)?;
     let connection = target_connection_string.parse()?;
 
