@@ -23,6 +23,7 @@ pub struct Project {
     pub pre_deploy_scripts: Vec<String>,
     #[serde(rename = "postDeployScripts")]
     pub post_deploy_scripts: Vec<String>,
+    pub extensions: Option<Vec<String>>,
 }
 
 impl Project {
@@ -73,6 +74,14 @@ impl Project {
 
         // Start the package
         let mut package = Package::new();
+
+        // Add extensions
+        if let Some(ref extensions) = self.extensions {
+            for extension in extensions {
+                package.push_extension(ExtensionDefinition { name: extension.clone() });
+            }
+        }
+
         let mut errors: Vec<PsqlpackError> = Vec::new();
 
         // Enumerate the directory
@@ -134,7 +143,7 @@ impl Project {
                         trace!(log, "Finished parsing statements"; "count" => statement_list.len());
                         for statement in statement_list {
                             match statement {
-                                Statement::Extension(extension_definition) => package.push_extension(extension_definition),
+                                Statement::Extension(_) => warn!(log, "Extension statement found, ignoring"),
                                 Statement::Function(function_definition) => package.push_function(function_definition),
                                 Statement::Schema(schema_definition) => package.push_schema(schema_definition),
                                 Statement::Table(table_definition) => package.push_table(table_definition),
