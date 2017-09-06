@@ -6,8 +6,6 @@ use std::fs::File;
 use slog::Logger;
 use serde_json;
 
-use slog::Logger;
-
 use sql::ast::*;
 use connection::Connection;
 use model::{Package, Node, PublishProfile};
