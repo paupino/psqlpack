@@ -63,9 +63,9 @@ static Q_TABLES : &'static str = "SELECT pg_class.oid, nspname, relname, conname
                                   LEFT JOIN pg_depend ON pg_depend.objid = pg_class.oid AND pg_depend.deptype = 'e'
                                   LEFT JOIN pg_constraint ON pg_constraint.conrelid = pg_class.oid
                                   WHERE pg_class.relkind='r' AND pg_depend.objid IS NULL AND nspname NOT IN ('pg_catalog', 'information_schema')";
-static Q_COLUMNS : &'static str = "SELECT attrelid, attname, format_type(atttypid, atttypmod), attnotnull
+/*static Q_COLUMNS : &'static str = "SELECT attrelid, attname, format_type(atttypid, atttypmod), attnotnull
                                    FROM pg_attribute
-                                   ;WHERE attnum > 0 AND attrelid IN ({})";
+                                   WHERE attnum > 0 AND attrelid IN ({})";*/
 
 pub struct Package {
     pub extensions: Vec<ExtensionDefinition>,
@@ -247,7 +247,6 @@ impl Package {
 
         let mut tables = Vec::new();
         for row in &db_conn.query(Q_TABLES, &[]).unwrap() {
-            let oid : u32 = row.get(0);
             let schema_name : String = row.get(1);
             let table_name : String = row.get(2);
             tables.push(TableDefinition {
