@@ -5,7 +5,7 @@ authors = ["Paul Mason <paul@form1.co.nz>"]
 build = "build.rs"
 
 [dependencies]
-error-chain = "0.10"
+error-chain = "0.11"
 lazy_static = "0.2"
 lalrpop-util = "0.13"
 slog = { version = "2", features = ["max_level_trace", "release_max_level_trace"] }

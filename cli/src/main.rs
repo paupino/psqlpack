@@ -14,7 +14,7 @@ use std::result;
 
 use clap::{Arg, ArgMatches, App, SubCommand};
 use slog::{Drain, Logger};
-use psqlpack::{operation, PsqlpackResult, ChainedError};
+use psqlpack::{operation, PsqlpackResult};
 
 /// A threadsafe toggle.
 #[derive(Clone)]
@@ -223,10 +223,7 @@ fn main() {
         .get_matches();
 
     // Checks if a flag is present at the top level or in any subcommand.
-    fn is_present_recursive<'args, S: Into<&'args str>>(
-        matches: &ArgMatches,
-        flag: S,
-    ) -> bool {
+    fn is_present_recursive<'args, S: Into<&'args str>>(matches: &ArgMatches, flag: S) -> bool {
         let flag = flag.into();
         match matches.subcommand() {
             (_, Some(sub)) => is_present_recursive(sub, flag) || matches.is_present(flag),
@@ -250,12 +247,7 @@ fn main() {
             );
         }
         HandleResult::Outcome(action, Err(error)) => {
-            error!(
-                log,
-                "encountered during {} command:\n{}",
-                action,
-                error.display()
-            );
+            error!(log, "encountered during {} command:\n{}", action, error);
         }
         HandleResult::Outcome(action, _) => {
             // Capture how long was elapsed
