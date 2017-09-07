@@ -1,6 +1,5 @@
 use std::path::PathBuf;
 
-pub use error_chain::ChainedError;
 pub use lalrpop_util::ParseError;
 
 use sql::lexer;
@@ -126,7 +125,7 @@ struct MultipleErrorFormatter<'fmt>(&'fmt Vec<PsqlpackError>);
 impl<'fmt> Display for MultipleErrorFormatter<'fmt> {
     fn fmt(&self, f: &mut Formatter) -> Result {
         for (i, error) in self.0.iter().enumerate() {
-            write!(f, "--- Error {} ---\n{}", i, error.display())?;
+            write!(f, "--- Error {} ---\n{}", i, error)?;
         }
         Ok(())
     }
