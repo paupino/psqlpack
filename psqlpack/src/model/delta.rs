@@ -13,17 +13,6 @@ use errors::{PsqlpackResult, PsqlpackResultExt};
 use errors::PsqlpackErrorKind::*;
 
 static Q_DATABASE_EXISTS : &'static str = "SELECT 1 FROM pg_database WHERE datname=$1;";
-static Q_EXTENSION_EXISTS : &'static str = "SELECT 1 FROM pg_catalog.pg_extension WHERE extname=$1;";
-static Q_SCHEMA_EXISTS : &'static str = "SELECT 1 FROM information_schema.schemata WHERE schema_name=$1;";
-static Q_TYPE_EXISTS : &'static str = "SELECT 1 FROM pg_catalog.pg_type where typcategory <> 'A' AND typname=$1;";
-static Q_TABLE_EXISTS : &'static str = "SELECT 1
-                                        FROM pg_catalog.pg_class c
-                                        JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-                                        WHERE n.nspname = $1 AND c.relname = $2 AND c.relkind = 'r';";
-static Q_DESCRIBE_COLUMNS : &'static str = "SELECT ordinal_position, column_name, column_default, is_nullable, data_type, character_maximum_length, numeric_precision, numeric_scale
-                                            FROM information_schema.columns
-                                            WHERE table_schema = $1 AND table_name = $2
-                                            ORDER BY ordinal_position;";
 
 enum DbObject<'a> {
     Extension(&'a ExtensionDefinition), // 2
@@ -116,7 +105,9 @@ impl<'package> Delta<'package> {
 
         // First up, detect if there is no database (or it needs to be recreated)
         // If so, we assume everything is new
+        trace!(log, "Connecting to host");
         let db_conn = dbtry!(connection.connect_host());
+        trace!(log, "Checking for database `{}`", &connection.database()[..]);
         let db_result = dbtry!(db_conn.query(Q_DATABASE_EXISTS, &[ &connection.database() ]));
         let mut has_db = !db_result.is_empty();
 
@@ -129,25 +120,17 @@ impl<'package> Delta<'package> {
         // If we have the DB we generate an actual change set, else we generate new instructions
         if has_db {
 
+            // We'll compare a delta against the existing state
+            let existing_database = Package::from_connection(&connection)?;
+
             // Set the connection instruction
             changeset.push(ChangeInstruction::UseDatabase(connection.database().to_owned()));
-
-            // Connect to the database
-            let conn = dbtry!(connection.connect_database());
 
             // Go through each item in order and figure out what to do with it
             for item in &build_order {
                 match *item {
                     DbObject::Extension(extension) => {
-                        // Only add the extension if it does not already exist
-                        let mut extension_exists = false;
-                        for _ in &conn.query(Q_EXTENSION_EXISTS, &[ &extension.name ]).unwrap() {
-                            extension_exists = true;
-                            break;
-                        }
-                        if !extension_exists {
-                            changeset.push(ChangeInstruction::AddExtension(extension));
-                        }
+                        changeset.push(ChangeInstruction::AssertExtension(extension));
                     },
                     DbObject::Function(function) => {
                         // Since we don't really need to worry about this in PG we just
@@ -157,11 +140,7 @@ impl<'package> Delta<'package> {
                     },
                     DbObject::Schema(schema) => {
                         // Only add schema's, we do not drop them at this point
-                        let mut schema_exists = false;
-                        for _ in &conn.query(Q_SCHEMA_EXISTS, &[ &schema.name ]).unwrap() {
-                            schema_exists = true;
-                            break;
-                        }
+                        let schema_exists = existing_database.schemas.iter().any(|s| s.name == schema.name);
                         if !schema_exists {
                             changeset.push(ChangeInstruction::AddSchema(schema));
                         }
@@ -170,32 +149,21 @@ impl<'package> Delta<'package> {
                         changeset.push(ChangeInstruction::RunScript(script));
                     },
                     DbObject::Table(table) => {
-                        let mut table_exists = false;
-                        for _ in &conn.query(Q_TABLE_EXISTS, &[ &table.name.schema, &table.name.name ]).unwrap() {
-                            table_exists = true;
-                            break;
-                        }
+                        let table_exists = existing_database.tables.iter().any(|t| t.name == table.name);
                         if table_exists {
                             // Check the columns
-                            for _ in &conn.query(Q_DESCRIBE_COLUMNS, &[ &table.name.schema, &table.name.name ]).unwrap() {
-                                //let column_name : String = column.get(1);
-                            }
 
                             // Check the constraints
                         } else {
                             changeset.push(ChangeInstruction::AddTable(table));
                         }
                     },
-                    DbObject::Type(t) => {
-                        let mut type_exists = false;
-                        for _ in &conn.query(Q_TYPE_EXISTS, &[ &t.name ]).unwrap() {
-                            type_exists = true;
-                            break;
-                        }
+                    DbObject::Type(ty) => {
+                        let type_exists = existing_database.types.iter().any(|t| t.name == ty.name);;
                         if type_exists {
                             // TODO: Need to figure out if it's changed and also perhaps how it's changed. I don't think a blanket modify is enough.
                         } else {
-                            changeset.push(ChangeInstruction::AddType(t));
+                            changeset.push(ChangeInstruction::AddType(ty));
                         }
                     },
                     ref unhandled => warn!(log, "TODO - unhandled DBObject: {}", unhandled),
@@ -209,7 +177,7 @@ impl<'package> Delta<'package> {
             for item in &build_order {
                 match *item {
                     DbObject::Extension(extension) => {
-                        changeset.push(ChangeInstruction::AddExtension(extension));
+                        changeset.push(ChangeInstruction::AssertExtension(extension));
                     },
                     DbObject::Function(function) => {
                         changeset.push(ChangeInstruction::AddFunction(function));
@@ -311,7 +279,7 @@ pub enum ChangeInstruction<'input> {
     UseDatabase(String),
 
     // Extensions
-    AddExtension(&'input ExtensionDefinition),
+    AssertExtension(&'input ExtensionDefinition),
 
     // Schema
     AddSchema(&'input SchemaDefinition),
@@ -353,7 +321,7 @@ impl<'input> fmt::Display for ChangeInstruction<'input> {
             UseDatabase(ref database) => write!(f, "Use database: {}", database),
 
             // Extensions
-            AddExtension(extension) => write!(f, "Add extension: {}", extension.name),
+            AssertExtension(extension) => write!(f, "Assert extension: {}", extension.name),
 
             // Schema
             AddSchema(schema) => write!(f, "Add schema: {}", schema.name),
@@ -401,8 +369,8 @@ impl<'input> ChangeInstruction<'input> {
             },
 
             // Extension level
-            ChangeInstruction::AddExtension(ext) => {
-                format!("CREATE EXTENSION {}", ext.name)
+            ChangeInstruction::AssertExtension(ext) => {
+                format!("-- Assert extension exists {}", ext.name)
             },
 
             // Schema level

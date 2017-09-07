@@ -18,22 +18,26 @@ pushd ./cli > /dev/null
 case $1 in
     package)
         echo "Packaging '$db'"
-        cargo run -- package --source ../samples/$db/project.json --out ../out/$db.psqlpack
+        cargo run -- package --source ../samples/$db/project.json --out ../out/$db.psqlpack --trace
         ;;
     publish)
         action="Publishing '$db'"
-        cargo run -- publish --source ../out/$db.psqlpack --target "host=localhost;database=$db;userid=$username;tlsmode=none;" --profile ../samples/$db/publish_profile.json
+        cargo run -- publish --source ../out/$db.psqlpack --target "host=$db.db;database=$db;userid=$username;tlsmode=none;" --profile ../samples/$db/publish_profile.json --trace
         ;;
     script)
         action="Generating SQL for '$db'"
-        cargo run -- script --source ../out/$db.psqlpack --target "host=localhost;database=$db;userid=$username;tlsmode=none;" --profile ../samples/$db/publish_profile.json --out ../out/$db.sql
+        cargo run -- script --source ../out/$db.psqlpack --target "host=$db.db;database=$db;userid=$username;tlsmode=none;" --profile ../samples/$db/publish_profile.json --out ../out/$db.sql --trace
         ;;
     report)
         action="Generating Report for '$db'"
-        cargo run -- report --source ../out/$db.psqlpack --target "host=localhost;database=$db;userid=$username;tlsmode=none;" --profile ../samples/$db/publish_profile.json --out ../out/$db.json
+        cargo run -- report --source ../out/$db.psqlpack --target "host=$db.db;database=$db;userid=$username;tlsmode=none;" --profile ../samples/$db/publish_profile.json --out ../out/$db.json --trace
         ;;
     extract)
         action="Extracting psqlpack for '$db'"
+        cargo run -- extract --source "host=$db.db;database=$db;userid=$username;tlsmode=none;" --out ../out/${db}db.psqlpack --trace
+        ;;        
+    unpack)
+        action="Unpacking psqlpack for '$db'"
         unzip ../out/$db.psqlpack -d ../out/$db
         ;;
     *)
