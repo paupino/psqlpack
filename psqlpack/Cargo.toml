@@ -24,3 +24,6 @@ lalrpop = "0.13"
 
 [dev-dependencies]
 spectral = "0.6.0"
+
+[features]
+symbols = []
