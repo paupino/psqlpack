@@ -1,5 +1,6 @@
 use std::fmt;
 
+#[derive(Debug)]
 pub enum Statement {
     Extension(ExtensionDefinition),
     Function(FunctionDefinition),
@@ -8,14 +9,14 @@ pub enum Statement {
     Type(TypeDefinition),
 }
 
-#[derive(PartialEq,PartialOrd,Eq,Ord,Hash,Serialize,Deserialize)]
+#[derive(Debug,PartialEq,PartialOrd,Eq,Ord,Hash,Serialize,Deserialize)]
 pub enum SqlType {
     Simple(SimpleSqlType),
     Array(SimpleSqlType, u32),
     Custom(String, Option<String>),
 }
 
-#[derive(PartialEq,PartialOrd,Eq,Ord,Hash,Serialize,Deserialize)]
+#[derive(Debug,PartialEq,PartialOrd,Eq,Ord,Hash,Serialize,Deserialize)]
 pub enum SimpleSqlType {
     FixedLengthString(u32), // char(size)
     VariableLengthString(u32), // varchar(size)
@@ -48,7 +49,7 @@ pub enum SimpleSqlType {
     Uuid, // uuid
 }
 
-#[derive(PartialEq,PartialOrd,Eq,Ord,Hash,Serialize,Deserialize)]
+#[derive(Debug,PartialEq,PartialOrd,Eq,Ord,Hash,Serialize,Deserialize)]
 pub enum ColumnConstraint {
     Default(AnyValue),
     NotNull,
@@ -57,19 +58,19 @@ pub enum ColumnConstraint {
     PrimaryKey,
 }
 
-#[derive(PartialEq,PartialOrd,Eq,Ord,Hash,Serialize,Deserialize)]
+#[derive(Debug,PartialEq,PartialOrd,Eq,Ord,Hash,Serialize,Deserialize)]
 pub enum AnyValue {
     Boolean(bool),
     Integer(i32),
     String(String),
 }
 
-#[derive(PartialEq,PartialOrd,Eq,Ord,Hash,Serialize,Deserialize)]
+#[derive(Debug,PartialEq,PartialOrd,Eq,Ord,Hash,Serialize,Deserialize)]
 pub enum IndexParameter {
     FillFactor(u32),
 }
 
-#[derive(PartialEq,PartialOrd,Eq,Ord,Hash,Serialize,Deserialize)]
+#[derive(Debug,PartialEq,PartialOrd,Eq,Ord,Hash,Serialize,Deserialize)]
 pub enum TableConstraint {
     Primary {
         name: String,
@@ -94,20 +95,20 @@ impl TableConstraint {
     }
 }
 
-#[derive(PartialEq,PartialOrd,Eq,Ord,Hash,Serialize,Deserialize)]
+#[derive(Debug,PartialEq,PartialOrd,Eq,Ord,Hash,Serialize,Deserialize)]
 pub enum ForeignConstraintMatchType {
     Simple,
     Partial,
     Full,
 }
 
-#[derive(PartialEq,PartialOrd,Eq,Ord,Hash,Serialize,Deserialize)]
+#[derive(Debug,PartialEq,PartialOrd,Eq,Ord,Hash,Serialize,Deserialize)]
 pub enum ForeignConstraintEvent {
     Delete(ForeignConstraintAction),
     Update(ForeignConstraintAction),
 }
 
-#[derive(PartialEq,PartialOrd,Eq,Ord,Hash,Serialize,Deserialize)]
+#[derive(Debug,PartialEq,PartialOrd,Eq,Ord,Hash,Serialize,Deserialize)]
 pub enum ForeignConstraintAction {
     NoAction,
     Restrict,
@@ -116,7 +117,7 @@ pub enum ForeignConstraintAction {
     SetDefault,
 }
 
-#[derive(PartialEq,PartialOrd,Eq,Ord,Hash,Serialize,Deserialize)]
+#[derive(Debug,PartialEq,PartialOrd,Eq,Ord,Hash,Serialize,Deserialize)]
 pub struct TableDefinition {
     pub name: ObjectName,
     pub columns: Vec<ColumnDefinition>,
@@ -129,35 +130,35 @@ pub struct ObjectName {
     pub name: String,
 }
 
-#[derive(PartialEq,PartialOrd,Eq,Ord,Hash,Serialize,Deserialize)]
+#[derive(Debug,PartialEq,PartialOrd,Eq,Ord,Hash,Serialize,Deserialize)]
 pub struct ColumnDefinition {
     pub name: String,
     pub sql_type: SqlType,
     pub constraints: Option<Vec<ColumnConstraint>>,
 }
 
-#[derive(Serialize,Deserialize)]
+#[derive(Debug,Serialize,Deserialize)]
 pub struct SchemaDefinition {
     pub name: String,
 }
 
-#[derive(Serialize,Deserialize)]
+#[derive(Debug,Serialize,Deserialize)]
 pub struct ExtensionDefinition {
     pub name: String,
 }
 
-#[derive(Serialize,Deserialize)]
+#[derive(Debug,Serialize,Deserialize)]
 pub struct TypeDefinition {
     pub name: String,
     pub kind: TypeDefinitionKind,
 }
 
-#[derive(Serialize,Deserialize)]
+#[derive(Debug,Serialize,Deserialize)]
 pub enum TypeDefinitionKind {
     Enum(Vec<String>),
 }
 
-#[derive(Serialize,Deserialize)]
+#[derive(Debug,Serialize,Deserialize)]
 pub struct ScriptDefinition {
     pub name: String,
     pub kind: ScriptKind,
@@ -165,13 +166,13 @@ pub struct ScriptDefinition {
     pub contents: String,
 }
 
-#[derive(Serialize,Deserialize,PartialEq)]
+#[derive(Debug,Serialize,Deserialize,PartialEq)]
 pub enum ScriptKind {
     PreDeployment,
     PostDeployment,
 }
 
-#[derive(PartialEq,PartialOrd,Eq,Ord,Hash,Serialize,Deserialize)]
+#[derive(Debug,PartialEq,PartialOrd,Eq,Ord,Hash,Serialize,Deserialize)]
 pub struct FunctionDefinition {
     pub name: ObjectName,
     pub arguments: Vec<FunctionArgument>,
@@ -180,19 +181,19 @@ pub struct FunctionDefinition {
     pub language: FunctionLanguage,
 }
 
-#[derive(PartialEq,PartialOrd,Eq,Ord,Hash,Serialize,Deserialize)]
+#[derive(Debug,PartialEq,PartialOrd,Eq,Ord,Hash,Serialize,Deserialize)]
 pub struct FunctionArgument {
     pub name: String,
     pub sql_type: SqlType,
 }
 
-#[derive(PartialEq,PartialOrd,Eq,Ord,Hash,Serialize,Deserialize)]
+#[derive(Debug,PartialEq,PartialOrd,Eq,Ord,Hash,Serialize,Deserialize)]
 pub enum FunctionReturnType {
     Table(Vec<ColumnDefinition>),
     SqlType(SqlType),
 }
 
-#[derive(PartialEq,PartialOrd,Eq,Ord,Hash,Serialize,Deserialize)]
+#[derive(Debug,PartialEq,PartialOrd,Eq,Ord,Hash,Serialize,Deserialize)]
 pub enum FunctionLanguage {
     C,
     Internal,

@@ -20,6 +20,10 @@ case $1 in
         echo "Packaging '$db'"
         cargo run -- package --source ../samples/$db/project.json --out ../out/$db.psqlpack --trace
         ;;
+    debug-package)
+        echo "Packaging '$db'"
+        cargo run --features symbols -- package --source ../samples/$db/project.json --out ../out/$db.psqlpack --trace
+        ;;        
     publish)
         action="Publishing '$db'"
         cargo run -- publish --source ../out/$db.psqlpack --target "host=$db.db;database=$db;userid=$username;tlsmode=none;" --profile ../samples/$db/publish_profile.json --trace

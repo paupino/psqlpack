@@ -12,6 +12,19 @@ use model::Package;
 use errors::{PsqlpackError, PsqlpackResult, PsqlpackResultExt};
 use errors::PsqlpackErrorKind::*;
 
+#[cfg(feature = "symbols")]
+macro_rules! dump_statement {
+    ($log:ident, $statement:ident) => {
+        let log = $log.new(o!("symbols" => "ast"));
+        trace!(log, "{:?}", $statement);
+    };
+}
+
+#[cfg(not(feature = "symbols"))]
+macro_rules! dump_statement {
+    ($log:ident, $statement:ident) => {}
+}
+
 #[derive(Deserialize)]
 pub struct Project {
     #[serde(skip_serializing)]
@@ -138,10 +151,12 @@ impl Project {
                 trace!(log, "Finished tokenizing"; "count" => tokens.len());
 
                 trace!(log, "Parsing file");
+                // TODO: In the future it'd be nice to allow the parser to generate shift/reduce rules when dump-symbols is defined
                 match parser::parse_statement_list(tokens) {
                     Ok(statement_list) => {
                         trace!(log, "Finished parsing statements"; "count" => statement_list.len());
                         for statement in statement_list {
+                            dump_statement!(log, statement);
                             match statement {
                                 Statement::Extension(_) => warn!(log, "Extension statement found, ignoring"),
                                 Statement::Function(function_definition) => package.push_function(function_definition),

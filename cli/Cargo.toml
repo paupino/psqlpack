@@ -12,3 +12,6 @@ clap = "2.26"
 slog = "2"
 slog-term = "2"
 psqlpack = { path = "../psqlpack/" }
+
+[features]
+symbols = ["psqlpack/symbols"]
