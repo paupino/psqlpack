@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+pub use error_chain::ChainedError;
 pub use lalrpop_util::ParseError;
 
 use sql::lexer;

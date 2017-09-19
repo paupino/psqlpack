@@ -14,7 +14,7 @@ use std::result;
 
 use clap::{Arg, ArgMatches, App, SubCommand};
 use slog::{Drain, Logger};
-use psqlpack::{operation, PsqlpackResult};
+use psqlpack::{operation, PsqlpackResult, ChainedError};
 
 /// A threadsafe toggle.
 #[derive(Clone)]
@@ -247,7 +247,7 @@ fn main() {
             );
         }
         HandleResult::Outcome(action, Err(error)) => {
-            error!(log, "encountered during {} command:\n{}", action, error);
+            error!(log, "encountered during {} command:\n{}", action, error.display_chain());
         }
         HandleResult::Outcome(action, _) => {
             // Capture how long was elapsed
