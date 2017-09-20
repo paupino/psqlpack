@@ -20,6 +20,7 @@ pub enum SqlType {
 pub enum SimpleSqlType {
     FixedLengthString(u32), // char(size)
     VariableLengthString(u32), // varchar(size)
+    UnsizedVariableLengthString,
     Text, // text
 
     FixedLengthBitString(u32), // bit(size)
@@ -267,6 +268,7 @@ impl fmt::Display for SimpleSqlType {
         match *self {
             SimpleSqlType::FixedLengthString(size) => write!(f, "char({})", size),
             SimpleSqlType::VariableLengthString(size) => write!(f, "varchar({})", size),
+            SimpleSqlType::UnsizedVariableLengthString => write!(f, "varchar"),
             SimpleSqlType::Text => write!(f, "text"),
 
             SimpleSqlType::FixedLengthBitString(size) => write!(f, "bit({})", size),
