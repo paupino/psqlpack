@@ -4,7 +4,7 @@ use std::iter::FromIterator;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Token {
-    
+
     ACTION,
     AS,
     BIGINT,
@@ -90,7 +90,7 @@ pub enum Token {
     RightBracket,
     LeftSquare,
     RightSquare,
-    
+
     Comma,
     Period,
     Semicolon,
@@ -111,9 +111,9 @@ enum LexerState {
 #[derive(Debug)]
 pub struct LexicalError<'input> {
     pub line: &'input str,
-    pub line_number: i32,
-    pub start_pos: i32,
-    pub end_pos: i32,
+    pub line_number: usize,
+    pub start_pos: usize,
+    pub end_pos: usize,
 }
 
 lazy_static! {
@@ -128,12 +128,12 @@ macro_rules! tokenize_buffer {
         if $buffer.len() > 0 {
             let token = match self::create_token(String::from_iter($buffer.clone())) {
                 Some(t) => t,
-                None => { 
+                None => {
                     return Err(LexicalError {
                         line: $line,
                         line_number: $current_line,
-                        start_pos: $current_position - $buffer.len() as i32,
-                        end_pos: $current_position as i32
+                        start_pos: $current_position - $buffer.len(),
+                        end_pos: $current_position
                     });
                 },
             };
@@ -253,7 +253,7 @@ fn create_token(value: String) -> Option<Token> {
 pub fn tokenize(text: &str) -> Result<Vec<Token>, LexicalError> {
 
     // This tokenizer is whitespace dependent by default, i.e. whitespace is relevant.
-    let mut tokens = Vec::new(); 
+    let mut tokens = Vec::new();
     let mut current_line = 0;
     let mut current_position;
     let mut buffer = Vec::new();
@@ -282,7 +282,7 @@ pub fn tokenize(text: &str) -> Result<Vec<Token>, LexicalError> {
                     } else if last_char == '/' && c == '*' {
                         // take off the previous item as it was a comment character and push the buffer
                         if !buffer.is_empty() {
-                            buffer.pop();                        
+                            buffer.pop();
                         }
                         tokenize_buffer!(tokens, buffer, line, current_line, current_position);
                         state = LexerState::Comment2;
@@ -294,8 +294,8 @@ pub fn tokenize(text: &str) -> Result<Vec<Token>, LexicalError> {
                             return Err(LexicalError {
                                 line: line,
                                 line_number: current_line,
-                                start_pos: current_position as i32,
-                                end_pos: current_position as i32
+                                start_pos: current_position,
+                                end_pos: current_position
                             });
                         }
                     } else if c == '$' {
@@ -306,8 +306,8 @@ pub fn tokenize(text: &str) -> Result<Vec<Token>, LexicalError> {
                             return Err(LexicalError {
                                 line: line,
                                 line_number: current_line,
-                                start_pos: current_position as i32,
-                                end_pos: current_position as i32
+                                start_pos: current_position,
+                                end_pos: current_position
                             });
                         }
                     } else if c.is_whitespace() { // Simple check for whitespace
@@ -319,7 +319,7 @@ pub fn tokenize(text: &str) -> Result<Vec<Token>, LexicalError> {
                             '(' => {
                                 tokenize_buffer!(tokens, buffer, line, current_line, current_position);
                                 tokens.push(Token::LeftBracket);
-                            }, 
+                            },
                             ')' => {
                                 tokenize_buffer!(tokens, buffer, line, current_line, current_position);
                                 tokens.push(Token::RightBracket);
@@ -327,7 +327,7 @@ pub fn tokenize(text: &str) -> Result<Vec<Token>, LexicalError> {
                             ',' => {
                                 tokenize_buffer!(tokens, buffer, line, current_line, current_position);
                                 tokens.push(Token::Comma);
-                            }, 
+                            },
                             ';' => {
                                 tokenize_buffer!(tokens, buffer, line, current_line, current_position);
                                 tokens.push(Token::Semicolon);
@@ -335,7 +335,7 @@ pub fn tokenize(text: &str) -> Result<Vec<Token>, LexicalError> {
                             '=' => {
                                 tokenize_buffer!(tokens, buffer, line, current_line, current_position);
                                 tokens.push(Token::Equals);
-                            }, 
+                            },
                             '.' => {
                                 tokenize_buffer!(tokens, buffer, line, current_line, current_position);
                                 tokens.push(Token::Period);
@@ -374,13 +374,13 @@ pub fn tokenize(text: &str) -> Result<Vec<Token>, LexicalError> {
                     if c == '$' {
                         state = LexerState::Literal;
                     } else {
-                        // There may be a future case where a single dollar sign is valid but for now let's 
+                        // There may be a future case where a single dollar sign is valid but for now let's
                         // just assume it's an error
                         return Err(LexicalError {
                             line: line,
                             line_number: current_line,
-                            start_pos: current_position as i32,
-                            end_pos: current_position as i32
+                            start_pos: current_position,
+                            end_pos: current_position
                         });
                     }
                 },
@@ -410,7 +410,7 @@ pub fn tokenize(text: &str) -> Result<Vec<Token>, LexicalError> {
             },
             LexerState::Comment1 => {
                 // End of a line finishes the comment
-                state = LexerState::Normal;    
+                state = LexerState::Normal;
             },
             LexerState::Comment2 => {
                 // Do nothing at the end of a line - it's a multi-line comment
@@ -421,8 +421,8 @@ pub fn tokenize(text: &str) -> Result<Vec<Token>, LexicalError> {
                 return Err(LexicalError {
                     line: line,
                     line_number: current_line,
-                    start_pos: current_position as i32,
-                    end_pos: current_position as i32
+                    start_pos: current_position,
+                    end_pos: current_position
                 });
             },
             LexerState::Literal => {
