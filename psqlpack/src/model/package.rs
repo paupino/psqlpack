@@ -61,11 +61,24 @@ impl<'row> From<Row<'row>> for SchemaDefinition {
     }
 }
 
-static Q_ENUMS : &'static str = "SELECT typname, enumlabel FROM pg_catalog.pg_type
+static Q_ENUMS : &'static str = "SELECT typname, array_agg(enumlabel)
+                                 FROM pg_catalog.pg_type
                                  INNER JOIN pg_catalog.pg_namespace ON pg_namespace.oid=typnamespace
-                                 INNER JOIN pg_catalog.pg_enum ON pg_enum.enumtypid=pg_type.oid
+                                 INNER JOIN (
+                                     SELECT enumtypid, enumlabel
+                                     FROM pg_catalog.pg_enum
+                                     ORDER BY enumtypid, enumsortorder
+                                 ) labels ON labels.enumtypid=pg_type.oid
                                  WHERE typcategory IN ('E') AND nspname='public' AND substr(typname, 1, 1) <> '_'
-                                 ORDER BY pg_type.oid, enumsortorder";
+                                 GROUP BY typname";
+impl<'row> From<Row<'row>> for TypeDefinition {
+    fn from(row: Row) -> Self {
+        TypeDefinition {
+            name: row.get(0),
+            kind: TypeDefinitionKind::Enum(row.get(1))
+        }
+    }
+}
 
 static Q_FUNCTIONS : &'static str = "SELECT nspname, proname, prosrc, pg_get_function_arguments(pg_proc.oid), lanname, pg_get_function_result(pg_proc.oid)
                                      FROM pg_proc
@@ -91,6 +104,12 @@ impl<'row> From<Row<'row>> for TableDefinition {
             constraints: None, // TODO
         }
     }
+}
+
+macro_rules! map {
+    ($expr:expr) => {{
+        $expr.iter().map(|row| row.into()).collect()
+    }};
 }
 
 /*static Q_COLUMNS : &'static str = "SELECT attrelid, attname, format_type(atttypid, atttypmod), attnotnull
@@ -168,27 +187,20 @@ impl Package {
     }
 
     pub fn from_connection(connection: &Connection) -> PsqlpackResult<Package> {
-        use itertools::Itertools;
-
         // We do five SQL queries to get the package details
         let db_conn = connection.connect_database()?;
 
         let extensions =
-            db_conn.query(Q_EXTENSIONS, &[]).chain_err(|| PackageQueryExtensionsError)?
-            .iter().map(|row| row.into()).collect();
+            db_conn.query(Q_EXTENSIONS, &[])
+            .chain_err(|| PackageQueryExtensionsError)?;
 
         let schemas =
-            db_conn.query(Q_SCHEMAS, &[&connection.database()]).chain_err(|| PackageQuerySchemasError)?
-            .iter().map(|row| row.into()).collect();
+            db_conn.query(Q_SCHEMAS, &[&connection.database()])
+            .chain_err(|| PackageQuerySchemasError)?;
 
         let types =
-            db_conn.query(Q_ENUMS, &[]).chain_err(|| PackageQueryTypesError)?
-            .iter().group_by(|row| row.get(0)).into_iter().map(|(name, rows)| {
-                TypeDefinition {
-                    name: name,
-                    kind: TypeDefinitionKind::Enum(rows.into_iter().map(|row| row.get(1)).collect())
-                }
-            }).collect();
+            db_conn.query(Q_ENUMS, &[])
+            .chain_err(|| PackageQueryTypesError)?;
 
         let mut functions = Vec::new();
         for row in &db_conn.query(Q_FUNCTIONS, &[]).chain_err(|| PackageQueryFunctionsError)? {
@@ -237,16 +249,16 @@ impl Package {
         }
 
         let tables =
-            db_conn.query(Q_TABLES, &[]).chain_err(|| PackageQueryTablesError)?
-            .iter().map(|row| row.into()).collect();
+            db_conn.query(Q_TABLES, &[])
+            .chain_err(|| PackageQueryTablesError)?;
 
         Ok(Package {
-            extensions: extensions,
+            extensions: map!(extensions),
             functions: functions, // functions,
-            schemas: schemas, // schemas,
+            schemas: map!(schemas), // schemas,
             scripts: Vec::new(), // Scripts can't be known from a connection
-            tables: tables, // tables,
-            types: types, // types,
+            tables: map!(tables), // tables,
+            types: map!(types), // types,
         })
     }
 

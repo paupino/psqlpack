@@ -16,7 +16,6 @@ extern crate serde_json;
 extern crate walkdir;
 extern crate zip;
 extern crate petgraph;
-extern crate itertools;
 #[cfg(test)]
 extern crate spectral;
 
