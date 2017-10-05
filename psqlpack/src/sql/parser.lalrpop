@@ -284,7 +284,9 @@ simple_type: SimpleSqlType = {
     CHAR "(" <Digit> ")" => SimpleSqlType::FixedLengthString(<> as u32),
     CHARACTER "(" <Digit> ")" => SimpleSqlType::FixedLengthString(<> as u32),
     VARCHAR "(" <Digit> ")" => SimpleSqlType::VariableLengthString(<> as u32),
+    VARCHAR => SimpleSqlType::UnsizedVariableLengthString,
     CHARACTER VARYING "(" <Digit> ")" => SimpleSqlType::VariableLengthString(<> as u32),
+    CHARACTER VARYING => SimpleSqlType::UnsizedVariableLengthString,
     TEXT => SimpleSqlType::Text,
 
     BIT "(" <Digit> ")" => SimpleSqlType::FixedLengthBitString(<> as u32),

@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+pub use error_chain::ChainedError;
 pub use lalrpop_util::ParseError;
 
 use sql::lexer;
@@ -45,9 +46,37 @@ error_chain! {
             description("Couldn't read part of the package file")
             display("Couldn't read part of the package file: {}", file_name)
         }
+        PackageQueryExtensionsError {
+            description("Couldn't query extensions")
+        }
+        PackageQuerySchemasError {
+            description("Couldn't query schemas")
+        }
+        PackageQueryTypesError {
+            description("Couldn't query types")
+        }
+        PackageQueryFunctionsError {
+            description("Couldn't query functions")
+        }
+        PackageQueryTablesError {
+            description("Couldn't query tables")
+        }
+        PackageFunctionArgsInspectError(args: String) {
+            description("Couldn't inspect function args")
+            display("Couldn't inspect function args: {}", args)
+        }
+        PackageFunctionReturnTypeInspectError(return_type: String) {
+            description("Couldn't inspect function return type")
+            display("Couldn't inspect function return type: {}", return_type)
+        }
         IOError(file: String, message: String) {
             description("IO error when reading a file")
             display("IO error when reading {}: {}", file, message)
+        }
+        LexicalError(line: String, line_number: usize, start: usize, end: usize) {
+            description("Lexical error encountered")
+            display("Lexical error encountered on line {}:\n  {}\n  {}{}",
+                line_number, line, " ".repeat(*start), "^".repeat(end - start))
         }
         SyntaxError(file: String, line: String, line_number: usize, start: usize, end: usize) {
             description("SQL syntax error encountered")
@@ -57,7 +86,11 @@ error_chain! {
         }
         ParseError(file: String, errors: Vec<ParseError<(), lexer::Token, ()>>) {
             description("Parser error")
-            display("Parser errors in {}:\n{}", file, ParseErrorFormatter(errors))
+            display("Parser errors in {}:\n{}", file, ParseErrorsFormatter(errors))
+        }
+        InlineParseError(error: ParseError<(), lexer::Token, ()>) {
+            description("Parser error")
+            display("Parser error: {}", ParseErrorFormatter(error))
         }
         GenerationError(message: String) {
             description("Error generating package")
@@ -92,31 +125,43 @@ error_chain! {
 
 use std::fmt::{Display, Formatter, Result};
 
-struct ParseErrorFormatter<'fmt>(&'fmt Vec<ParseError<(), lexer::Token, ()>>);
+fn write_err(f: &mut Formatter, error: &ParseError<(), lexer::Token, ()>) -> Result {
+    match *error {
+        ParseError::InvalidToken { .. } => write!(f, "Invalid token"),
+        ParseError::UnrecognizedToken {
+            ref token,
+            ref expected,
+        } => {
+            match *token {
+                Some(ref x) => writeln!(f, "Unexpected {:?}", x.1),
+                _ => writeln!(f, "Unexpected end of file"),
+            }?;
+            write!(f, "   Expected one of:\n   {}", expected.join(", "))
+        }
+        ParseError::ExtraToken { ref token } => {
+            write!(f, "Extra token detected: {:?}", token)
+        }
+        ParseError::User { ref error } => write!(f, "{:?}", error),
+    }
+}
+
+struct ParseErrorsFormatter<'fmt>(&'fmt Vec<ParseError<(), lexer::Token, ()>>);
+
+impl<'fmt> Display for ParseErrorsFormatter<'fmt> {
+    fn fmt(&self, f: &mut Formatter) -> Result {
+        for (i, error) in self.0.iter().enumerate() {
+            write!(f, "{}: ", i, )?;
+            write_err(f, error)?;
+        }
+        Ok(())
+    }
+}
+
+struct ParseErrorFormatter<'fmt>(&'fmt ParseError<(), lexer::Token, ()>);
 
 impl<'fmt> Display for ParseErrorFormatter<'fmt> {
     fn fmt(&self, f: &mut Formatter) -> Result {
-        for (i, error) in self.0.iter().enumerate() {
-            write!(f, "{}: ", i)?;
-            match *error {
-                ParseError::InvalidToken { .. } => write!(f, "Invalid token")?,
-                ParseError::UnrecognizedToken {
-                    ref token,
-                    ref expected,
-                } => {
-                    match *token {
-                        Some(ref x) => writeln!(f, "Unexpected {:?}", x.1),
-                        _ => writeln!(f, "Unexpected end of file"),
-                    }?;
-                    write!(f, "   Expected one of:\n   {}", expected.join(", "))?
-                }
-                ParseError::ExtraToken { ref token } => {
-                    write!(f, "Extra token detected: {:?}", token)?
-                }
-                ParseError::User { ref error } => write!(f, "{:?}", error)?,
-            }
-        }
-        Ok(())
+        write_err(f, self.0)
     }
 }
 

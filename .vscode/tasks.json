@@ -1,0 +1,64 @@
+{
+    "version": "2.0.0",
+    "presentation": {
+        "reveal": "always",
+        "panel": "new"
+    },
+    "tasks": [
+        {
+            "taskName": "cargo build psqlpack",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "-p",
+                "psqlpack-cli"
+            ],
+            "group": "build",
+            "problemMatcher": "$rustc"
+        },
+        {
+            "taskName": "cargo build cli",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "-p",
+                "psqlpack-cli"
+            ],
+            "group": "build",
+            "problemMatcher": "$rustc"
+        },
+        {
+            "taskName": "cargo run",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "-p",
+                "psqlpack-cli"
+            ],
+            "problemMatcher": "$rustc"
+        },
+        {
+            "taskName": "cargo test",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "test",
+                "-p",
+                "psqlpack"
+            ],
+            "group": "test",
+            "problemMatcher": "$rustc"
+        },
+        {
+            "taskName": "cargo clean",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "clean"
+            ]
+        }
+    ]
+}

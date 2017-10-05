@@ -2,19 +2,20 @@ use std::fmt;
 use std::path::Path;
 use std::fs::File;
 use std::io::Write;
-use std::collections::HashMap;
 
 use slog::Logger;
 use serde_json;
 use zip::{ZipArchive, ZipWriter};
 use zip::write::FileOptions;
 use petgraph;
+use postgres::rows::Row;
+use lalrpop_util;
 
 use connection::Connection;
 use sql::{lexer, parser};
 use sql::ast::*;
 use model::Project;
-use errors::{PsqlpackResult, PsqlpackResultExt};
+use errors::{PsqlpackError, PsqlpackResult, PsqlpackResultExt};
 use errors::PsqlpackErrorKind::*;
 
 macro_rules! ztry {
@@ -42,27 +43,75 @@ macro_rules! zip_collection {
 }
 
 static Q_EXTENSIONS : &'static str = "SELECT extname, extversion FROM pg_extension WHERE extowner <> 10";
+impl<'row> From<Row<'row>> for ExtensionDefinition {
+    fn from(row: Row) -> Self {
+        ExtensionDefinition {
+            name: row.get(0)
+        }
+    }
+}
+
 static Q_SCHEMAS : &'static str = "SELECT schema_name FROM information_schema.schemata
                                    WHERE catalog_name = $1 AND schema_owner <> 'postgres'";
-static Q_TYPES : &'static str = "SELECT typname, typcategory FROM pg_catalog.pg_type
+impl<'row> From<Row<'row>> for SchemaDefinition {
+    fn from(row: Row) -> Self {
+        SchemaDefinition {
+            name: row.get(0)
+        }
+    }
+}
+
+static Q_ENUMS : &'static str = "SELECT typname, array_agg(enumlabel)
+                                 FROM pg_catalog.pg_type
                                  INNER JOIN pg_catalog.pg_namespace ON pg_namespace.oid=typnamespace
-                                 WHERE typcategory IN ('E') AND nspname='public' AND substr(typname, 1, 1) <> '_'";
-static Q_ENUMS : &'static str = "SELECT enumtypid, enumlabel
-                                 FROM pg_catalog.pg_enum
-                                 WHERE enumtypid IN ({})
-                                 ORDER BY enumtypid, enumsortorder";
+                                 INNER JOIN (
+                                     SELECT enumtypid, enumlabel
+                                     FROM pg_catalog.pg_enum
+                                     ORDER BY enumtypid, enumsortorder
+                                 ) labels ON labels.enumtypid=pg_type.oid
+                                 WHERE typcategory IN ('E') AND nspname='public' AND substr(typname, 1, 1) <> '_'
+                                 GROUP BY typname";
+impl<'row> From<Row<'row>> for TypeDefinition {
+    fn from(row: Row) -> Self {
+        TypeDefinition {
+            name: row.get(0),
+            kind: TypeDefinitionKind::Enum(row.get(1))
+        }
+    }
+}
+
 static Q_FUNCTIONS : &'static str = "SELECT nspname, proname, prosrc, pg_get_function_arguments(pg_proc.oid), lanname, pg_get_function_result(pg_proc.oid)
                                      FROM pg_proc
                                      JOIN pg_namespace ON pg_namespace.oid = pg_proc.pronamespace
                                      JOIN pg_language ON pg_language.oid = pg_proc.prolang
                                      LEFT JOIN pg_depend ON pg_depend.objid = pg_proc.oid AND pg_depend.deptype = 'e'
                                      WHERE pg_depend.objid IS NULL AND nspname NOT IN ('pg_catalog', 'information_schema');";
+
 static Q_TABLES : &'static str = "SELECT pg_class.oid, nspname, relname, conname, pg_get_constraintdef(pg_constraint.oid)
                                   FROM pg_class
                                   JOIN pg_namespace ON pg_namespace.oid = pg_class.relnamespace
                                   LEFT JOIN pg_depend ON pg_depend.objid = pg_class.oid AND pg_depend.deptype = 'e'
                                   LEFT JOIN pg_constraint ON pg_constraint.conrelid = pg_class.oid
                                   WHERE pg_class.relkind='r' AND pg_depend.objid IS NULL AND nspname NOT IN ('pg_catalog', 'information_schema')";
+impl<'row> From<Row<'row>> for TableDefinition {
+    fn from(row: Row) -> Self {
+        TableDefinition {
+            name: ObjectName {
+                schema: Some(row.get(1)),
+                name: row.get(2),
+            },
+            columns: Vec::new(), // TODO
+            constraints: None, // TODO
+        }
+    }
+}
+
+macro_rules! map {
+    ($expr:expr) => {{
+        $expr.iter().map(|row| row.into()).collect()
+    }};
+}
+
 /*static Q_COLUMNS : &'static str = "SELECT attrelid, attname, format_type(atttypid, atttypmod), attnotnull
                                    FROM pg_attribute
                                    WHERE attnum > 0 AND attrelid IN ({})";*/
@@ -141,66 +190,20 @@ impl Package {
         // We do five SQL queries to get the package details
         let db_conn = connection.connect_database()?;
 
-        let mut extensions = Vec::new();
-        for row in &db_conn.query(Q_EXTENSIONS, &[]).unwrap() {
-            let ext_name : String = row.get(0);
-            extensions.push(ExtensionDefinition {
-                name: ext_name
-            });
-        }
+        let extensions =
+            db_conn.query(Q_EXTENSIONS, &[])
+            .chain_err(|| PackageQueryExtensionsError)?;
 
-        let mut schemas = Vec::new();
-        for row in &db_conn.query(Q_SCHEMAS, &[&connection.database()]).unwrap() {
-            let schema_name : String = row.get(0);
-            schemas.push(SchemaDefinition {
-                name: schema_name
-            });
-        }
+        let schemas =
+            db_conn.query(Q_SCHEMAS, &[&connection.database()])
+            .chain_err(|| PackageQuerySchemasError)?;
 
-        let mut types = Vec::new();
-        let mut enums = HashMap::new();
-        for row in &db_conn.query(Q_TYPES, &[]).unwrap() {
-            let oid : i32 = row.get(0);
-            let typname : String = row.get(1);
-            enums.insert(oid, typname);
-        }
-        let mut enum_values = Vec::new();
-        let mut last_oid : i32 = -1;
-        let mut oids = String::new();
-        for oid in enums.keys() {
-            if oids.is_empty() {
-                oids.push_str(&format!("{}", oid)[..]);
-            } else {
-                oids.push_str(&format!(", {}", oid)[..]);
-            }
-        }
-        if oids.len() > 0 {
-            let query = Q_ENUMS.replace("{}", &oids[..]);
-            for row in &db_conn.query(&query[..], &[]).unwrap() {
-                let oid : i32 = row.get(0);
-                let value : String = row.get(1);
-                if oid != last_oid {
-                    if last_oid > 0 {
-                        types.push(TypeDefinition {
-                            name: enums.get(&last_oid).unwrap().to_owned(),
-                            kind: TypeDefinitionKind::Enum(enum_values.clone())
-                        });
-                        enum_values.clear();
-                    }
-                    last_oid = oid;
-                }
-                enum_values.push(value);
-            }
-            if last_oid > 0 {
-                types.push(TypeDefinition {
-                    name: enums.get(&last_oid).unwrap().to_owned(),
-                    kind: TypeDefinitionKind::Enum(enum_values)
-                });
-            }
-        }
+        let types =
+            db_conn.query(Q_ENUMS, &[])
+            .chain_err(|| PackageQueryTypesError)?;
 
         let mut functions = Vec::new();
-        for row in &db_conn.query(Q_FUNCTIONS, &[]).unwrap() {
+        for row in &db_conn.query(Q_FUNCTIONS, &[]).chain_err(|| PackageQueryFunctionsError)? {
             let schema_name : String = row.get(0);
             let function_name : String = row.get(1);
             let function_src : String = row.get(2);
@@ -215,22 +218,22 @@ impl Package {
                 "sql" => FunctionLanguage::SQL,
                 _ => FunctionLanguage::PostgreSQL,
             };
-            let function_args_tokens = match lexer::tokenize(&raw_args[..]) {
-                Ok(t) => t,
-                Err(_) => bail!(GenerationError("Failed to tokenize function arguments".into())),
-            };
-            let function_args = match parser::parse_function_argument_list(function_args_tokens) {
-                Ok(arg_list) => arg_list,
-                Err(_) => bail!(GenerationError("Failed to parse function arguments".into())),
-            };
-            let return_type_tokens = match lexer::tokenize(&raw_result[..]) {
-                Ok(t) => t,
-                Err(_) => bail!(GenerationError("Failed to tokenize function return type".into())),
-            };
-            let return_type = match parser::parse_function_return_type(return_type_tokens) {
-                Ok(t) => t,
-                Err(_) => bail!(GenerationError("Failed to parse function return type".into())),
-            };
+
+            fn lexical(err: lexer::LexicalError) -> PsqlpackError { LexicalError(err.line.to_owned(), err.line_number, err.start_pos, err.end_pos).into() };
+            fn parse(err: lalrpop_util::ParseError<(), lexer::Token, ()>) -> PsqlpackError { InlineParseError(err).into() };
+
+            let function_args =
+                if raw_args.is_empty() {
+                    Vec::new()
+                } else {
+                    lexer::tokenize(&raw_args).map_err(lexical)
+                    .and_then(|tokens| parser::parse_function_argument_list(tokens).map_err(parse))
+                    .chain_err(|| PackageFunctionArgsInspectError(raw_args))?
+                };
+            let return_type =
+                lexer::tokenize(&raw_result).map_err(lexical)
+                .and_then(|tokens| parser::parse_function_return_type(tokens).map_err(parse))
+                .chain_err(|| PackageFunctionReturnTypeInspectError(raw_result))?;
 
             // Set up the function definition
             functions.push(FunctionDefinition {
@@ -245,27 +248,17 @@ impl Package {
             });
         }
 
-        let mut tables = Vec::new();
-        for row in &db_conn.query(Q_TABLES, &[]).unwrap() {
-            let schema_name : String = row.get(1);
-            let table_name : String = row.get(2);
-            tables.push(TableDefinition {
-                name: ObjectName {
-                    schema: Some(schema_name),
-                    name: table_name,
-                },
-                columns: Vec::new(), // TODO
-                constraints: None, // TODO
-            });
-        }
+        let tables =
+            db_conn.query(Q_TABLES, &[])
+            .chain_err(|| PackageQueryTablesError)?;
 
         Ok(Package {
-            extensions: extensions,
+            extensions: map!(extensions),
             functions: functions, // functions,
-            schemas: schemas, // schemas,
+            schemas: map!(schemas), // schemas,
             scripts: Vec::new(), // Scripts can't be known from a connection
-            tables: tables, // tables,
-            types: types, // types,
+            tables: map!(tables), // tables,
+            types: map!(types), // types,
         })
     }
 
@@ -379,7 +372,7 @@ impl Package {
                 }
             }
         }
-        
+
         trace!(log, "Scanning function dependencies");
         for function in &self.functions {
             let log = log.new(o!("function" => function.name.to_string()));
@@ -515,7 +508,7 @@ impl Graphable for TableConstraint {
                 // Add edges to the referenced columns.
                 for ref_column_name in ref_columns {
                     trace!(log, "Adding edge to refrenced column"; "table" => ref_table.to_string(), "column" => &ref_column_name);
-                    
+
                     let ref_column = table_def.columns.iter().find(|x| &x.name == ref_column_name).unwrap();
                     graph.add_edge(Node::Column(table_def, ref_column), constraint, ());
 
