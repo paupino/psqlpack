@@ -1,4 +1,4 @@
 SHELL := /bin/bash
 
 build:
-	@pushd cli && cargo build && popd
+	cargo build -p psqlpack-cli
