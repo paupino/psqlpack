@@ -42,57 +42,79 @@ macro_rules! zip_collection {
     }};
 }
 
-static Q_EXTENSIONS : &'static str = "SELECT extname, extversion FROM pg_extension WHERE extowner <> 10";
+static Q_EXTENSIONS: &'static str = "SELECT extname, extversion
+                                     FROM pg_extension
+                                     WHERE extowner <> 10";
 impl<'row> From<Row<'row>> for ExtensionDefinition {
     fn from(row: Row) -> Self {
-        ExtensionDefinition {
-            name: row.get(0)
-        }
+        ExtensionDefinition { name: row.get(0) }
     }
 }
 
-static Q_SCHEMAS : &'static str = "SELECT schema_name FROM information_schema.schemata
-                                   WHERE catalog_name = $1 AND schema_owner <> 'postgres'";
+static Q_SCHEMAS: &'static str = "SELECT schema_name FROM information_schema.schemata
+                                  WHERE catalog_name = $1 AND schema_owner <> 'postgres'";
 impl<'row> From<Row<'row>> for SchemaDefinition {
     fn from(row: Row) -> Self {
-        SchemaDefinition {
-            name: row.get(0)
-        }
+        SchemaDefinition { name: row.get(0) }
     }
 }
 
-static Q_ENUMS : &'static str = "SELECT typname, array_agg(enumlabel)
-                                 FROM pg_catalog.pg_type
-                                 INNER JOIN pg_catalog.pg_namespace ON pg_namespace.oid=typnamespace
-                                 INNER JOIN (
-                                     SELECT enumtypid, enumlabel
-                                     FROM pg_catalog.pg_enum
-                                     ORDER BY enumtypid, enumsortorder
-                                 ) labels ON labels.enumtypid=pg_type.oid
-                                 WHERE typcategory IN ('E') AND nspname='public' AND substr(typname, 1, 1) <> '_'
-                                 GROUP BY typname";
+static Q_ENUMS: &'static str = "SELECT typname, array_agg(enumlabel)
+                                FROM pg_catalog.pg_type
+                                INNER JOIN pg_catalog.pg_namespace ON
+                                    pg_namespace.oid=typnamespace
+                                INNER JOIN (
+                                    SELECT enumtypid, enumlabel
+                                    FROM pg_catalog.pg_enum
+                                    ORDER BY enumtypid, enumsortorder
+                                 ) labels ON
+                                    labels.enumtypid=pg_type.oid
+                                WHERE typcategory IN ('E') AND
+                                      nspname='public' AND
+                                      substr(typname, 1, 1) <> '_'
+                                GROUP BY typname";
 impl<'row> From<Row<'row>> for TypeDefinition {
     fn from(row: Row) -> Self {
         TypeDefinition {
             name: row.get(0),
-            kind: TypeDefinitionKind::Enum(row.get(1))
+            kind: TypeDefinitionKind::Enum(row.get(1)),
         }
     }
 }
 
-static Q_FUNCTIONS : &'static str = "SELECT nspname, proname, prosrc, pg_get_function_arguments(pg_proc.oid), lanname, pg_get_function_result(pg_proc.oid)
-                                     FROM pg_proc
-                                     JOIN pg_namespace ON pg_namespace.oid = pg_proc.pronamespace
-                                     JOIN pg_language ON pg_language.oid = pg_proc.prolang
-                                     LEFT JOIN pg_depend ON pg_depend.objid = pg_proc.oid AND pg_depend.deptype = 'e'
-                                     WHERE pg_depend.objid IS NULL AND nspname NOT IN ('pg_catalog', 'information_schema');";
+static Q_FUNCTIONS: &'static str = "SELECT
+                                        nspname,
+                                        proname,
+                                        prosrc,
+                                        pg_get_function_arguments(pg_proc.oid),
+                                        lanname,
+                                        pg_get_function_result(pg_proc.oid)
+                                    FROM pg_proc
+                                    JOIN pg_namespace ON
+                                        pg_namespace.oid = pg_proc.pronamespace
+                                    JOIN pg_language ON
+                                        pg_language.oid = pg_proc.prolang
+                                    LEFT JOIN pg_depend ON
+                                        pg_depend.objid = pg_proc.oid AND pg_depend.deptype = 'e'
+                                    WHERE pg_depend.objid IS NULL AND
+                                          nspname NOT IN ('pg_catalog', 'information_schema');";
 
-static Q_TABLES : &'static str = "SELECT pg_class.oid, nspname, relname, conname, pg_get_constraintdef(pg_constraint.oid)
-                                  FROM pg_class
-                                  JOIN pg_namespace ON pg_namespace.oid = pg_class.relnamespace
-                                  LEFT JOIN pg_depend ON pg_depend.objid = pg_class.oid AND pg_depend.deptype = 'e'
-                                  LEFT JOIN pg_constraint ON pg_constraint.conrelid = pg_class.oid
-                                  WHERE pg_class.relkind='r' AND pg_depend.objid IS NULL AND nspname NOT IN ('pg_catalog', 'information_schema')";
+static Q_TABLES: &'static str = "SELECT
+                                    pg_class.oid,
+                                    nspname,
+                                    relname,
+                                    conname,
+                                    pg_get_constraintdef(pg_constraint.oid)
+                                FROM pg_class
+                                JOIN pg_namespace ON
+                                    pg_namespace.oid = pg_class.relnamespace
+                                LEFT JOIN pg_depend ON
+                                    pg_depend.objid = pg_class.oid AND pg_depend.deptype = 'e'
+                                LEFT JOIN pg_constraint ON
+                                    pg_constraint.conrelid = pg_class.oid
+                                WHERE pg_class.relkind='r' AND
+                                      pg_depend.objid IS NULL AND
+                                      nspname NOT IN ('pg_catalog', 'information_schema')";
 impl<'row> From<Row<'row>> for TableDefinition {
     fn from(row: Row) -> Self {
         TableDefinition {
@@ -101,7 +123,7 @@ impl<'row> From<Row<'row>> for TableDefinition {
                 name: row.get(2),
             },
             columns: Vec::new(), // TODO
-            constraints: None, // TODO
+            constraints: None,   // TODO
         }
     }
 }
@@ -127,12 +149,10 @@ pub struct Package {
 
 impl Package {
     pub fn from_path(source_path: &Path) -> PsqlpackResult<Package> {
-        let mut archive =
-            File::open(&source_path)
+        let mut archive = File::open(&source_path)
             .chain_err(|| PackageReadError(source_path.to_path_buf()))
             .and_then(|file| {
-                ZipArchive::new(file)
-                .chain_err(|| PackageUnarchiveError(source_path.to_path_buf()))
+                ZipArchive::new(file).chain_err(|| PackageUnarchiveError(source_path.to_path_buf()))
             })?;
 
         let mut extensions = Vec::new();
@@ -142,36 +162,29 @@ impl Package {
         let mut tables = Vec::new();
         let mut types = Vec::new();
 
-        for i in 0..archive.len()
-        {
+        for i in 0..archive.len() {
             let file = archive.by_index(i).unwrap();
             if file.size() == 0 {
                 continue;
             }
             let name = file.name().to_owned();
             if name.starts_with("extensions/") {
-                extensions.push(
-                    serde_json::from_reader(file)
+                extensions.push(serde_json::from_reader(file)
                     .chain_err(|| PackageInternalReadError(name))?);
             } else if name.starts_with("functions/") {
-                functions.push(
-                    serde_json::from_reader(file)
-                    .chain_err(||PackageInternalReadError(name))?);
+                functions.push(serde_json::from_reader(file)
+                    .chain_err(|| PackageInternalReadError(name))?);
             } else if name.starts_with("schemas/") {
-                schemas.push(
-                    serde_json::from_reader(file)
-                    .chain_err(||PackageInternalReadError(name))?);
+                schemas.push(serde_json::from_reader(file)
+                    .chain_err(|| PackageInternalReadError(name))?);
             } else if name.starts_with("scripts/") {
-                scripts.push(
-                    serde_json::from_reader(file)
+                scripts.push(serde_json::from_reader(file)
                     .chain_err(|| PackageInternalReadError(name))?);
             } else if name.starts_with("tables/") {
-                tables.push(
-                    serde_json::from_reader(file)
+                tables.push(serde_json::from_reader(file)
                     .chain_err(|| PackageInternalReadError(name))?);
             } else if name.starts_with("types/") {
-                types.push(
-                    serde_json::from_reader(file)
+                types.push(serde_json::from_reader(file)
                     .chain_err(|| PackageInternalReadError(name))?);
             }
         }
@@ -190,26 +203,29 @@ impl Package {
         // We do five SQL queries to get the package details
         let db_conn = connection.connect_database()?;
 
-        let extensions =
-            db_conn.query(Q_EXTENSIONS, &[])
+        let extensions = db_conn
+            .query(Q_EXTENSIONS, &[])
             .chain_err(|| PackageQueryExtensionsError)?;
 
-        let schemas =
-            db_conn.query(Q_SCHEMAS, &[&connection.database()])
+        let schemas = db_conn
+            .query(Q_SCHEMAS, &[&connection.database()])
             .chain_err(|| PackageQuerySchemasError)?;
 
-        let types =
-            db_conn.query(Q_ENUMS, &[])
+        let types = db_conn
+            .query(Q_ENUMS, &[])
             .chain_err(|| PackageQueryTypesError)?;
 
         let mut functions = Vec::new();
-        for row in &db_conn.query(Q_FUNCTIONS, &[]).chain_err(|| PackageQueryFunctionsError)? {
-            let schema_name : String = row.get(0);
-            let function_name : String = row.get(1);
-            let function_src : String = row.get(2);
-            let raw_args : String = row.get(3);
-            let lan_name : String = row.get(4);
-            let raw_result : String = row.get(5);
+        for row in &db_conn
+            .query(Q_FUNCTIONS, &[])
+            .chain_err(|| PackageQueryFunctionsError)?
+        {
+            let schema_name: String = row.get(0);
+            let function_name: String = row.get(1);
+            let function_src: String = row.get(2);
+            let raw_args: String = row.get(3);
+            let lan_name: String = row.get(4);
+            let raw_result: String = row.get(5);
 
             // Parse some of the results
             let language = match &lan_name[..] {
@@ -219,20 +235,33 @@ impl Package {
                 _ => FunctionLanguage::PostgreSQL,
             };
 
-            fn lexical(err: lexer::LexicalError) -> PsqlpackError { LexicalError(err.line.to_owned(), err.line_number, err.start_pos, err.end_pos).into() };
-            fn parse(err: lalrpop_util::ParseError<(), lexer::Token, ()>) -> PsqlpackError { InlineParseError(err).into() };
+            fn lexical(err: lexer::LexicalError) -> PsqlpackError {
+                LexicalError(
+                    err.line.to_owned(),
+                    err.line_number,
+                    err.start_pos,
+                    err.end_pos,
+                ).into()
+            };
+            fn parse(err: lalrpop_util::ParseError<(), lexer::Token, ()>) -> PsqlpackError {
+                InlineParseError(err).into()
+            };
 
-            let function_args =
-                if raw_args.is_empty() {
-                    Vec::new()
-                } else {
-                    lexer::tokenize(&raw_args).map_err(lexical)
-                    .and_then(|tokens| parser::parse_function_argument_list(tokens).map_err(parse))
+            let function_args = if raw_args.is_empty() {
+                Vec::new()
+            } else {
+                lexer::tokenize(&raw_args)
+                    .map_err(lexical)
+                    .and_then(|tokens| {
+                        parser::parse_function_argument_list(tokens).map_err(parse)
+                    })
                     .chain_err(|| PackageFunctionArgsInspectError(raw_args))?
-                };
-            let return_type =
-                lexer::tokenize(&raw_result).map_err(lexical)
-                .and_then(|tokens| parser::parse_function_return_type(tokens).map_err(parse))
+            };
+            let return_type = lexer::tokenize(&raw_result)
+                .map_err(lexical)
+                .and_then(|tokens| {
+                    parser::parse_function_return_type(tokens).map_err(parse)
+                })
                 .chain_err(|| PackageFunctionReturnTypeInspectError(raw_result))?;
 
             // Set up the function definition
@@ -248,37 +277,37 @@ impl Package {
             });
         }
 
-        let tables =
-            db_conn.query(Q_TABLES, &[])
+        let tables = db_conn
+            .query(Q_TABLES, &[])
             .chain_err(|| PackageQueryTablesError)?;
 
         Ok(Package {
             extensions: map!(extensions),
-            functions: functions, // functions,
+            functions: functions,   // functions,
             schemas: map!(schemas), // schemas,
-            scripts: Vec::new(), // Scripts can't be known from a connection
-            tables: map!(tables), // tables,
-            types: map!(types), // types,
+            scripts: Vec::new(),    // Scripts can't be known from a connection
+            tables: map!(tables),   // tables,
+            types: map!(types),     // types,
         })
     }
 
     pub fn write_to(&self, destination: &Path) -> PsqlpackResult<()> {
         File::create(&destination)
-        .chain_err(|| GenerationError("Failed to write package".to_owned()))
-        .and_then(|output_file| {
-            let mut zip = ZipWriter::new(output_file);
+            .chain_err(|| GenerationError("Failed to write package".to_owned()))
+            .and_then(|output_file| {
+                let mut zip = ZipWriter::new(output_file);
 
-            zip_collection!(zip, self, extensions);
-            zip_collection!(zip, self, functions);
-            zip_collection!(zip, self, schemas);
-            zip_collection!(zip, self, scripts);
-            zip_collection!(zip, self, tables);
-            zip_collection!(zip, self, types);
+                zip_collection!(zip, self, extensions);
+                zip_collection!(zip, self, functions);
+                zip_collection!(zip, self, schemas);
+                zip_collection!(zip, self, scripts);
+                zip_collection!(zip, self, tables);
+                zip_collection!(zip, self, types);
 
-            ztry!(zip.finish());
+                ztry!(zip.finish());
 
-            Ok(())
-        })
+                Ok(())
+            })
     }
 
     pub fn new() -> Self {
@@ -322,13 +351,18 @@ impl Package {
         // Make sure the public schema exists
         let mut has_public = false;
         for schema in &mut self.schemas {
-            if project.default_schema.eq_ignore_ascii_case(&schema.name[..]) {
+            if project
+                .default_schema
+                .eq_ignore_ascii_case(&schema.name[..])
+            {
                 has_public = true;
                 break;
             }
         }
         if !has_public {
-            self.schemas.push(SchemaDefinition { name: project.default_schema.to_owned() });
+            self.schemas.push(SchemaDefinition {
+                name: project.default_schema.to_owned(),
+            });
         }
 
         // Set default schema's
@@ -338,7 +372,10 @@ impl Package {
             }
             if let Some(ref mut constraints) = table.constraints {
                 for constraint in constraints.iter_mut() {
-                    if let TableConstraint::Foreign { ref mut ref_table, .. } = *constraint {
+                    if let TableConstraint::Foreign {
+                        ref mut ref_table, ..
+                    } = *constraint
+                    {
                         if ref_table.schema.is_none() {
                             ref_table.schema = Some(project.default_schema.clone());
                         }
@@ -394,26 +431,33 @@ impl Package {
     }
 
     pub fn validate(&self) -> PsqlpackResult<()> {
-        let schemata = self.schemas.iter().map(|schema| &schema.name[..]).collect::<Vec<_>>();
-        let names = self.tables.iter().map(|t| &t.name).chain(
-                self.functions.iter().map(|f| &f.name)
-            ).collect::<Vec<_>>();
-        let errors = names.iter().filter(|ref o|
-                                        if let Some(ref s) = o.schema {
-                                            !schemata.contains(&&s[..])    
-                                        } else {
-                                            false
-                                        }
-                                    )
-                                    .map(|ref o| ValidationKind::SchemaMissing {
-                                        schema: o.schema.clone().unwrap(),
-                                        object: o.name.to_owned()
-                                    })
-                                .collect::<Vec<_>>();
+        let schemata = self.schemas
+            .iter()
+            .map(|schema| &schema.name[..])
+            .collect::<Vec<_>>();
+        let names = self.tables
+            .iter()
+            .map(|t| &t.name)
+            .chain(self.functions.iter().map(|f| &f.name))
+            .collect::<Vec<_>>();
+        let errors = names
+            .iter()
+            .filter(|ref o| if let Some(ref s) = o.schema {
+                !schemata.contains(&&s[..])
+            } else {
+                false
+            })
+            .map(|ref o| {
+                ValidationKind::SchemaMissing {
+                    schema: o.schema.clone().unwrap(),
+                    object: o.name.to_owned(),
+                }
+            })
+            .collect::<Vec<_>>();
 
         // TODO: Validate references etc
         if errors.is_empty() {
-            Ok(())    
+            Ok(())
         } else {
             bail!(ValidationError(errors))
         }
@@ -428,14 +472,15 @@ pub enum ValidationKind {
 impl fmt::Display for ValidationKind {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            ValidationKind::SchemaMissing { ref schema, ref object } => {
-                write!(f, "Schema `{}` missing for object `{}`", schema, object)
-            }
+            ValidationKind::SchemaMissing {
+                ref schema,
+                ref object,
+            } => write!(f, "Schema `{}` missing for object `{}`", schema, object),
         }
     }
 }
 
-#[derive(Clone,Copy,Debug,PartialEq,Eq,PartialOrd,Ord,Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Node<'def> {
     Table(&'def TableDefinition),
     Column(&'def TableDefinition, &'def ColumnDefinition),
@@ -448,7 +493,12 @@ impl<'def> fmt::Display for Node<'def> {
         match *self {
             Node::Table(table) => write!(f, "Table:      {}", table.name.to_string()),
             Node::Column(table, column) => write!(f, "Column:     {}.{}", table.name.to_string(), column.name),
-            Node::Constraint(table, constraint) => write!(f, "Constraint: {}.{}", table.name.to_string(), constraint.name()),
+            Node::Constraint(table, constraint) => write!(
+                f,
+                "Constraint: {}.{}",
+                table.name.to_string(),
+                constraint.name()
+            ),
             Node::Function(function) => write!(f, "Function:   {}", function.name.to_string()),
         }
     }
@@ -457,11 +507,21 @@ impl<'def> fmt::Display for Node<'def> {
 type Graph<'graph> = petgraph::graphmap::GraphMap<Node<'graph>, (), petgraph::Directed>;
 
 trait Graphable {
-    fn graph<'graph, 'def: 'graph>(&'def self, log: &Logger, graph: &mut Graph<'graph>, parent: Option<&Node<'graph>>) -> Node<'graph>;
+    fn graph<'graph, 'def: 'graph>(
+        &'def self,
+        log: &Logger,
+        graph: &mut Graph<'graph>,
+        parent: Option<&Node<'graph>>,
+    ) -> Node<'graph>;
 }
 
 impl Graphable for TableDefinition {
-    fn graph<'graph, 'def: 'graph>(&'def self, log: &Logger, graph:&mut Graph<'graph>, _:Option<&Node<'graph>>) -> Node<'graph> {
+    fn graph<'graph, 'def: 'graph>(
+        &'def self,
+        log: &Logger,
+        graph: &mut Graph<'graph>,
+        _: Option<&Node<'graph>>,
+    ) -> Node<'graph> {
         // Table is dependent on a schema, so add the edge
         // It will not have a parent - the schema is embedded in the name
         trace!(log, "Adding");
@@ -479,7 +539,12 @@ impl Graphable for TableDefinition {
 }
 
 impl Graphable for ColumnDefinition {
-    fn graph<'graph, 'def: 'graph>(&'def self, log: &Logger, graph: &mut Graph<'graph>, parent: Option<&Node<'graph>>) -> Node<'graph> {
+    fn graph<'graph, 'def: 'graph>(
+        &'def self,
+        log: &Logger,
+        graph: &mut Graph<'graph>,
+        parent: Option<&Node<'graph>>,
+    ) -> Node<'graph> {
         // Column does have a parent - namely the table
         let table = match *parent.unwrap() {
             Node::Table(table) => table,
@@ -491,7 +556,12 @@ impl Graphable for ColumnDefinition {
 }
 
 impl Graphable for FunctionDefinition {
-    fn graph<'graph, 'def: 'graph>(&'def self, log: &Logger, graph: &mut Graph<'graph>, _: Option<&Node<'graph>>) -> Node<'graph> {
+    fn graph<'graph, 'def: 'graph>(
+        &'def self,
+        log: &Logger,
+        graph: &mut Graph<'graph>,
+        _: Option<&Node<'graph>>,
+    ) -> Node<'graph> {
         // It will not have a parent - the schema is embedded in the name
         trace!(log, "Adding");
         graph.add_node(Node::Function(self))
@@ -499,7 +569,12 @@ impl Graphable for FunctionDefinition {
 }
 
 impl Graphable for TableConstraint {
-    fn graph<'graph, 'def: 'graph>(&'def self, log: &Logger, graph: &mut Graph<'graph>, parent: Option<&Node<'graph>>) -> Node<'graph>  {
+    fn graph<'graph, 'def: 'graph>(
+        &'def self,
+        log: &Logger,
+        graph: &mut Graph<'graph>,
+        parent: Option<&Node<'graph>>,
+    ) -> Node<'graph> {
         // We currently have two types of table constraints: Primary and Foreign
         // Primary is easy with a direct dependency to the column
         // Foreign requires a weighted dependency
@@ -509,19 +584,33 @@ impl Graphable for TableConstraint {
             _ => panic!("Non table parent for column."),
         };
         match *self {
-            TableConstraint::Primary { ref name, ref columns, .. } => {
+            TableConstraint::Primary {
+                ref name,
+                ref columns,
+                ..
+            } => {
                 let log = log.new(o!("primary constraint" => name.to_owned()));
                 // Primary relies on the columns existing (of course)
                 trace!(log, "Adding");
                 let constraint = graph.add_node(Node::Constraint(table, self));
                 for column_name in columns {
                     trace!(log, "Adding edge to column"; "column" => &column_name);
-                    let column = table.columns.iter().find(|x| &x.name == column_name).unwrap();
+                    let column = table
+                        .columns
+                        .iter()
+                        .find(|x| &x.name == column_name)
+                        .unwrap();
                     graph.add_edge(Node::Column(table, column), constraint, ());
                 }
                 constraint
-            },
-            TableConstraint::Foreign { ref name, ref columns, ref ref_table, ref ref_columns, .. } => {
+            }
+            TableConstraint::Foreign {
+                ref name,
+                ref columns,
+                ref ref_table,
+                ref ref_columns,
+                ..
+            } => {
                 let log = log.new(o!("foreign constraint" => name.to_owned()));
                 // Foreign has two types of edges
                 trace!(log, "Adding");
@@ -529,7 +618,11 @@ impl Graphable for TableConstraint {
                 // Add edges to the columns in this table.
                 for column_name in columns {
                     trace!(log, "Adding edge to column"; "column" => &column_name);
-                    let column = table.columns.iter().find(|x| &x.name == column_name).unwrap();
+                    let column = table
+                        .columns
+                        .iter()
+                        .find(|x| &x.name == column_name)
+                        .unwrap();
                     graph.add_edge(Node::Column(table, column), constraint, ());
                 }
                 // Find the details of the referenced table.
@@ -543,9 +636,15 @@ impl Graphable for TableConstraint {
                 };
                 // Add edges to the referenced columns.
                 for ref_column_name in ref_columns {
-                    trace!(log, "Adding edge to refrenced column"; "table" => ref_table.to_string(), "column" => &ref_column_name);
+                    trace!(log, "Adding edge to refrenced column";
+                                "table" => ref_table.to_string(),
+                                "column" => &ref_column_name);
 
-                    let ref_column = table_def.columns.iter().find(|x| &x.name == ref_column_name).unwrap();
+                    let ref_column = table_def
+                        .columns
+                        .iter()
+                        .find(|x| &x.name == ref_column_name)
+                        .unwrap();
                     graph.add_edge(Node::Column(table_def, ref_column), constraint, ());
 
                     // If required, add an edge to any primary keys.
@@ -560,7 +659,7 @@ impl Graphable for TableConstraint {
                     }
                 }
                 constraint
-            },
+            }
         }
     }
 }
@@ -571,9 +670,9 @@ mod tests {
     use errors::PsqlpackError;
     use errors::PsqlpackErrorKind::*;
     use model::*;
-    use sql::{ast,lexer,parser};
+    use sql::{ast, lexer, parser};
 
-    use slog::{Logger,Drain,Discard};
+    use slog::{Discard, Drain, Logger};
     use spectral::prelude::*;
 
     fn package_sql(sql: &str) -> Package {
@@ -583,18 +682,16 @@ mod tests {
         };
         let mut package = Package::new();
         match parser::parse_statement_list(tokens) {
-            Ok(statement_list) => {
-                for statement in statement_list {
-                    match statement {
-                        ast::Statement::Extension(_) => panic!("Extension statement found"),
-                        ast::Statement::Function(function_definition) => package.push_function(function_definition),
-                        ast::Statement::Schema(schema_definition) => package.push_schema(schema_definition),
-                        ast::Statement::Table(table_definition) => package.push_table(table_definition),
-                        ast::Statement::Type(type_definition) => package.push_type(type_definition),
-                    }
+            Ok(statement_list) => for statement in statement_list {
+                match statement {
+                    ast::Statement::Extension(_) => panic!("Extension statement found"),
+                    ast::Statement::Function(function_definition) => package.push_function(function_definition),
+                    ast::Statement::Schema(schema_definition) => package.push_schema(schema_definition),
+                    ast::Statement::Table(table_definition) => package.push_table(table_definition),
+                    ast::Statement::Type(type_definition) => package.push_type(type_definition),
                 }
             },
-            Err(err) => panic!("Failed to parse sql: {:?}", err)
+            Err(err) => panic!("Failed to parse sql: {:?}", err),
         }
         package
     }
@@ -664,18 +761,22 @@ mod tests {
         let schema = &package.schemas[0];
         assert_that!(schema.name).is_equal_to("public".to_owned());
         let table = &package.tables[0];
-        assert_that!(table.name.schema).is_some().is_equal_to("public".to_owned());
+        assert_that!(table.name.schema)
+            .is_some()
+            .is_equal_to("public".to_owned());
         assert_that!(table.name.name).is_equal_to("hello_world".to_owned());
     }
 
     #[test]
     fn it_generates_a_simple_ordering() {
-        let package = package_sql("CREATE TABLE my.parents(id int);
-                                   CREATE SCHEMA my;");
+        let package = package_sql(
+            "CREATE TABLE my.parents(id int);
+                                   CREATE SCHEMA my;",
+        );
         let logger = empty_logger();
         let graph = package.generate_dependency_graph(&logger);
-        
-        // Make sure we generated two nodes. 
+
+        // Make sure we generated two nodes.
         // We don't generate schema's so it's just going to be table/column
         assert_that!(graph).is_ok().has_length(2);
         let graph = graph.unwrap();
@@ -685,15 +786,17 @@ mod tests {
 
     #[test]
     fn it_generates_a_complex_ordering() {
-        let package = package_sql("CREATE TABLE my.child(id int, parent_id int,
-                                   CONSTRAINT fk_parent_child FOREIGN KEY (parent_id) 
-                                   REFERENCES my.parent(id) 
+        let package = package_sql(
+            "CREATE TABLE my.child(id int, parent_id int,
+                                   CONSTRAINT fk_parent_child FOREIGN KEY (parent_id)
+                                   REFERENCES my.parent(id)
                                    MATCH SIMPLE ON UPDATE NO ACTION ON DELETE NO ACTION);
-                                   CREATE TABLE my.parent(id int);");
+                                   CREATE TABLE my.parent(id int);",
+        );
         let logger = empty_logger();
         let graph = package.generate_dependency_graph(&logger);
-        
-        // Make sure we generated enough nodes (two tables + three columns + one constraint). 
+
+        // Make sure we generated enough nodes (two tables + three columns + one constraint).
         assert_that!(graph).is_ok().has_length(6);
         let graph = graph.unwrap();
         assert_table!(graph, 0, "my.parent");
@@ -713,18 +816,23 @@ mod tests {
         assert_that!(result).is_err();
         let validation_errors = match result.err().unwrap() {
             PsqlpackError(ValidationError(errors), _) => errors,
-            unexpected => panic!("Expected validation error however saw {:?}", unexpected)
+            unexpected => panic!("Expected validation error however saw {:?}", unexpected),
         };
         assert_that!(validation_errors).has_length(1);
         match validation_errors[0] {
-            ValidationKind::SchemaMissing { ref schema, ref object } => {
+            ValidationKind::SchemaMissing {
+                ref schema,
+                ref object,
+            } => {
                 assert_that!(*schema).is_equal_to("my".to_owned());
                 assert_that!(*object).is_equal_to("items".to_owned());
             }
         }
 
         // Add the schema and try again
-        package.schemas.push(ast::SchemaDefinition { name: "my".to_owned() });
+        package.schemas.push(ast::SchemaDefinition {
+            name: "my".to_owned(),
+        });
         assert_that!(package.validate()).is_ok();
     }
 }

@@ -40,11 +40,17 @@ impl Connection {
     }
 
     pub fn connect_host(&self) -> ConnectionResult<PostgresConnection> {
-        Ok(try!(PostgresConnection::connect(self.uri.clone(), self.tls_mode())))
+        Ok(try!(PostgresConnection::connect(
+            self.uri.clone(),
+            self.tls_mode()
+        )))
     }
 
     pub fn connect_database(&self) -> ConnectionResult<PostgresConnection> {
-        Ok(try!(PostgresConnection::connect(self.uri_with_database(), self.tls_mode())))
+        Ok(try!(PostgresConnection::connect(
+            self.uri_with_database(),
+            self.tls_mode()
+        )))
     }
 
     fn uri_with_database(&self) -> String {
@@ -79,11 +85,15 @@ impl FromStr for Connection {
         };
         let database = match parts.get(&"database") {
             Some(database) => *database,
-            None => bail!(ConnectionErrorKind::RequiredPartMissing("database".to_owned())),
+            None => bail!(ConnectionErrorKind::RequiredPartMissing(
+                "database".to_owned()
+            )),
         };
         let user = match parts.get(&"userid") {
             Some(user) => *user,
-            None => bail!(ConnectionErrorKind::RequiredPartMissing("userid".to_owned())),
+            None => bail!(ConnectionErrorKind::RequiredPartMissing(
+                "userid".to_owned()
+            )),
         };
 
         let mut builder = ConnectionBuilder::new(database, host, user);
@@ -135,15 +145,13 @@ impl ConnectionBuilder {
             Err(ConnectionErrorKind::TlsNotSupported.into())
         } else {
             let uri = match self.password {
-                Some(ref password) => {
-                    format!("postgres://{}:{}@{}", self.user, password, self.host)
-                }
+                Some(ref password) => format!("postgres://{}:{}@{}", self.user, password, self.host),
                 None => format!("postgres://{}@{}", self.user, self.host),
             };
             Ok(Connection {
-                   database: self.database.clone(),
-                   uri: uri.to_owned(),
-               })
+                database: self.database.clone(),
+                uri: uri.to_owned(),
+            })
         }
     }
 }
@@ -189,9 +197,7 @@ mod tests {
 
     #[test]
     fn parse_basic_works() {
-        let connection: Connection = "host=localhost;database=db1;userid=user;"
-            .parse()
-            .unwrap();
+        let connection: Connection = "host=localhost;database=db1;userid=user;".parse().unwrap();
         assert_eq!("db1", connection.database());
         assert_eq!("postgres://user@localhost", connection.uri);
     }

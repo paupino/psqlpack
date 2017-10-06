@@ -14,17 +14,15 @@ use errors::PsqlpackErrorKind::*;
 #[derive(Deserialize)]
 pub struct PublishProfile {
     pub version: String,
-    #[serde(rename = "alwaysRecreateDatabase")]
-    pub always_recreate_database: bool,
+    #[serde(rename = "alwaysRecreateDatabase")] pub always_recreate_database: bool,
 }
 
 impl PublishProfile {
     pub fn from_path(profile_path: &Path) -> PsqlpackResult<PublishProfile> {
         File::open(profile_path)
-        .chain_err(|| PublishProfileReadError(profile_path.to_path_buf()))
-        .and_then(|file| {
-            serde_json::from_reader(file)
-            .chain_err(|| PublishProfileParseError(profile_path.to_path_buf()))
-        })
+            .chain_err(|| PublishProfileReadError(profile_path.to_path_buf()))
+            .and_then(|file| {
+                serde_json::from_reader(file).chain_err(|| PublishProfileParseError(profile_path.to_path_buf()))
+            })
     }
 }

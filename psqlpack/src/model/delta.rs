@@ -8,18 +8,18 @@ use serde_json;
 
 use sql::ast::*;
 use connection::Connection;
-use model::{Package, Node, PublishProfile};
+use model::{Node, Package, PublishProfile};
 use errors::{PsqlpackResult, PsqlpackResultExt};
 use errors::PsqlpackErrorKind::*;
 
-static Q_DATABASE_EXISTS : &'static str = "SELECT 1 FROM pg_database WHERE datname=$1;";
+static Q_DATABASE_EXISTS: &'static str = "SELECT 1 FROM pg_database WHERE datname=$1;";
 
 enum DbObject<'a> {
     Extension(&'a ExtensionDefinition), // 2
-    Function(&'a FunctionDefinition), // 6 (ordered)
-    Schema(&'a SchemaDefinition), // 3
-    Script(&'a ScriptDefinition), // 1, 7
-    Table(&'a TableDefinition), // 5 (ordered)
+    Function(&'a FunctionDefinition),   // 6 (ordered)
+    Schema(&'a SchemaDefinition),       // 3
+    Script(&'a ScriptDefinition),       // 1, 7
+    Table(&'a TableDefinition),         // 5 (ordered)
     Column(&'a TableDefinition, &'a ColumnDefinition),
     Constraint(&'a TableDefinition, &'a TableConstraint),
     Type(&'a TypeDefinition), // 4
@@ -29,12 +29,17 @@ impl<'a> fmt::Display for DbObject<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             DbObject::Extension(extension) => write!(f, "Extension: {}", extension.name), // 2
-            DbObject::Function(function) => write!(f, "Function: {}", function.name), // 6 (ordered)
-            DbObject::Schema(schema) => write!(f, "Schema: {}", schema.name), // 3
-            DbObject::Script(script) => write!(f, "Script: {}", script.name), // 1, 7
-            DbObject::Table(table) => write!(f, "Table: {}", table.name), // 5 (ordered)
+            DbObject::Function(function) => write!(f, "Function: {}", function.name),     // 6 (ordered)
+            DbObject::Schema(schema) => write!(f, "Schema: {}", schema.name),             // 3
+            DbObject::Script(script) => write!(f, "Script: {}", script.name),             // 1, 7
+            DbObject::Table(table) => write!(f, "Table: {}", table.name),                 // 5 (ordered)
             DbObject::Column(table, column) => write!(f, "Table: {}, Column: {}", table.name, column.name),
-            DbObject::Constraint(table, constraint) => write!(f, "Table: {}, Constraint: {}", table.name, constraint.name()),
+            DbObject::Constraint(table, constraint) => write!(
+                f,
+                "Table: {}, Constraint: {}",
+                table.name,
+                constraint.name()
+            ),
             DbObject::Type(tipe) => write!(f, "Type: {}", tipe.name), // 4
         }
     }
@@ -43,9 +48,14 @@ impl<'a> fmt::Display for DbObject<'a> {
 pub struct Delta<'package>(Vec<ChangeInstruction<'package>>);
 
 impl<'package> Delta<'package> {
-    pub fn generate(log: &Logger, package: &'package Package, connection: &Connection, publish_profile: PublishProfile) -> PsqlpackResult<Delta<'package>> {
+    pub fn generate(
+        log: &Logger,
+        package: &'package Package,
+        connection: &Connection,
+        publish_profile: PublishProfile,
+    ) -> PsqlpackResult<Delta<'package>> {
         let log = log.new(o!("delta" => "generate"));
-        
+
         // Start the changeset
         let mut changeset = Vec::new();
 
@@ -79,16 +89,16 @@ impl<'package> Delta<'package> {
             match item {
                 Node::Function(_) => {
                     // for the moment, add these later.
-                },
+                }
                 Node::Table(table) => {
                     build_order.push(DbObject::Table(table));
-                },
+                }
                 Node::Column(table, column) => {
                     build_order.push(DbObject::Column(table, column));
-                },
+                }
                 Node::Constraint(table, constraint) => {
                     build_order.push(DbObject::Constraint(table, constraint));
-                },
+                }
             }
         }
 
@@ -107,49 +117,62 @@ impl<'package> Delta<'package> {
         // If so, we assume everything is new
         trace!(log, "Connecting to host");
         let db_conn = dbtry!(connection.connect_host());
-        trace!(log, "Checking for database `{}`", &connection.database()[..]);
-        let db_result = dbtry!(db_conn.query(Q_DATABASE_EXISTS, &[ &connection.database() ]));
+        trace!(
+            log,
+            "Checking for database `{}`",
+            &connection.database()[..]
+        );
+        let db_result = dbtry!(db_conn.query(Q_DATABASE_EXISTS, &[&connection.database()]));
         let mut has_db = !db_result.is_empty();
 
         // If we always recreate then add a drop and set to false
         if has_db && publish_profile.always_recreate_database {
-            changeset.push(ChangeInstruction::DropDatabase(connection.database().to_owned()));
+            changeset.push(ChangeInstruction::DropDatabase(
+                connection.database().to_owned(),
+            ));
             has_db = false;
         }
 
         // If we have the DB we generate an actual change set, else we generate new instructions
         if has_db {
-
             // We'll compare a delta against the existing state
             let existing_database = Package::from_connection(&connection)?;
 
             // Set the connection instruction
-            changeset.push(ChangeInstruction::UseDatabase(connection.database().to_owned()));
+            changeset.push(ChangeInstruction::UseDatabase(
+                connection.database().to_owned(),
+            ));
 
             // Go through each item in order and figure out what to do with it
             for item in &build_order {
                 match *item {
                     DbObject::Extension(extension) => {
                         changeset.push(ChangeInstruction::AssertExtension(extension));
-                    },
+                    }
                     DbObject::Function(function) => {
                         // Since we don't really need to worry about this in PG we just
                         // add it as is and rely on CREATE OR REPLACE. In the future, it'd
                         // be good to check the hash or something to only do this when required
                         changeset.push(ChangeInstruction::ModifyFunction(function));
-                    },
+                    }
                     DbObject::Schema(schema) => {
                         // Only add schema's, we do not drop them at this point
-                        let schema_exists = existing_database.schemas.iter().any(|s| s.name == schema.name);
+                        let schema_exists = existing_database
+                            .schemas
+                            .iter()
+                            .any(|s| s.name == schema.name);
                         if !schema_exists {
                             changeset.push(ChangeInstruction::AddSchema(schema));
                         }
-                    },
+                    }
                     DbObject::Script(script) => {
                         changeset.push(ChangeInstruction::RunScript(script));
-                    },
+                    }
                     DbObject::Table(table) => {
-                        let table_exists = existing_database.tables.iter().any(|t| t.name == table.name);
+                        let table_exists = existing_database
+                            .tables
+                            .iter()
+                            .any(|t| t.name == table.name);
                         if table_exists {
                             // Check the columns
 
@@ -157,40 +180,45 @@ impl<'package> Delta<'package> {
                         } else {
                             changeset.push(ChangeInstruction::AddTable(table));
                         }
-                    },
+                    }
                     DbObject::Type(ty) => {
-                        let type_exists = existing_database.types.iter().any(|t| t.name == ty.name);;
+                        let type_exists = existing_database.types.iter().any(|t| t.name == ty.name);
                         if type_exists {
-                            // TODO: Need to figure out if it's changed and also perhaps how it's changed. I don't think a blanket modify is enough.
+                            // TODO: Need to figure out if it's changed and also perhaps how it's changed.
+                            //       I don't think a blanket modify is enough.
                         } else {
                             changeset.push(ChangeInstruction::AddType(ty));
                         }
-                    },
+                    }
                     ref unhandled => warn!(log, "TODO - unhandled DBObject: {}", unhandled),
                 }
             }
         } else {
-            changeset.push(ChangeInstruction::CreateDatabase(connection.database().to_owned()));
-            changeset.push(ChangeInstruction::UseDatabase(connection.database().to_owned()));
+            changeset.push(ChangeInstruction::CreateDatabase(
+                connection.database().to_owned(),
+            ));
+            changeset.push(ChangeInstruction::UseDatabase(
+                connection.database().to_owned(),
+            ));
 
             // Since this is a new database add everything (in order)
             for item in &build_order {
                 match *item {
                     DbObject::Extension(extension) => {
                         changeset.push(ChangeInstruction::AssertExtension(extension));
-                    },
+                    }
                     DbObject::Function(function) => {
                         changeset.push(ChangeInstruction::AddFunction(function));
-                    },
+                    }
                     DbObject::Schema(schema) => {
                         changeset.push(ChangeInstruction::AddSchema(schema));
-                    },
+                    }
                     DbObject::Script(script) => {
                         changeset.push(ChangeInstruction::RunScript(script));
-                    },
+                    }
                     DbObject::Table(table) => {
                         changeset.push(ChangeInstruction::AddTable(table));
-                    },
+                    }
                     DbObject::Column(table, column) => {
                         changeset.push(ChangeInstruction::AddColumn(table, column));
                     }
@@ -224,7 +252,8 @@ impl<'package> Delta<'package> {
             // Execute SQL directly
             trace!(log, "Executing: {}", change);
             let sql = change.to_sql(&log);
-            conn.batch_execute(&sql).chain_err(|| DatabaseExecuteError(sql))?;
+            conn.batch_execute(&sql)
+                .chain_err(|| DatabaseExecuteError(sql))?;
         }
 
         // Close the connection
@@ -238,7 +267,10 @@ impl<'package> Delta<'package> {
 
         File::create(destination)
             .chain_err(|| GenerationError("Failed to generate report".to_owned()))
-            .and_then(|writer| serde_json::to_writer_pretty(writer, &changeset).chain_err(|| GenerationError("Failed to generate report".to_owned())))?;
+            .and_then(|writer| {
+                serde_json::to_writer_pretty(writer, &changeset)
+                    .chain_err(|| GenerationError("Failed to generate report".to_owned()))
+            })?;
 
         Ok(())
     }
@@ -249,7 +281,9 @@ impl<'package> Delta<'package> {
         // These instructions turn into a single SQL file
         let mut out = match File::create(destination) {
             Ok(o) => o,
-            Err(e) => bail!(GenerationError(format!("Failed to generate SQL file: {}", e)))
+            Err(e) => bail!(GenerationError(
+                format!("Failed to generate SQL file: {}", e)
+            )),
         };
 
         for change in changeset.iter() {
@@ -258,11 +292,15 @@ impl<'package> Delta<'package> {
                 Ok(_) => {
                     // New line
                     match out.write(&[59u8, 10u8, 10u8]) {
-                        Ok(_) => {},
-                        Err(e) => bail!(GenerationError(format!("Failed to generate SQL file: {}", e)))
+                        Ok(_) => {}
+                        Err(e) => bail!(GenerationError(
+                            format!("Failed to generate SQL file: {}", e)
+                        )),
                     }
-                },
-                Err(e) => bail!(GenerationError(format!("Failed to generate SQL file: {}", e)))
+                }
+                Err(e) => bail!(GenerationError(
+                    format!("Failed to generate SQL file: {}", e)
+                )),
             }
         }
 
@@ -344,11 +382,17 @@ impl<'input> fmt::Display for ChangeInstruction<'input> {
             RemoveColumn(ref column_name) => write!(f, "Remove column: {}", column_name),
 
             // Constraints
-            AddConstraint(table, constraint) => write!(f, "Add constraint: {} to table: {}", constraint.name(), table.name),
+            AddConstraint(table, constraint) => write!(
+                f,
+                "Add constraint: {} to table: {}",
+                constraint.name(),
+                table.name
+            ),
 
             // Functions
             AddFunction(function) => write!(f, "Add function: {}", function.name),
-            ModifyFunction(function) => write!(f, "Modify function: {}", function.name), // This is identical to add however it's for future possible support
+            // Modify is identical to add however it's for future possible support
+            ModifyFunction(function) => write!(f, "Modify function: {}", function.name),
             DropFunction(ref function_name) => write!(f, "Drop function: {}", function_name),
         }
     }
@@ -358,28 +402,18 @@ impl<'input> ChangeInstruction<'input> {
     fn to_sql(&self, log: &Logger) -> String {
         match *self {
             // Database level
-            ChangeInstruction::CreateDatabase(ref db) => {
-                format!("CREATE DATABASE {}", db)
-            },
-            ChangeInstruction::DropDatabase(ref db) => {
-                format!("DROP DATABASE {}", db)
-            },
-            ChangeInstruction::UseDatabase(ref db) => {
-                format!("-- Using database `{}`", db)
-            },
+            ChangeInstruction::CreateDatabase(ref db) => format!("CREATE DATABASE {}", db),
+            ChangeInstruction::DropDatabase(ref db) => format!("DROP DATABASE {}", db),
+            ChangeInstruction::UseDatabase(ref db) => format!("-- Using database `{}`", db),
 
             // Extension level
-            ChangeInstruction::AssertExtension(ext) => {
-                format!("-- Assert extension exists {}", ext.name)
-            },
+            ChangeInstruction::AssertExtension(ext) => format!("-- Assert extension exists {}", ext.name),
 
             // Schema level
-            ChangeInstruction::AddSchema(schema) => {
-                if schema.name == "public" {
-                    format!("CREATE SCHEMA IF NOT EXISTS {}", schema.name)
-                } else {
-                    format!("CREATE SCHEMA {}", schema.name)
-                }
+            ChangeInstruction::AddSchema(schema) => if schema.name == "public" {
+                format!("CREATE SCHEMA IF NOT EXISTS {}", schema.name)
+            } else {
+                format!("CREATE SCHEMA {}", schema.name)
             },
 
             // Type level
@@ -402,7 +436,7 @@ impl<'input> ChangeInstruction<'input> {
                     }
                 }
                 def
-            },
+            }
 
             // Function level
             ChangeInstruction::AddFunction(function) | ChangeInstruction::ModifyFunction(function) => {
@@ -433,7 +467,7 @@ impl<'input> ChangeInstruction<'input> {
                             func.push_str(&format!("  {} {}", column.name, column.sql_type)[..]);
                         }
                         func.push_str("\n)\n");
-                    },
+                    }
                     FunctionReturnType::SqlType(ref sql_type) => {
                         func.push_str(&format!("{} ", sql_type)[..]);
                     }
@@ -446,15 +480,13 @@ impl<'input> ChangeInstruction<'input> {
                     FunctionLanguage::C => func.push_str("C"),
                     FunctionLanguage::Internal => func.push_str("INTERNAL"),
                     FunctionLanguage::PostgreSQL => func.push_str("PGSQL"),
-                    FunctionLanguage::SQL => func.push_str("SQL")
+                    FunctionLanguage::SQL => func.push_str("SQL"),
                 }
                 func
-            },
+            }
 
             // Table level
-            ChangeInstruction::AddTable(def) => {
-                format!("CREATE TABLE {} ()", def.name)
-            }
+            ChangeInstruction::AddTable(def) => format!("CREATE TABLE {} ()", def.name),
 
             // Column level
             ChangeInstruction::AddColumn(table, column) => {
@@ -482,9 +514,13 @@ impl<'input> ChangeInstruction<'input> {
                     TableConstraint::Primary {
                         ref name,
                         ref columns,
-                        ref parameters
+                        ref parameters,
                     } => {
-                        instr.push_str(&format!("CONSTRAINT {} PRIMARY KEY ({})", name, columns.join(", ")));
+                        instr.push_str(&format!(
+                            "CONSTRAINT {} PRIMARY KEY ({})",
+                            name,
+                            columns.join(", ")
+                        ));
 
                         // Do the WITH options too
                         if let Some(ref unwrapped) = *parameters {
@@ -499,7 +535,7 @@ impl<'input> ChangeInstruction<'input> {
                             }
                             instr.push_str(")");
                         }
-                    },
+                    }
                     TableConstraint::Foreign {
                         ref name,
                         ref columns,
@@ -516,15 +552,19 @@ impl<'input> ChangeInstruction<'input> {
                         if let Some(ref events) = *events {
                             for e in events {
                                 match *e {
-                                    ForeignConstraintEvent::Delete(ref action) => instr.push_str(&format!(" ON DELETE {}", action)),
-                                    ForeignConstraintEvent::Update(ref action) => instr.push_str(&format!(" ON UPDATE {}", action)),
+                                    ForeignConstraintEvent::Delete(ref action) => {
+                                        instr.push_str(&format!(" ON DELETE {}", action))
+                                    }
+                                    ForeignConstraintEvent::Update(ref action) => {
+                                        instr.push_str(&format!(" ON UPDATE {}", action))
+                                    }
                                 }
                             }
                         }
-                    },
+                    }
                 }
                 instr
-            },
+            }
 
             // Raw scripts
             ChangeInstruction::RunScript(script) => {
@@ -540,6 +580,5 @@ impl<'input> ChangeInstruction<'input> {
                 "".to_owned()
             }
         }
-
     }
 }
