@@ -40,6 +40,17 @@ pub struct Project {
 }
 
 impl Project {
+    pub(crate) fn default() -> Self {
+        Project {
+            path: None,
+            version: "1.0".into(),
+            default_schema: "public".into(),
+            pre_deploy_scripts: Vec::new(),
+            post_deploy_scripts: Vec::new(),
+            extensions: None,
+        }
+    }
+
     pub fn from_path(log: &Logger, path: &Path) -> PsqlpackResult<Project> {
         let log = log.new(o!("project" => "from_path"));
         trace!(log, "Attempting to open project file"; "path" => path.to_str().unwrap());
@@ -51,8 +62,11 @@ impl Project {
             .chain_err(|| ProjectParseError(path.to_path_buf()))
         })
         .and_then(|mut project: Project| {
-           project.path = Some(path.to_path_buf());
-           Ok(project)
+            project.path = Some(path.to_path_buf());
+            if project.default_schema.is_empty() {
+                project.default_schema = "public".into();
+            }
+            Ok(project)
         })
     }
 

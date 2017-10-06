@@ -17,6 +17,7 @@ extern crate walkdir;
 extern crate zip;
 extern crate petgraph;
 #[cfg(test)]
+#[macro_use]
 extern crate spectral;
 
 mod errors;

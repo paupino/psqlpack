@@ -322,13 +322,13 @@ impl Package {
         // Make sure the public schema exists
         let mut has_public = false;
         for schema in &mut self.schemas {
-            if "public".eq_ignore_ascii_case(&schema.name[..]) {
+            if project.default_schema.eq_ignore_ascii_case(&schema.name[..]) {
                 has_public = true;
                 break;
             }
         }
         if !has_public {
-            self.schemas.push(SchemaDefinition { name: "public".to_owned() });
+            self.schemas.push(SchemaDefinition { name: project.default_schema.to_owned() });
         }
 
         // Set default schema's
@@ -399,7 +399,7 @@ impl Package {
     }
 }
 
-#[derive(Clone,Copy,PartialEq,Eq,PartialOrd,Ord,Hash)]
+#[derive(Clone,Copy,Debug,PartialEq,Eq,PartialOrd,Ord,Hash)]
 pub enum Node<'def> {
     Table(&'def TableDefinition),
     Column(&'def TableDefinition, &'def ColumnDefinition),
@@ -531,16 +531,143 @@ impl Graphable for TableConstraint {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use super::super::super::connection::*;
+
+    use model::*;
+    use sql::{ast,lexer,parser};
+
+    use slog::{Logger,Drain,Discard};
     use spectral::prelude::*;
 
-    #[test]
-    fn it_can_create_a_package_from_a_database() {
-        //TODO: Create database before test
-        let connection = ConnectionBuilder::new("taxengine", "localhost", "paul").build().unwrap();
-        let package = Package::from_connection(&connection).unwrap();
-        assert_that(&package.extensions).has_length(4);
+    fn package_sql(sql: &str) -> Package {
+        let tokens = match lexer::tokenize(sql) {
+            Ok(t) => t,
+            Err(e) => panic!("Syntax error: {}", e.line),
+        };
+        let mut package = Package::new();
+        match parser::parse_statement_list(tokens) {
+            Ok(statement_list) => {
+                for statement in statement_list {
+                    match statement {
+                        ast::Statement::Extension(_) => panic!("Extension statement found"),
+                        ast::Statement::Function(function_definition) => package.push_function(function_definition),
+                        ast::Statement::Schema(schema_definition) => package.push_schema(schema_definition),
+                        ast::Statement::Table(table_definition) => package.push_table(table_definition),
+                        ast::Statement::Type(type_definition) => package.push_type(type_definition),
+                    }
+                }
+            },
+            Err(err) => panic!("Failed to parse sql: {:?}", err)
+        }
+        package
     }
 
+    fn empty_logger() -> Logger {
+        Logger::root(Discard.fuse(), o!())
+    }
+
+    macro_rules! assert_table {
+        ($graph:ident,$index:expr,$name:expr) => {
+            match $graph[$index] {
+                Node::Table(table) => {
+                    assert_that!(table.name.to_string()).is_equal_to($name.to_owned());
+                },
+                _ => panic!("Expected a table at index {}", $index)
+            }
+        };
+    }
+
+    macro_rules! assert_column {
+        ($graph:ident,$index:expr,$table_name:expr,$column_name:expr) => {
+            match $graph[$index] {
+                Node::Column(table, column) => {
+                    assert_that!(table.name.to_string()).is_equal_to($table_name.to_owned());
+                    assert_that!(column.name.to_string()).is_equal_to($column_name.to_owned());
+                },
+                _ => panic!("Expected a column at index {}", $index)
+            }
+        };
+    }
+
+    macro_rules! assert_fk_constraint {
+        ($graph:ident,$index:expr,$table_name:expr,$constraint_name:expr) => {
+            match $graph[$index] {
+                Node::Constraint(table, constraint) => {
+                    assert_that!(table.name.to_string()).is_equal_to($table_name.to_owned());
+                    match *constraint {
+                        ast::TableConstraint::Foreign { ref name, .. } => {
+                            assert_that!(name.to_string()).is_equal_to($constraint_name.to_owned());
+                        },
+                        _ => panic!("Expected a foreign key constraint at index {}", $index)
+                    }
+                },
+                _ => panic!("Expected a constraint at index {}", $index)
+            }
+        };
+    }
+
+    #[test]
+    fn it_sets_defaults() {
+        let mut package = package_sql("CREATE TABLE hello_world(id int);");
+        let project = Project::default();
+
+        // Pre-condition checks
+        {
+            assert_that!(package.schemas).is_empty();
+            assert_that!(package.tables).has_length(1);
+            let table = &package.tables[0];
+            assert_that!(table.name.schema).is_none();
+            assert_that!(table.name.name).is_equal_to("hello_world".to_owned());
+        }
+
+        // Set the defaults and assert again
+        package.set_defaults(&project);
+        assert_that!(package.schemas).has_length(1);
+        assert_that!(package.tables).has_length(1);
+        let schema = &package.schemas[0];
+        assert_that!(schema.name).is_equal_to("public".to_owned());
+        let table = &package.tables[0];
+        assert_that!(table.name.schema).is_some().is_equal_to("public".to_owned());
+        assert_that!(table.name.name).is_equal_to("hello_world".to_owned());
+    }
+
+    #[test]
+    fn it_generates_a_simple_ordering() {
+        let package = package_sql("CREATE TABLE my.parents(id int);
+                                   CREATE SCHEMA my;");
+        let logger = empty_logger();
+        let graph = package.generate_dependency_graph(&logger);
+        
+        // Make sure we generated two nodes. 
+        // We don't generate schema's so it's just going to be table/column
+        assert_that!(graph).is_ok().has_length(2);
+        let graph = graph.unwrap();
+        assert_table!(graph, 0, "my.parents");
+        assert_column!(graph, 1, "my.parents", "id");
+    }
+
+    #[test]
+    fn it_generates_a_complex_ordering() {
+        let package = package_sql("CREATE TABLE my.child(id int, parent_id int,
+                                   CONSTRAINT fk_parent_child FOREIGN KEY (parent_id) 
+                                   REFERENCES my.parent(id) 
+                                   MATCH SIMPLE ON UPDATE NO ACTION ON DELETE NO ACTION);
+                                   CREATE TABLE my.parent(id int);");
+        let logger = empty_logger();
+        let graph = package.generate_dependency_graph(&logger);
+        
+        // Make sure we generated enough nodes (two tables + three columns + one constraint). 
+        assert_that!(graph).is_ok().has_length(6);
+        let graph = graph.unwrap();
+        assert_table!(graph, 0, "my.parent");
+        assert_column!(graph, 1, "my.parent", "id");
+        assert_table!(graph, 2, "my.child");
+        assert_column!(graph, 3, "my.child", "id");
+        assert_column!(graph, 4, "my.child", "parent_id");
+        assert_fk_constraint!(graph, 5, "my.child", "fk_parent_child");
+    }
+
+    #[test]
+    fn it_validates_missing_schema_references() {
+        // TODO
+    }
 }
