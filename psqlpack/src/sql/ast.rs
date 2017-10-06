@@ -118,17 +118,17 @@ pub enum ForeignConstraintAction {
     SetDefault,
 }
 
+#[derive(Debug,PartialEq,PartialOrd,Eq,Ord,Hash,Clone,Serialize,Deserialize)]
+pub struct ObjectName {
+    pub schema: Option<String>,
+    pub name: String,
+}
+
 #[derive(Debug,PartialEq,PartialOrd,Eq,Ord,Hash,Serialize,Deserialize)]
 pub struct TableDefinition {
     pub name: ObjectName,
     pub columns: Vec<ColumnDefinition>,
     pub constraints: Option<Vec<TableConstraint>>,
-}
-
-#[derive(Debug,PartialEq,PartialOrd,Eq,Ord,Hash,Clone,Serialize,Deserialize)]
-pub struct ObjectName {
-    pub schema: Option<String>,
-    pub name: String,
 }
 
 #[derive(Debug,PartialEq,PartialOrd,Eq,Ord,Hash,Serialize,Deserialize)]

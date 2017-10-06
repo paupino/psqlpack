@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 pub use error_chain::ChainedError;
 pub use lalrpop_util::ParseError;
+pub use model::ValidationKind;
 
 use sql::lexer;
 use connection::{ConnectionError, ConnectionErrorKind};
@@ -96,6 +97,10 @@ error_chain! {
             description("Error generating package")
             display("Error generating package: {}", message)
         }
+        ValidationError(errors: Vec<ValidationKind>) {
+            description("Package validation error")
+            display("Error validating package: {}", ValidationErrorFormatter(errors))
+        }
         FormatError(file: String, message: String) {
             description("Format error when reading a file")
             display("Format error when reading {}: {}", file, message)
@@ -171,6 +176,17 @@ impl<'fmt> Display for MultipleErrorFormatter<'fmt> {
     fn fmt(&self, f: &mut Formatter) -> Result {
         for (i, error) in self.0.iter().enumerate() {
             write!(f, "--- Error {} ---\n{}", i, error)?;
+        }
+        Ok(())
+    }
+}
+
+struct ValidationErrorFormatter<'fmt>(&'fmt Vec<ValidationKind>);
+
+impl<'fmt> Display for ValidationErrorFormatter<'fmt> {
+    fn fmt(&self, f: &mut Formatter) -> Result {
+        for (_, error) in self.0.iter().enumerate() {
+            write!(f, "{}", error)?;
         }
         Ok(())
     }

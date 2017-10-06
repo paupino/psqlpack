@@ -394,8 +394,44 @@ impl Package {
     }
 
     pub fn validate(&self) -> PsqlpackResult<()> {
+        let schemata = self.schemas.iter().map(|schema| &schema.name[..]).collect::<Vec<_>>();
+        let names = self.tables.iter().map(|t| &t.name).chain(
+                self.functions.iter().map(|f| &f.name)
+            ).collect::<Vec<_>>();
+        let errors = names.iter().filter(|ref o|
+                                        if let Some(ref s) = o.schema {
+                                            !schemata.contains(&&s[..])    
+                                        } else {
+                                            false
+                                        }
+                                    )
+                                    .map(|ref o| ValidationKind::SchemaMissing {
+                                        schema: o.schema.clone().unwrap(),
+                                        object: o.name.to_owned()
+                                    })
+                                .collect::<Vec<_>>();
+
         // TODO: Validate references etc
-        Ok(())
+        if errors.is_empty() {
+            Ok(())    
+        } else {
+            bail!(ValidationError(errors))
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum ValidationKind {
+    SchemaMissing { schema: String, object: String },
+}
+
+impl fmt::Display for ValidationKind {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            ValidationKind::SchemaMissing { ref schema, ref object } => {
+                write!(f, "Schema `{}` missing for object `{}`", schema, object)
+            }
+        }
     }
 }
 
@@ -532,6 +568,8 @@ impl Graphable for TableConstraint {
 #[cfg(test)]
 mod tests {
 
+    use errors::PsqlpackError;
+    use errors::PsqlpackErrorKind::*;
     use model::*;
     use sql::{ast,lexer,parser};
 
@@ -668,6 +706,25 @@ mod tests {
 
     #[test]
     fn it_validates_missing_schema_references() {
-        // TODO
+        let mut package = package_sql("CREATE TABLE my.items(id int);");
+        let result = package.validate();
+
+        // `my` schema is missing
+        assert_that!(result).is_err();
+        let validation_errors = match result.err().unwrap() {
+            PsqlpackError(ValidationError(errors), _) => errors,
+            unexpected => panic!("Expected validation error however saw {:?}", unexpected)
+        };
+        assert_that!(validation_errors).has_length(1);
+        match validation_errors[0] {
+            ValidationKind::SchemaMissing { ref schema, ref object } => {
+                assert_that!(*schema).is_equal_to("my".to_owned());
+                assert_that!(*object).is_equal_to("items".to_owned());
+            }
+        }
+
+        // Add the schema and try again
+        package.schemas.push(ast::SchemaDefinition { name: "my".to_owned() });
+        assert_that!(package.validate()).is_ok();
     }
 }
