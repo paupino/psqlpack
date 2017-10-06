@@ -1,20 +1,20 @@
 #[macro_use]
 extern crate clap;
+extern crate psqlpack;
 #[macro_use]
 extern crate slog;
 extern crate slog_term;
-extern crate psqlpack;
 
 use std::env;
 use std::path::Path;
 use std::time::Instant;
-use std::sync::{Arc, atomic};
+use std::sync::{atomic, Arc};
 use std::sync::atomic::Ordering;
 use std::result;
 
-use clap::{Arg, ArgMatches, App, SubCommand};
+use clap::{App, Arg, ArgMatches, SubCommand};
 use slog::{Drain, Logger};
-use psqlpack::{operation, PsqlpackResult, ChainedError};
+use psqlpack::{operation, ChainedError, PsqlpackResult};
 
 /// A threadsafe toggle.
 #[derive(Clone)]
@@ -53,11 +53,7 @@ impl<D: Drain> Drain for TraceFilter<D> {
     type Ok = Option<D::Ok>;
     type Err = Option<D::Err>;
 
-    fn log(
-        &self,
-        record: &slog::Record,
-        values: &slog::OwnedKVList,
-    ) -> result::Result<Self::Ok, Self::Err> {
+    fn log(&self, record: &slog::Record, values: &slog::OwnedKVList) -> result::Result<Self::Ok, Self::Err> {
         let current_level = if self.toggle.get() {
             slog::Level::Trace
         } else {
@@ -147,9 +143,7 @@ fn main() {
         )
         .subcommand(
             SubCommand::with_name("script")
-                .about(
-                    "outputs the SQL file that would be executed against the target",
-                )
+                .about("outputs the SQL file that would be executed against the target")
                 .arg(
                     Arg::with_name("SOURCE")
                         .long("source")
@@ -181,9 +175,7 @@ fn main() {
         )
         .subcommand(
             SubCommand::with_name("report")
-                .about(
-                    "outputs a JSON deployment report for proposed changes to the target",
-                )
+                .about("outputs a JSON deployment report for proposed changes to the target")
                 .arg(
                     Arg::with_name("SOURCE")
                         .long("source")
@@ -247,7 +239,12 @@ fn main() {
             );
         }
         HandleResult::Outcome(action, Err(error)) => {
-            error!(log, "encountered during {} command:\n{}", action, error.display_chain());
+            error!(
+                log,
+                "encountered during {} command:\n{}",
+                action,
+                error.display_chain()
+            );
         }
         HandleResult::Outcome(action, _) => {
             // Capture how long was elapsed
