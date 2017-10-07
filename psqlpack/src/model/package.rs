@@ -258,7 +258,7 @@ impl Package {
                     .chain_err(|| PackageFunctionArgsInspectError(raw_args))?
             };
             let return_type = lexer::tokenize(&raw_result)
-                .map_err(lexical)
+                .map_err(&lexical)
                 .and_then(|tokens| {
                     parser::parse_function_return_type(tokens).map_err(parse)
                 })
@@ -401,7 +401,7 @@ impl Package {
         for table in &self.tables {
             if let Some(ref table_constaints) = table.constraints {
                 let log = log.new(o!("table" => table.name.to_string()));
-                let table_node = Node::Table(&table);
+                let table_node = Node::Table(table);
                 trace!(log, "Scanning constraints");
                 for constraint in table_constaints {
                     let constraint_node = constraint.graph(&log, &mut graph, Some(&table_node));
@@ -444,12 +444,12 @@ impl Package {
             .collect::<Vec<_>>();
         let mut errors = names
             .iter()
-            .filter(|ref o| if let Some(ref s) = o.schema {
+            .filter(|o| if let Some(ref s) = o.schema {
                 !schemata.contains(&&s[..])
             } else {
                 false
             })
-            .map(|ref o| {
+            .map(|o| {
                 ValidationKind::SchemaMissing {
                     schema: o.schema.clone().unwrap(),
                     object: o.name.to_owned(),
@@ -583,7 +583,7 @@ impl Graphable for ColumnDefinition {
             _ => panic!("Non table parent for column."),
         };
         trace!(log, "Adding");
-        graph.add_node(Node::Column(table, &self))
+        graph.add_node(Node::Column(table, self))
     }
 }
 
@@ -684,7 +684,7 @@ impl Graphable for TableConstraint {
                         for primary in constraints {
                             if let TableConstraint::Primary { ref columns, .. } = *primary {
                                 if columns.contains(ref_column_name) {
-                                    graph.add_edge(Node::Constraint(table_def, &primary), constraint, ());
+                                    graph.add_edge(Node::Constraint(table_def, primary), constraint, ());
                                 }
                             }
                         }
