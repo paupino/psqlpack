@@ -258,7 +258,7 @@ impl Package {
                     .chain_err(|| PackageFunctionArgsInspectError(raw_args))?
             };
             let return_type = lexer::tokenize(&raw_result)
-                .map_err(lexical)
+                .map_err(&lexical)
                 .and_then(|tokens| {
                     parser::parse_function_return_type(tokens).map_err(parse)
                 })
@@ -401,7 +401,7 @@ impl Package {
         for table in &self.tables {
             if let Some(ref table_constaints) = table.constraints {
                 let log = log.new(o!("table" => table.name.to_string()));
-                let table_node = Node::Table(&table);
+                let table_node = Node::Table(table);
                 trace!(log, "Scanning constraints");
                 for constraint in table_constaints {
                     let constraint_node = constraint.graph(&log, &mut graph, Some(&table_node));
@@ -431,6 +431,8 @@ impl Package {
     }
 
     pub fn validate(&self) -> PsqlpackResult<()> {
+
+        // 1. Validate schema existance
         let schemata = self.schemas
             .iter()
             .map(|schema| &schema.name[..])
@@ -440,14 +442,14 @@ impl Package {
             .map(|t| &t.name)
             .chain(self.functions.iter().map(|f| &f.name))
             .collect::<Vec<_>>();
-        let errors = names
+        let mut errors = names
             .iter()
-            .filter(|ref o| if let Some(ref s) = o.schema {
+            .filter(|o| if let Some(ref s) = o.schema {
                 !schemata.contains(&&s[..])
             } else {
                 false
             })
-            .map(|ref o| {
+            .map(|o| {
                 ValidationKind::SchemaMissing {
                     schema: o.schema.clone().unwrap(),
                     object: o.name.to_owned(),
@@ -455,7 +457,32 @@ impl Package {
             })
             .collect::<Vec<_>>();
 
-        // TODO: Validate references etc
+        // 2. Validate custom type are known
+        let custom_types = self.types
+            .iter()
+            .map(|ty| &ty.name[..])
+            .collect::<Vec<_>>();
+        errors.extend(self.tables
+            .iter()
+            .flat_map(|t| t.columns
+                    .iter()
+                    .filter(|c| match c.sql_type {
+                        SqlType::Custom(ref name, _) => !custom_types.contains(&&name[..]),
+                        _ => false,
+                    })
+                    .map(|c| match c.sql_type {
+                        SqlType::Custom(ref name, _) => ValidationKind::UnknownType {
+                            ty: name.to_owned(),
+                            table: t.name.to_string(),
+                        },
+                        _ => panic!("Not possible"),
+                    })
+                    .collect::<Vec<_>>()
+                ));
+
+        // 3. Validate constraints map to known tables
+
+        // If there are no errors then we're "ok"
         if errors.is_empty() {
             Ok(())
         } else {
@@ -467,6 +494,7 @@ impl Package {
 #[derive(Debug)]
 pub enum ValidationKind {
     SchemaMissing { schema: String, object: String },
+    UnknownType { ty: String, table: String },
 }
 
 impl fmt::Display for ValidationKind {
@@ -476,6 +504,10 @@ impl fmt::Display for ValidationKind {
                 ref schema,
                 ref object,
             } => write!(f, "Schema `{}` missing for object `{}`", schema, object),
+            ValidationKind::UnknownType {
+                ref ty,
+                ref table,
+            } => write!(f, "Unknown type `{}` used on table `{}`", ty, table),
         }
     }
 }
@@ -551,7 +583,7 @@ impl Graphable for ColumnDefinition {
             _ => panic!("Non table parent for column."),
         };
         trace!(log, "Adding");
-        graph.add_node(Node::Column(table, &self))
+        graph.add_node(Node::Column(table, self))
     }
 }
 
@@ -652,7 +684,7 @@ impl Graphable for TableConstraint {
                         for primary in constraints {
                             if let TableConstraint::Primary { ref columns, .. } = *primary {
                                 if columns.contains(ref_column_name) {
-                                    graph.add_edge(Node::Constraint(table_def, &primary), constraint, ());
+                                    graph.add_edge(Node::Constraint(table_def, primary), constraint, ());
                                 }
                             }
                         }
@@ -827,11 +859,44 @@ mod tests {
                 assert_that!(*schema).is_equal_to("my".to_owned());
                 assert_that!(*object).is_equal_to("items".to_owned());
             }
+            ref unexpected => panic!("Unexpected validation type: {:?}", unexpected),
         }
 
         // Add the schema and try again
         package.schemas.push(ast::SchemaDefinition {
             name: "my".to_owned(),
+        });
+        assert_that!(package.validate()).is_ok();
+    }
+
+    #[test]
+    fn it_validates_unknown_types() {
+        let mut package = package_sql("CREATE SCHEMA my;
+                                       CREATE TABLE my.items(id mytype);");
+        let result = package.validate();
+
+        // `mytype` is missing
+        assert_that!(result).is_err();
+        let validation_errors = match result.err().unwrap() {
+            PsqlpackError(ValidationError(errors), _) => errors,
+            unexpected => panic!("Expected validation error however saw {:?}", unexpected),
+        };
+        assert_that!(validation_errors).has_length(1);
+        match validation_errors[0] {
+            ValidationKind::UnknownType {
+                ref ty,
+                ref table,
+            } => {
+                assert_that!(*ty).is_equal_to("mytype".to_owned());
+                assert_that!(*table).is_equal_to("my.items".to_owned());
+            }
+            ref unexpected => panic!("Unexpected validation type: {:?}", unexpected),
+        }
+
+        // Add the type and try again
+        package.types.push(ast::TypeDefinition {
+            name: "mytype".to_owned(),
+            kind: ast::TypeDefinitionKind::Enum(Vec::new()),
         });
         assert_that!(package.validate()).is_ok();
     }

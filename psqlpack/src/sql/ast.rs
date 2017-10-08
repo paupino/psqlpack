@@ -91,7 +91,7 @@ pub enum TableConstraint {
 impl TableConstraint {
     pub fn name(&self) -> &str {
         match *self {
-            TableConstraint::Primary { ref name, .. } | TableConstraint::Foreign { ref name, .. } => &name,
+            TableConstraint::Primary { ref name, .. } | TableConstraint::Foreign { ref name, .. } => name,
         }
     }
 }

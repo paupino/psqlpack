@@ -136,7 +136,7 @@ impl<'package> Delta<'package> {
         // If we have the DB we generate an actual change set, else we generate new instructions
         if has_db {
             // We'll compare a delta against the existing state
-            let existing_database = Package::from_connection(&connection)?;
+            let existing_database = Package::from_connection(connection)?;
 
             // Set the connection instruction
             changeset.push(ChangeInstruction::UseDatabase(
