@@ -4,7 +4,6 @@ use std::iter::FromIterator;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Token {
-
     ACTION,
     AS,
     BIGINT,
@@ -154,7 +153,6 @@ macro_rules! match_keyword {
 }
 
 fn create_token(value: String) -> Option<Token> {
-
     if "true".eq_ignore_ascii_case(&value[..]) {
         return Some(Token::Boolean(true));
     }
@@ -251,14 +249,13 @@ fn create_token(value: String) -> Option<Token> {
 }
 
 pub fn tokenize(text: &str) -> Result<Vec<Token>, LexicalError> {
-
     // This tokenizer is whitespace dependent by default, i.e. whitespace is relevant.
     let mut tokens = Vec::new();
     let mut current_line = 0;
     let mut current_position;
     let mut buffer = Vec::new();
     let mut state = LexerState::Normal;
-    let mut last_char : char;
+    let mut last_char: char;
 
     // Loop through each character, halting on whitespace
     // Our outer loop works by newline
@@ -295,7 +292,7 @@ pub fn tokenize(text: &str) -> Result<Vec<Token>, LexicalError> {
                                 line: line,
                                 line_number: current_line,
                                 start_pos: current_position,
-                                end_pos: current_position
+                                end_pos: current_position,
                             });
                         }
                     } else if c == '$' {
@@ -307,68 +304,66 @@ pub fn tokenize(text: &str) -> Result<Vec<Token>, LexicalError> {
                                 line: line,
                                 line_number: current_line,
                                 start_pos: current_position,
-                                end_pos: current_position
+                                end_pos: current_position,
                             });
                         }
-                    } else if c.is_whitespace() { // Simple check for whitespace
+                    } else if c.is_whitespace() {
+                        // Simple check for whitespace
                         tokenize_buffer!(tokens, buffer, line, current_line, current_position);
                     } else {
-
                         // If it is a symbol then don't bother with the buffer
                         match c {
                             '(' => {
                                 tokenize_buffer!(tokens, buffer, line, current_line, current_position);
                                 tokens.push(Token::LeftBracket);
-                            },
+                            }
                             ')' => {
                                 tokenize_buffer!(tokens, buffer, line, current_line, current_position);
                                 tokens.push(Token::RightBracket);
-                            },
+                            }
                             ',' => {
                                 tokenize_buffer!(tokens, buffer, line, current_line, current_position);
                                 tokens.push(Token::Comma);
-                            },
+                            }
                             ';' => {
                                 tokenize_buffer!(tokens, buffer, line, current_line, current_position);
                                 tokens.push(Token::Semicolon);
-                            },
+                            }
                             '=' => {
                                 tokenize_buffer!(tokens, buffer, line, current_line, current_position);
                                 tokens.push(Token::Equals);
-                            },
+                            }
                             '.' => {
                                 tokenize_buffer!(tokens, buffer, line, current_line, current_position);
                                 tokens.push(Token::Period);
-                            },
+                            }
                             '[' => {
                                 tokenize_buffer!(tokens, buffer, line, current_line, current_position);
                                 tokens.push(Token::LeftSquare);
-                            },
+                            }
                             ']' => {
                                 tokenize_buffer!(tokens, buffer, line, current_line, current_position);
                                 tokens.push(Token::RightSquare);
-                            },
+                            }
                             _ => buffer.push(c),
                         }
                     }
-                },
+                }
                 LexerState::Comment1 => {
                     // Ignore comments
-                },
+                }
                 LexerState::Comment2 => {
                     if last_char == '*' && c == '/' {
                         state = LexerState::Normal;
                     }
                     // Ignore comments
-                },
-                LexerState::String => {
-                    if c == '\'' {
-                        tokens.push(Token::StringValue(String::from_iter(buffer.clone())));
-                        buffer.clear();
-                        state = LexerState::Normal;
-                    } else {
-                        buffer.push(c);
-                    }
+                }
+                LexerState::String => if c == '\'' {
+                    tokens.push(Token::StringValue(String::from_iter(buffer.clone())));
+                    buffer.clear();
+                    state = LexerState::Normal;
+                } else {
+                    buffer.push(c);
                 },
                 LexerState::MaybeLiteral => {
                     if c == '$' {
@@ -380,10 +375,10 @@ pub fn tokenize(text: &str) -> Result<Vec<Token>, LexicalError> {
                             line: line,
                             line_number: current_line,
                             start_pos: current_position,
-                            end_pos: current_position
+                            end_pos: current_position,
                         });
                     }
-                },
+                }
                 LexerState::Literal => {
                     if last_char == '$' && c == '$' {
                         // We should pop off the buffer as it was a $ sign
@@ -394,7 +389,7 @@ pub fn tokenize(text: &str) -> Result<Vec<Token>, LexicalError> {
                     } else {
                         buffer.push(c);
                     }
-                },
+                }
             }
 
             // Move the current_position
@@ -407,14 +402,14 @@ pub fn tokenize(text: &str) -> Result<Vec<Token>, LexicalError> {
             LexerState::Normal => {
                 // We may also have a full buffer
                 tokenize_buffer!(tokens, buffer, line, current_line, current_position);
-            },
+            }
             LexerState::Comment1 => {
                 // End of a line finishes the comment
                 state = LexerState::Normal;
-            },
+            }
             LexerState::Comment2 => {
                 // Do nothing at the end of a line - it's a multi-line comment
-            },
+            }
             LexerState::String | LexerState::MaybeLiteral => {
                 // If we're in these states at the end of a line it's an error
                 // (e.g. at the moment we don't support multi-line strings)
@@ -422,13 +417,13 @@ pub fn tokenize(text: &str) -> Result<Vec<Token>, LexicalError> {
                     line: line,
                     line_number: current_line,
                     start_pos: current_position,
-                    end_pos: current_position
+                    end_pos: current_position,
                 });
-            },
+            }
             LexerState::Literal => {
                 // Add a new line onto the buffer
                 buffer.push('\n');
-            },
+            }
         }
     }
 

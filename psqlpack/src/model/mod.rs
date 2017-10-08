@@ -14,5 +14,5 @@ mod delta;
 
 pub use self::profiles::PublishProfile;
 pub use self::project::Project;
-pub use self::package::{Package, Node};
+pub use self::package::{Node, Package, ValidationKind};
 pub use self::delta::Delta;

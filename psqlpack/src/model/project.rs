@@ -27,33 +27,42 @@ macro_rules! dump_statement {
 
 #[derive(Deserialize)]
 pub struct Project {
-    #[serde(skip_serializing)]
-    path: Option<PathBuf>,
+    #[serde(skip_serializing)] path: Option<PathBuf>,
     pub version: String,
-    #[serde(rename = "defaultSchema")]
-    pub default_schema: String,
-    #[serde(rename = "preDeployScripts")]
-    pub pre_deploy_scripts: Vec<String>,
-    #[serde(rename = "postDeployScripts")]
-    pub post_deploy_scripts: Vec<String>,
+    #[serde(rename = "defaultSchema")] pub default_schema: String,
+    #[serde(rename = "preDeployScripts")] pub pre_deploy_scripts: Vec<String>,
+    #[serde(rename = "postDeployScripts")] pub post_deploy_scripts: Vec<String>,
     pub extensions: Option<Vec<String>>,
 }
 
 impl Project {
+    pub(crate) fn default() -> Self {
+        Project {
+            path: None,
+            version: "1.0".into(),
+            default_schema: "public".into(),
+            pre_deploy_scripts: Vec::new(),
+            post_deploy_scripts: Vec::new(),
+            extensions: None,
+        }
+    }
+
     pub fn from_path(log: &Logger, path: &Path) -> PsqlpackResult<Project> {
         let log = log.new(o!("project" => "from_path"));
         trace!(log, "Attempting to open project file"; "path" => path.to_str().unwrap());
         File::open(path)
-        .chain_err(|| ProjectReadError(path.to_path_buf()))
-        .and_then(|file| {
-            trace!(log, "Parsing project file");
-            serde_json::from_reader(file)
-            .chain_err(|| ProjectParseError(path.to_path_buf()))
-        })
-        .and_then(|mut project: Project| {
-           project.path = Some(path.to_path_buf());
-           Ok(project)
-        })
+            .chain_err(|| ProjectReadError(path.to_path_buf()))
+            .and_then(|file| {
+                trace!(log, "Parsing project file");
+                serde_json::from_reader(file).chain_err(|| ProjectParseError(path.to_path_buf()))
+            })
+            .and_then(|mut project: Project| {
+                project.path = Some(path.to_path_buf());
+                if project.default_schema.is_empty() {
+                    project.default_schema = "public".into();
+                }
+                Ok(project)
+            })
     }
 
     pub fn to_package(&self, log: &Logger, output_path: &Path) -> PsqlpackResult<()> {
@@ -91,7 +100,9 @@ impl Project {
         // Add extensions
         if let Some(ref extensions) = self.extensions {
             for extension in extensions {
-                package.push_extension(ExtensionDefinition { name: extension.clone() });
+                package.push_extension(ExtensionDefinition {
+                    name: extension.clone(),
+                });
             }
         }
 
@@ -123,7 +134,7 @@ impl Project {
                     name: path.file_name().unwrap().to_str().unwrap().to_owned(),
                     kind: ScriptKind::PreDeployment,
                     order: pos,
-                    contents: contents
+                    contents: contents,
                 });
             } else if let Some(pos) = postdeploy_paths.iter().position(|x| real_path.eq(x)) {
                 trace!(log, "Found postdeploy script");
@@ -131,27 +142,30 @@ impl Project {
                     name: path.file_name().unwrap().to_str().unwrap().to_owned(),
                     kind: ScriptKind::PostDeployment,
                     order: pos,
-                    contents: contents
+                    contents: contents,
                 });
             } else {
                 trace!(log, "Tokenizing file");
                 let tokens = match lexer::tokenize(&contents[..]) {
                     Ok(t) => t,
                     Err(e) => {
-                        errors.push(SyntaxError(
-                            format!("{}", path.display()),
-                            e.line.to_owned(),
-                            e.line_number as usize,
-                            e.start_pos as usize,
-                            e.end_pos as usize,
-                        ).into());
+                        errors.push(
+                            SyntaxError(
+                                format!("{}", path.display()),
+                                e.line.to_owned(),
+                                e.line_number as usize,
+                                e.start_pos as usize,
+                                e.end_pos as usize,
+                            ).into(),
+                        );
                         continue;
-                    },
+                    }
                 };
                 trace!(log, "Finished tokenizing"; "count" => tokens.len());
 
                 trace!(log, "Parsing file");
-                // TODO: In the future it'd be nice to allow the parser to generate shift/reduce rules when dump-symbols is defined
+                // TODO: In the future it'd be nice to allow the parser to generate
+                //       shift/reduce rules when dump-symbols is defined
                 match parser::parse_statement_list(tokens) {
                     Ok(statement_list) => {
                         trace!(log, "Finished parsing statements"; "count" => statement_list.len());
@@ -165,9 +179,9 @@ impl Project {
                                 Statement::Type(type_definition) => package.push_type(type_definition),
                             }
                         }
-                    },
+                    }
                     Err(err) => {
-                        errors.push(ParseError(format!("{}", path.display()), vec!(err)).into());
+                        errors.push(ParseError(format!("{}", path.display()), vec![err]).into());
                         continue;
                     }
                 }
@@ -188,8 +202,10 @@ impl Project {
         trace!(log, "Creating package directory");
         if let Some(parent) = output_path.parent() {
             match fs::create_dir_all(parent) {
-                Ok(_) => {},
-                Err(e) => bail!(GenerationError(format!("Failed to create package directory: {}", e))),
+                Ok(_) => {}
+                Err(e) => bail!(GenerationError(
+                    format!("Failed to create package directory: {}", e)
+                )),
             }
         }
 
