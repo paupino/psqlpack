@@ -12,6 +12,21 @@ Future tasks may be to:
 * Extract functionality to generate a psqlpack from a live PostgreSQL database.
 * Export functionality to generate a psqlpack from a live PostgreSQL database with user data included as a post-deployment script.
 
+## License
+
+Licensed under either of these:
+
+ * Apache License, Version 2.0, ([LICENSE-APACHE](LICENSE-APACHE) or
+   http://www.apache.org/licenses/LICENSE-2.0)
+ * MIT license ([LICENSE-MIT](LICENSE-MIT) or
+   http://opensource.org/licenses/MIT)
+
+### Contributing
+
+Unless you explicitly state otherwise, any contribution you intentionally submit
+for inclusion in the work, as defined in the Apache-2.0 license, shall be
+dual-licensed as above, without any additional terms or conditions.
+
 # Command Line Syntax
 
 ```
