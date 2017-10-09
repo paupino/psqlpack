@@ -917,7 +917,7 @@ mod tests {
     fn it_generates_a_simple_ordering() {
         let package = package_sql(
             "CREATE TABLE my.parents(id int);
-                                   CREATE SCHEMA my;",
+             CREATE SCHEMA my;",
         );
         let logger = empty_logger();
         let graph = package.generate_dependency_graph(&logger);
@@ -934,10 +934,10 @@ mod tests {
     fn it_generates_a_complex_ordering() {
         let package = package_sql(
             "CREATE TABLE my.child(id int, parent_id int,
-                                   CONSTRAINT fk_parent_child FOREIGN KEY (parent_id)
-                                   REFERENCES my.parent(id)
-                                   MATCH SIMPLE ON UPDATE NO ACTION ON DELETE NO ACTION);
-                                   CREATE TABLE my.parent(id int);",
+               CONSTRAINT fk_parent_child FOREIGN KEY (parent_id)
+               REFERENCES my.parent(id)
+               MATCH SIMPLE ON UPDATE NO ACTION ON DELETE NO ACTION);
+               CREATE TABLE my.parent(id int);",
         );
         let logger = empty_logger();
         let graph = package.generate_dependency_graph(&logger);
@@ -987,7 +987,7 @@ mod tests {
     fn it_validates_unknown_types() {
         let mut package = package_sql(
             "CREATE SCHEMA my;
-                                       CREATE TABLE my.items(id mytype);",
+             CREATE TABLE my.items(id mytype);",
         );
         let result = package.validate();
 
@@ -1019,9 +1019,9 @@ mod tests {
         let mut package = package_sql(
             "CREATE SCHEMA my;
              CREATE TABLE my.child(id int, parent_id int,
-                                   CONSTRAINT fk_parent_child FOREIGN KEY (parent_id)
-                                   REFERENCES my.parent(id)
-                                   MATCH SIMPLE ON UPDATE NO ACTION ON DELETE NO ACTION);",
+               CONSTRAINT fk_parent_child FOREIGN KEY (parent_id)
+               REFERENCES my.parent(id)
+               MATCH SIMPLE ON UPDATE NO ACTION ON DELETE NO ACTION);",
         );
         let result = package.validate();
 
@@ -1066,10 +1066,10 @@ mod tests {
         let mut package = package_sql(
             "CREATE SCHEMA my;
              CREATE TABLE my.child(id int, parent_id int,
-                                   CONSTRAINT fk_parent_child FOREIGN KEY (parent_id)
-                                   REFERENCES my.parent(parent_id)
-                                   MATCH SIMPLE ON UPDATE NO ACTION ON DELETE NO ACTION);
-                                   CREATE TABLE my.parent(id int);",
+               CONSTRAINT fk_parent_child FOREIGN KEY (parent_id)
+               REFERENCES my.parent(parent_id)
+               MATCH SIMPLE ON UPDATE NO ACTION ON DELETE NO ACTION);
+               CREATE TABLE my.parent(id int);",
         );
         let result = package.validate();
 
@@ -1115,10 +1115,10 @@ mod tests {
         let mut package = package_sql(
             "CREATE SCHEMA my;
              CREATE TABLE my.child(id int, parent_id int,
-                                   CONSTRAINT fk_parent_child FOREIGN KEY (par_id)
-                                   REFERENCES my.parent(id)
-                                   MATCH SIMPLE ON UPDATE NO ACTION ON DELETE NO ACTION);
-                                   CREATE TABLE my.parent(id int);",
+               CONSTRAINT fk_parent_child FOREIGN KEY (par_id)
+               REFERENCES my.parent(id)
+               MATCH SIMPLE ON UPDATE NO ACTION ON DELETE NO ACTION);
+               CREATE TABLE my.parent(id int);",
         );
         let result = package.validate();
 
