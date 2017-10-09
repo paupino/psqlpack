@@ -490,20 +490,60 @@ impl Package {
                 _ => false,
             })
             .map(|c| match c {
-                TableConstraint::Foreign { name, ref_table, ref_columns, .. } => (name, ref_table, ref_columns),
+                TableConstraint::Foreign { name, columns, ref_table, ref_columns, .. } => (name, columns, ref_table, ref_columns),
                 _ => panic!("Not possible")
             })
             .collect::<Vec<_>>();
 
-        // Two types here, one is when the table exists, but the column doesn't. The other is when the
-        // table doesn't exist
+        // Four types here:
+        // i. Reference table doesn't exist
         errors.extend(foreign_keys
             .iter()
-            .filter(|&&(_, ref table,_)| !self.tables.iter().any(|t| t.name.eq(table)))
-            .map(|&(ref name, ref table,_)| ValidationKind::TableConstraintInvalidReferenceTable { 
+            .filter(|&&(_, _, ref table, _)| !self.tables.iter().any(|t| t.name.eq(table)))
+            .map(|&(ref name, _, ref table, _)| ValidationKind::TableConstraintInvalidReferenceTable { 
                 constraint: name.to_owned(), 
                 table: table.to_string() 
             }));
+        // ii. Reference table exists, but the reference column doesn't. 
+        errors.extend(foreign_keys
+            .iter()
+            .filter(|&&(_, _, ref table, ref columns)| {
+                let table = self.tables
+                    .iter()
+                    .find(|t| t.name.eq(table));
+                match table {
+                    Some(t) => !columns.iter().all(|rc| t.columns.iter().any(|c| c.name.eq(rc))),
+                    None => false
+                }
+            })
+            .map(|&(ref name, _, ref table, ref columns)| ValidationKind::TableConstraintInvalidReferenceColumns {
+                constraint: name.to_owned(),
+                table: table.to_string(),
+                columns: columns.clone(),
+            }));
+        // iii. Source column doesn't exist
+        errors.extend(foreign_keys
+            .iter()
+            .filter(|&&(ref constraint, ref columns, _, _)| {
+                let table = self.tables
+                    .iter()
+                    .find(|t| { 
+                        if let Some(ref constraints) = t.constraints {
+                            constraints.iter().any(|c| c.name() == constraint)
+                        } else {
+                            false
+                        }
+                    });
+                match table {
+                    Some(t) => !columns.iter().all(|rc| t.columns.iter().any(|c| c.name.eq(rc))),
+                    None => false
+                }
+            })
+            .map(|&(ref name, ref columns, _, _)| ValidationKind::TableConstraintInvalidSourceColumns {
+                constraint: name.to_owned(),
+                columns: columns.clone(),
+            }));
+        // iv. (Future) Source column match type is not compatible with reference column type
 
         // If there are no errors then we're "ok"
         if errors.is_empty() {
@@ -517,8 +557,8 @@ impl Package {
 #[derive(Debug)]
 pub enum ValidationKind {
     TableConstraintInvalidReferenceTable { constraint: String, table: String },
-    TableConstraintInvalidReferenceColumn { constraint: String, table: String, column: String },
-    TableConstraintInvalidSourceColumn { constraint: String, column: String },
+    TableConstraintInvalidReferenceColumns { constraint: String, table: String, columns: Vec<String> },
+    TableConstraintInvalidSourceColumns { constraint: String, columns: Vec<String> },
     SchemaMissing { schema: String, object: String },
     UnknownType { ty: String, table: String },
 }
@@ -530,15 +570,15 @@ impl fmt::Display for ValidationKind {
                 ref constraint,
                 ref table,
             } => write!(f, "Foreign Key constraint `{}` uses unknown reference table `{}`", constraint, table),
-            ValidationKind::TableConstraintInvalidReferenceColumn {
+            ValidationKind::TableConstraintInvalidReferenceColumns {
                 ref constraint,
                 ref table,
-                ref column,
-            } => write!(f, "Foreign Key constraint `{}` uses unknown reference column `{}.{}`", constraint, table, column),
-            ValidationKind::TableConstraintInvalidSourceColumn {
+                ref columns,
+            } => write!(f, "Foreign Key constraint `{}` uses unknown reference column(s) on table `{}` (`{}`)", constraint, table, columns.join("`, `")),
+            ValidationKind::TableConstraintInvalidSourceColumns {
                 ref constraint,
-                ref column,
-            } => write!(f, "Foreign Key constraint `{}` uses unknown source column `{}`", constraint, column),
+                ref columns,
+            } => write!(f, "Foreign Key constraint `{}` uses unknown source column(s) (`{}`)", constraint, columns.join("`, `")),
             ValidationKind::SchemaMissing {
                 ref schema,
                 ref object,
@@ -943,7 +983,8 @@ mod tests {
     #[test]
     fn it_validates_missing_reference_table_in_constraint() {
         let mut package = package_sql(
-            "CREATE TABLE my.child(id int, parent_id int,
+            "CREATE SCHEMA my;
+             CREATE TABLE my.child(id int, parent_id int,
                                    CONSTRAINT fk_parent_child FOREIGN KEY (parent_id)
                                    REFERENCES my.parent(id)
                                    MATCH SIMPLE ON UPDATE NO ACTION ON DELETE NO ACTION);",
@@ -989,7 +1030,8 @@ mod tests {
     #[test]
     fn it_validates_missing_reference_column_in_constraint() {
         let mut package = package_sql(
-            "CREATE TABLE my.child(id int, parent_id int,
+            "CREATE SCHEMA my;
+             CREATE TABLE my.child(id int, parent_id int,
                                    CONSTRAINT fk_parent_child FOREIGN KEY (parent_id)
                                    REFERENCES my.parent(parent_id)
                                    MATCH SIMPLE ON UPDATE NO ACTION ON DELETE NO ACTION);
@@ -1005,25 +1047,36 @@ mod tests {
         };
         assert_that!(validation_errors).has_length(1);
         match validation_errors[0] {
-            ValidationKind::TableConstraintInvalidReferenceColumn {
+            ValidationKind::TableConstraintInvalidReferenceColumns {
                 ref constraint,
                 ref table,
-                ref column,
+                ref columns,
             } => {
                 assert_that!(*constraint).is_equal_to("fk_parent_child".to_owned());
                 assert_that!(*table).is_equal_to("my.parent".to_owned());
-                assert_that!(*column).is_equal_to("parent_id".to_owned());
+                assert_that!(*columns).has_length(1);
+                assert_that!(columns[0]).is_equal_to("parent_id".to_owned());
             }
             ref unexpected => panic!("Unexpected validation type: {:?}", unexpected),
         }
 
-        // TODO: Add the column and try again
+        // Add the column and try again
+        {
+            let mut parent = package.tables.iter_mut().find(|t| t.name.name.eq("parent")).unwrap();
+            parent.columns.push(ast::ColumnDefinition {
+                name: "parent_id".to_owned(),
+                sql_type: ast::SqlType::Simple(ast::SimpleSqlType::Integer),
+                constraints: None,
+            });
+        }
+        assert_that!(package.validate()).is_ok();
     }
 
     #[test]
     fn it_validates_missing_source_column_in_constraint() {
         let mut package = package_sql(
-            "CREATE TABLE my.child(id int, parent_id int,
+            "CREATE SCHEMA my;
+             CREATE TABLE my.child(id int, parent_id int,
                                    CONSTRAINT fk_parent_child FOREIGN KEY (par_id)
                                    REFERENCES my.parent(id)
                                    MATCH SIMPLE ON UPDATE NO ACTION ON DELETE NO ACTION);
@@ -1039,16 +1092,26 @@ mod tests {
         };
         assert_that!(validation_errors).has_length(1);
         match validation_errors[0] {
-            ValidationKind::TableConstraintInvalidSourceColumn {
+            ValidationKind::TableConstraintInvalidSourceColumns {
                 ref constraint,
-                ref column,
+                ref columns,
             } => {
                 assert_that!(*constraint).is_equal_to("fk_parent_child".to_owned());
-                assert_that!(*column).is_equal_to("par_id".to_owned());
+                assert_that!(*columns).has_length(1);
+                assert_that!(columns[0]).is_equal_to("par_id".to_owned());
             }
             ref unexpected => panic!("Unexpected validation type: {:?}", unexpected),
         }
 
-        // TODO: Add the column and try again
+        // Add the column and try again
+        {
+            let mut child = package.tables.iter_mut().find(|t| t.name.name.eq("child")).unwrap();
+            child.columns.push(ast::ColumnDefinition {
+                name: "par_id".to_owned(),
+                sql_type: ast::SqlType::Simple(ast::SimpleSqlType::Integer),
+                constraints: None,
+            });
+        }
+        assert_that!(package.validate()).is_ok();
     }
 }
