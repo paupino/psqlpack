@@ -328,6 +328,7 @@ pub enum ChangeInstruction<'input> {
 
     // Types
     AddType(&'input TypeDefinition),
+    ModifyType(&'input TypeDefinition, TypeModificationAction),
     RemoveType(String),
 
     // Tables
@@ -346,6 +347,12 @@ pub enum ChangeInstruction<'input> {
     AddFunction(&'input FunctionDefinition),
     ModifyFunction(&'input FunctionDefinition), // This is identical to add however it's for future possible support
     DropFunction(String),
+}
+
+pub enum TypeModificationAction {
+    AddEnumValue(String, usize),
+    ModifyEnumValue(String, String),
+    RemoveEnumValue(String),
 }
 
 impl<'input> fmt::Display for ChangeInstruction<'input> {
