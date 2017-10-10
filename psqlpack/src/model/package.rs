@@ -881,7 +881,7 @@ mod tests {
     fn it_validates_unknown_types() {
         let mut package = package_sql(
             "CREATE SCHEMA my;
-                                       CREATE TABLE my.items(id mytype);",
+             CREATE TABLE my.items(id mytype);",
         );
         let result = package.validate();
 
