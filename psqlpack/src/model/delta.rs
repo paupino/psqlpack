@@ -540,13 +540,13 @@ impl<'input> fmt::Display for ChangeInstruction<'input> {
             AddType(ty) => write!(f, "Add type: {}", ty.name),
             ModifyType(ty, ref action) => write!(
                 f,
-                "Modify type: {} {}",
-                ty.name,
+                "Modify type by {}: {}",
                 match *action {
-                    TypeModificationAction::AddEnumValueBefore { .. } => "(add enum value before)",
-                    TypeModificationAction::AddEnumValueAfter { .. } => "(add enum value after)",
-                    TypeModificationAction::RemoveEnumValue { .. } => "(remove enum value)",
-                }
+                    TypeModificationAction::AddEnumValueBefore { .. } => "inserting an enum value",
+                    TypeModificationAction::AddEnumValueAfter { .. } => "inserting an enum value",
+                    TypeModificationAction::RemoveEnumValue { .. } => "removing enum value",
+                },
+                ty.name
             ),
             RemoveType(ref type_name) => write!(f, "Remove type: {}", type_name),
 
