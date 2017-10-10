@@ -4,6 +4,7 @@ use slog::Logger;
 
 use model::{Delta, Package, Project, PublishProfile};
 use errors::PsqlpackResult;
+use errors::PsqlpackErrorKind::PackageCreationError;
 
 pub fn package<L: Into<Logger>>(log: L, project_path: &Path, output_path: &Path) -> PsqlpackResult<()> {
     let log = log.into().new(o!("operation" => "package"));
@@ -18,9 +19,14 @@ pub fn extract<L: Into<Logger>>(log: L, source_connection_string: &str, target_p
     let connection = source_connection_string.parse()?;
 
     trace!(log, "Loading Package from connection");
-    let package = Package::from_connection(&connection)?;
-    trace!(log, "Writing Package"; "output" => target_package_path.to_str().unwrap());
-    package.write_to(target_package_path)
+    let package = Package::from_connection(&log, &connection)?;
+    match package {
+        Some(data) => {
+            trace!(log, "Writing Package"; "output" => target_package_path.to_str().unwrap());
+            data.write_to(target_package_path)
+        }
+        None => bail!(PackageCreationError("database does not exist".into()))
+    }
 }
 
 pub fn publish<L: Into<Logger>>(
@@ -35,7 +41,9 @@ pub fn publish<L: Into<Logger>>(
     let connection = target_connection_string.parse()?;
 
     // Now we generate our instructions
-    let delta = Delta::generate(&log, &package, &connection, publish_profile)?;
+    let target_package = Package::from_connection(&log, &connection)?;
+    let target_database_name = connection.database().to_owned();
+    let delta = Delta::generate(&log, &package, target_package, target_database_name, publish_profile)?;
     delta.apply(&log, &connection)
 }
 
@@ -52,7 +60,9 @@ pub fn generate_sql<L: Into<Logger>>(
     let connection = target_connection_string.parse()?;
 
     // Now we generate our instructions
-    let delta = Delta::generate(&log, &package, &connection, publish_profile)?;
+    let target_package = Package::from_connection(&log, &connection)?;
+    let target_database_name = connection.database().to_owned();
+    let delta = Delta::generate(&log, &package, target_package, target_database_name, publish_profile)?;
     delta.write_sql(&log, output_file)
 }
 
@@ -69,6 +79,8 @@ pub fn generate_report<L: Into<Logger>>(
     let connection = target_connection_string.parse()?;
 
     // Now we generate our instructions
-    let delta = Delta::generate(&log, &package, &connection, publish_profile)?;
+    let target_package = Package::from_connection(&log, &connection)?;
+    let target_database_name = connection.database().to_owned();
+    let delta = Delta::generate(&log, &package, target_package, target_database_name, publish_profile)?;
     delta.write_report(output_file)
 }

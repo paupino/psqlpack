@@ -12,8 +12,6 @@ use model::{Node, Package, PublishProfile};
 use errors::{PsqlpackResult, PsqlpackResultExt};
 use errors::PsqlpackErrorKind::*;
 
-static Q_DATABASE_EXISTS: &'static str = "SELECT 1 FROM pg_database WHERE datname=$1;";
-
 enum DbObject<'a> {
     Extension(&'a ExtensionDefinition), // 2
     Function(&'a FunctionDefinition),   // 6 (ordered)
@@ -45,13 +43,103 @@ impl<'a> fmt::Display for DbObject<'a> {
     }
 }
 
+trait Comparable<'a> {
+    fn generate_changeset(&self, target: &Package, log: &Logger) -> PsqlpackResult<Option<Vec<ChangeInstruction<'a>>>>;
+}
+
+impl<'a> Comparable<'a> for DbObject<'a> {
+    fn generate_changeset(&self, target: &Package, log: &Logger) -> PsqlpackResult<Option<Vec<ChangeInstruction<'a>>>> {
+        match *self {
+            DbObject::Extension(extension) => extension.generate_changeset(target, log),
+            DbObject::Function(function) => function.generate_changeset(target, log),
+            DbObject::Schema(schema) => schema.generate_changeset(target, log),
+            DbObject::Script(script) => script.generate_changeset(target, log),
+            DbObject::Table(table) => table.generate_changeset(target, log),
+            DbObject::Type(ty) => ty.generate_changeset(target, log),
+            ref unhandled => { 
+                warn!(log, "TODO - unhandled DBObject: {}", unhandled);
+                Ok(None)
+            }
+        }
+    }   
+}
+
+impl<'a> Comparable<'a> for &'a ExtensionDefinition {
+    fn generate_changeset(&self, _: &Package, _: &Logger) -> PsqlpackResult<Option<Vec<ChangeInstruction<'a>>>> {
+        Ok(Some(vec![ChangeInstruction::AssertExtension(self)]))
+    }
+}
+
+impl<'a> Comparable<'a> for &'a FunctionDefinition {
+    fn generate_changeset(&self, _: &Package, _: &Logger) -> PsqlpackResult<Option<Vec<ChangeInstruction<'a>>>> {
+        // Since we don't really need to worry about this in PG we just
+        // add it as is and rely on CREATE OR REPLACE. In the future, it'd
+        // be good to check the hash or something to only do this when required
+        Ok(Some(vec![ChangeInstruction::ModifyFunction(self)]))
+    }
+}
+
+impl<'a> Comparable<'a> for &'a SchemaDefinition {
+    fn generate_changeset(&self, target: &Package, _: &Logger) -> PsqlpackResult<Option<Vec<ChangeInstruction<'a>>>> {
+        // Only add schema's, we do not drop them at this point
+        let schema_exists = target
+            .schemas
+            .iter()
+            .any(|s| s.name == self.name);
+        if !schema_exists {
+            Ok(Some(vec![ChangeInstruction::AddSchema(self)]))
+        } else {
+            Ok(None)
+        }
+    }
+}
+
+impl<'a> Comparable<'a> for &'a ScriptDefinition {
+    fn generate_changeset(&self, _: &Package, _: &Logger) -> PsqlpackResult<Option<Vec<ChangeInstruction<'a>>>> {
+        Ok(Some(vec![ChangeInstruction::RunScript(self)]))
+    }
+}
+
+impl<'a> Comparable<'a> for &'a TableDefinition {
+    fn generate_changeset(&self, target: &Package, _: &Logger) -> PsqlpackResult<Option<Vec<ChangeInstruction<'a>>>> {
+        let table_exists = target
+            .tables
+            .iter()
+            .any(|t| t.name == self.name);
+        if table_exists {
+            // Check the columns
+
+            // Check the constraints
+
+            // TODO
+            Ok(None) 
+        } else {
+            Ok(Some(vec![ChangeInstruction::AddTable(self)]))
+        }
+    }
+}
+
+impl<'a> Comparable<'a> for &'a TypeDefinition {
+    fn generate_changeset(&self, target: &Package, _: &Logger) -> PsqlpackResult<Option<Vec<ChangeInstruction<'a>>>> {
+        let type_exists = target.types.iter().any(|t| t.name == self.name);
+        if type_exists {
+            // TODO: Need to figure out if it's changed and also perhaps how it's changed.
+            //       I don't think a blanket modify is enough.
+            Ok(None)
+        } else {
+            Ok(Some(vec![ChangeInstruction::AddType(self)]))
+        }
+    }
+}
+
 pub struct Delta<'package>(Vec<ChangeInstruction<'package>>);
 
 impl<'package> Delta<'package> {
     pub fn generate(
         log: &Logger,
         package: &'package Package,
-        connection: &Connection,
+        target: Option<Package>,
+        target_database_name: String,
         publish_profile: PublishProfile,
     ) -> PsqlpackResult<Delta<'package>> {
         let log = log.new(o!("delta" => "generate"));
@@ -113,120 +201,64 @@ impl<'package> Delta<'package> {
             }
         }
 
-        // First up, detect if there is no database (or it needs to be recreated)
-        // If so, we assume everything is new
-        trace!(log, "Connecting to host");
-        let db_conn = dbtry!(connection.connect_host());
-        trace!(
-            log,
-            "Checking for database `{}`",
-            &connection.database()[..]
-        );
-        let db_result = dbtry!(db_conn.query(Q_DATABASE_EXISTS, &[&connection.database()]));
-        let mut has_db = !db_result.is_empty();
-
         // If we always recreate then add a drop and set to false
-        if has_db && publish_profile.always_recreate_database {
-            changeset.push(ChangeInstruction::DropDatabase(
-                connection.database().to_owned(),
-            ));
-            has_db = false;
+        let mut target = target;
+        if target.is_some() && publish_profile.always_recreate_database {
+            changeset.push(ChangeInstruction::DropDatabase(target_database_name.to_owned()));
+            target = None;
         }
-
+        
         // If we have the DB we generate an actual change set, else we generate new instructions
-        if has_db {
-            // We'll compare a delta against the existing state
-            let existing_database = Package::from_connection(connection)?;
+        match target {
+            Some(target_package) => {
+                // Set the connection instruction
+                changeset.push(ChangeInstruction::UseDatabase(
+                    target_database_name.to_owned(),
+                ));
 
-            // Set the connection instruction
-            changeset.push(ChangeInstruction::UseDatabase(
-                connection.database().to_owned(),
-            ));
-
-            // Go through each item in order and figure out what to do with it
-            for item in &build_order {
-                match *item {
-                    DbObject::Extension(extension) => {
-                        changeset.push(ChangeInstruction::AssertExtension(extension));
+                // Go through each item in order and figure out what to do with it
+                for item in &build_order {
+                    match item.generate_changeset(&target_package, &log)? {
+                        Some(set) => changeset.extend(set),
+                        None => {},
                     }
-                    DbObject::Function(function) => {
-                        // Since we don't really need to worry about this in PG we just
-                        // add it as is and rely on CREATE OR REPLACE. In the future, it'd
-                        // be good to check the hash or something to only do this when required
-                        changeset.push(ChangeInstruction::ModifyFunction(function));
-                    }
-                    DbObject::Schema(schema) => {
-                        // Only add schema's, we do not drop them at this point
-                        let schema_exists = existing_database
-                            .schemas
-                            .iter()
-                            .any(|s| s.name == schema.name);
-                        if !schema_exists {
-                            changeset.push(ChangeInstruction::AddSchema(schema));
-                        }
-                    }
-                    DbObject::Script(script) => {
-                        changeset.push(ChangeInstruction::RunScript(script));
-                    }
-                    DbObject::Table(table) => {
-                        let table_exists = existing_database
-                            .tables
-                            .iter()
-                            .any(|t| t.name == table.name);
-                        if table_exists {
-                            // Check the columns
-
-                            // Check the constraints
-                        } else {
-                            changeset.push(ChangeInstruction::AddTable(table));
-                        }
-                    }
-                    DbObject::Type(ty) => {
-                        let type_exists = existing_database.types.iter().any(|t| t.name == ty.name);
-                        if type_exists {
-                            // TODO: Need to figure out if it's changed and also perhaps how it's changed.
-                            //       I don't think a blanket modify is enough.
-                        } else {
-                            changeset.push(ChangeInstruction::AddType(ty));
-                        }
-                    }
-                    ref unhandled => warn!(log, "TODO - unhandled DBObject: {}", unhandled),
                 }
             }
-        } else {
-            changeset.push(ChangeInstruction::CreateDatabase(
-                connection.database().to_owned(),
-            ));
-            changeset.push(ChangeInstruction::UseDatabase(
-                connection.database().to_owned(),
-            ));
+            None => {
+                changeset.push(ChangeInstruction::CreateDatabase(
+                    target_database_name.to_owned(),
+                ));
+                changeset.push(ChangeInstruction::UseDatabase(
+                    target_database_name.to_owned(),
+                ));
 
-            // Since this is a new database add everything (in order)
-            for item in &build_order {
-                match *item {
-                    DbObject::Extension(extension) => {
-                        changeset.push(ChangeInstruction::AssertExtension(extension));
-                    }
-                    DbObject::Function(function) => {
-                        changeset.push(ChangeInstruction::AddFunction(function));
-                    }
-                    DbObject::Schema(schema) => {
-                        changeset.push(ChangeInstruction::AddSchema(schema));
-                    }
-                    DbObject::Script(script) => {
-                        changeset.push(ChangeInstruction::RunScript(script));
-                    }
-                    DbObject::Table(table) => {
-                        changeset.push(ChangeInstruction::AddTable(table));
-                    }
-                    DbObject::Column(table, column) => {
-                        changeset.push(ChangeInstruction::AddColumn(table, column));
-                    }
-                    DbObject::Constraint(table, constraint) => {
-                        changeset.push(ChangeInstruction::AddConstraint(table, constraint));
-                    }
-                    DbObject::Type(t) => {
-                        changeset.push(ChangeInstruction::AddType(t));
+                // Since this is a new database add everything (in order)
+                for item in &build_order {
+                    match *item {
+                        DbObject::Extension(extension) => {
+                            changeset.push(ChangeInstruction::AssertExtension(extension));
+                        }
+                        DbObject::Function(function) => {
+                            changeset.push(ChangeInstruction::AddFunction(function));
+                        }
+                        DbObject::Schema(schema) => {
+                            changeset.push(ChangeInstruction::AddSchema(schema));
+                        }
+                        DbObject::Script(script) => {
+                            changeset.push(ChangeInstruction::RunScript(script));
+                        }
+                        DbObject::Table(table) => {
+                            changeset.push(ChangeInstruction::AddTable(table));
+                        }
+                        DbObject::Column(table, column) => {
+                            changeset.push(ChangeInstruction::AddColumn(table, column));
+                        }
+                        DbObject::Constraint(table, constraint) => {
+                            changeset.push(ChangeInstruction::AddConstraint(table, constraint));
+                        }
+                        DbObject::Type(t) => {
+                            changeset.push(ChangeInstruction::AddType(t));
+                        }
                     }
                 }
             }
@@ -581,4 +613,10 @@ impl<'input> ChangeInstruction<'input> {
             }
         }
     }
+}
+
+#[cfg(test)]
+mod tests {
+
+
 }
