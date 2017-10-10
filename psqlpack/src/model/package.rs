@@ -42,6 +42,8 @@ macro_rules! zip_collection {
     }};
 }
 
+static Q_DATABASE_EXISTS: &'static str = "SELECT 1 FROM pg_database WHERE datname=$1;";
+
 static Q_EXTENSIONS: &'static str = "SELECT extname, extversion
                                      FROM pg_extension
                                      WHERE extowner <> 10";
@@ -199,7 +201,21 @@ impl Package {
         })
     }
 
-    pub fn from_connection(connection: &Connection) -> PsqlpackResult<Package> {
+    pub fn from_connection(log: &Logger, connection: &Connection) -> PsqlpackResult<Option<Package>> {
+        let log = log.new(o!("package" => "from_connection"));
+
+        trace!(log, "Connecting to host");
+        let db_conn = connection.connect_host()?;
+        trace!(
+            log,
+            "Checking for database `{}`",
+            &connection.database()[..]
+        );
+        let db_result = dbtry!(db_conn.query(Q_DATABASE_EXISTS, &[&connection.database()]));
+        if db_result.is_empty() {
+            return Ok(None);
+        }
+
         // We do five SQL queries to get the package details
         let db_conn = connection.connect_database()?;
 
@@ -281,14 +297,14 @@ impl Package {
             .query(Q_TABLES, &[])
             .chain_err(|| PackageQueryTablesError)?;
 
-        Ok(Package {
+        Ok(Some(Package {
             extensions: map!(extensions),
             functions: functions,   // functions,
             schemas: map!(schemas), // schemas,
             scripts: Vec::new(),    // Scripts can't be known from a connection
             tables: map!(tables),   // tables,
             types: map!(types),     // types,
-        })
+        }))
     }
 
     pub fn write_to(&self, destination: &Path) -> PsqlpackResult<()> {

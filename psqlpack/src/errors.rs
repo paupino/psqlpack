@@ -35,6 +35,10 @@ error_chain! {
             description("Couldn't parse publish profile file")
             display("Couldn't parse publish profile file: {}", path.as_path().display())
         }
+        PackageCreationError(message: String) {
+            description("Failed to create package")
+            display("Failed to create package: {}", message)
+        }
         PackageReadError(path: PathBuf) {
             description("Couldn't read package file")
             display("Couldn't read package file: {}", path.as_path().display())
