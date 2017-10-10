@@ -44,85 +44,86 @@ impl<'a> fmt::Display for DbObject<'a> {
 }
 
 trait Comparable<'a> {
-    fn generate_changeset(&self, target: &Package, log: &Logger) -> PsqlpackResult<Option<Vec<ChangeInstruction<'a>>>>;
+    fn generate(&self, changeset: &mut Vec<ChangeInstruction<'a>>, target: &Package, log: &Logger) -> PsqlpackResult<()>;
 }
 
 impl<'a> Comparable<'a> for DbObject<'a> {
-    fn generate_changeset(&self, target: &Package, log: &Logger) -> PsqlpackResult<Option<Vec<ChangeInstruction<'a>>>> {
+    fn generate(&self, changeset: &mut Vec<ChangeInstruction<'a>>, target: &Package, log: &Logger) -> PsqlpackResult<()> {
         match *self {
-            DbObject::Extension(extension) => extension.generate_changeset(target, log),
-            DbObject::Function(function) => function.generate_changeset(target, log),
-            DbObject::Schema(schema) => schema.generate_changeset(target, log),
-            DbObject::Script(script) => script.generate_changeset(target, log),
-            DbObject::Table(table) => table.generate_changeset(target, log),
-            DbObject::Type(ty) => ty.generate_changeset(target, log),
+            DbObject::Extension(extension) => extension.generate(changeset, target, log),
+            DbObject::Function(function) => function.generate(changeset, target, log),
+            DbObject::Schema(schema) => schema.generate(changeset, target, log),
+            DbObject::Script(script) => script.generate(changeset, target, log),
+            DbObject::Table(table) => table.generate(changeset, target, log),
+            DbObject::Type(ty) => ty.generate(changeset, target, log),
             ref unhandled => {
                 warn!(log, "TODO - unhandled DBObject: {}", unhandled);
-                Ok(None)
+                Ok(())
             }
         }
     }
 }
 
 impl<'a> Comparable<'a> for &'a ExtensionDefinition {
-    fn generate_changeset(&self, _: &Package, _: &Logger) -> PsqlpackResult<Option<Vec<ChangeInstruction<'a>>>> {
-        Ok(Some(vec![ChangeInstruction::AssertExtension(self)]))
+    fn generate(&self, changeset: &mut Vec<ChangeInstruction<'a>>, _: &Package, _: &Logger) -> PsqlpackResult<()> {
+        changeset.push(ChangeInstruction::AssertExtension(self));
+        Ok(())
     }
 }
 
 impl<'a> Comparable<'a> for &'a FunctionDefinition {
-    fn generate_changeset(&self, _: &Package, _: &Logger) -> PsqlpackResult<Option<Vec<ChangeInstruction<'a>>>> {
+    fn generate(&self, changeset: &mut Vec<ChangeInstruction<'a>>, _: &Package, _: &Logger) -> PsqlpackResult<()> {
         // Since we don't really need to worry about this in PG we just
         // add it as is and rely on CREATE OR REPLACE. In the future, it'd
         // be good to check the hash or something to only do this when required
-        Ok(Some(vec![ChangeInstruction::ModifyFunction(self)]))
+        changeset.push(ChangeInstruction::ModifyFunction(self));
+        Ok(())
     }
 }
 
 impl<'a> Comparable<'a> for &'a SchemaDefinition {
-    fn generate_changeset(&self, target: &Package, _: &Logger) -> PsqlpackResult<Option<Vec<ChangeInstruction<'a>>>> {
+    fn generate(&self, changeset: &mut Vec<ChangeInstruction<'a>>, target: &Package, _: &Logger) -> PsqlpackResult<()> {
         // Only add schema's, we do not drop them at this point
         let schema_exists = target.schemas.iter().any(|s| s.name == self.name);
         if !schema_exists {
-            Ok(Some(vec![ChangeInstruction::AddSchema(self)]))
-        } else {
-            Ok(None)
+            changeset.push(ChangeInstruction::AddSchema(self));
         }
+        Ok(())
     }
 }
 
 impl<'a> Comparable<'a> for &'a ScriptDefinition {
-    fn generate_changeset(&self, _: &Package, _: &Logger) -> PsqlpackResult<Option<Vec<ChangeInstruction<'a>>>> {
-        Ok(Some(vec![ChangeInstruction::RunScript(self)]))
+    fn generate(&self, changeset: &mut Vec<ChangeInstruction<'a>>, _: &Package, _: &Logger) -> PsqlpackResult<()> {
+        changeset.push(ChangeInstruction::RunScript(self));
+        Ok(())
     }
 }
 
 impl<'a> Comparable<'a> for &'a TableDefinition {
-    fn generate_changeset(&self, target: &Package, _: &Logger) -> PsqlpackResult<Option<Vec<ChangeInstruction<'a>>>> {
+    fn generate(&self, changeset: &mut Vec<ChangeInstruction<'a>>, target: &Package, _: &Logger) -> PsqlpackResult<()> {
         let table_exists = target.tables.iter().any(|t| t.name == self.name);
         if table_exists {
             // Check the columns
 
             // Check the constraints
 
-            // TODO
-            Ok(None)
         } else {
-            Ok(Some(vec![ChangeInstruction::AddTable(self)]))
+            changeset.push(ChangeInstruction::AddTable(self));
         }
+        Ok(())
     }
 }
 
 impl<'a> Comparable<'a> for &'a TypeDefinition {
-    fn generate_changeset(&self, target: &Package, _: &Logger) -> PsqlpackResult<Option<Vec<ChangeInstruction<'a>>>> {
+    fn generate(&self, changeset: &mut Vec<ChangeInstruction<'a>>, target: &Package, _: &Logger) -> PsqlpackResult<()> {
         let type_exists = target.types.iter().any(|t| t.name == self.name);
         if type_exists {
             // TODO: Need to figure out if it's changed and also perhaps how it's changed.
             //       I don't think a blanket modify is enough.
-            Ok(None)
         } else {
-            Ok(Some(vec![ChangeInstruction::AddType(self)]))
+            changeset.push(ChangeInstruction::AddType(self));
         }
+        Ok(())
     }
 }
 
@@ -214,9 +215,7 @@ impl<'package> Delta<'package> {
 
                 // Go through each item in order and figure out what to do with it
                 for item in &build_order {
-                    if let Some(set) = item.generate_changeset(&target_package, &log)? {
-                        changeset.extend(set);
-                    }
+                    item.generate(&mut changeset, &target_package, &log)?;
                 }
             }
             None => {
