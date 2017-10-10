@@ -43,11 +43,11 @@ impl<'a> fmt::Display for DbObject<'a> {
     }
 }
 
-trait Comparable<'a> {
+trait Diffable<'a> {
     fn generate(&self, changeset: &mut Vec<ChangeInstruction<'a>>, target: &Package, log: &Logger) -> PsqlpackResult<()>;
 }
 
-impl<'a> Comparable<'a> for DbObject<'a> {
+impl<'a> Diffable<'a> for DbObject<'a> {
     fn generate(&self, changeset: &mut Vec<ChangeInstruction<'a>>, target: &Package, log: &Logger) -> PsqlpackResult<()> {
         match *self {
             DbObject::Extension(extension) => extension.generate(changeset, target, log),
@@ -64,14 +64,14 @@ impl<'a> Comparable<'a> for DbObject<'a> {
     }
 }
 
-impl<'a> Comparable<'a> for &'a ExtensionDefinition {
+impl<'a> Diffable<'a> for &'a ExtensionDefinition {
     fn generate(&self, changeset: &mut Vec<ChangeInstruction<'a>>, _: &Package, _: &Logger) -> PsqlpackResult<()> {
         changeset.push(ChangeInstruction::AssertExtension(self));
         Ok(())
     }
 }
 
-impl<'a> Comparable<'a> for &'a FunctionDefinition {
+impl<'a> Diffable<'a> for &'a FunctionDefinition {
     fn generate(&self, changeset: &mut Vec<ChangeInstruction<'a>>, _: &Package, _: &Logger) -> PsqlpackResult<()> {
         // Since we don't really need to worry about this in PG we just
         // add it as is and rely on CREATE OR REPLACE. In the future, it'd
@@ -81,7 +81,7 @@ impl<'a> Comparable<'a> for &'a FunctionDefinition {
     }
 }
 
-impl<'a> Comparable<'a> for &'a SchemaDefinition {
+impl<'a> Diffable<'a> for &'a SchemaDefinition {
     fn generate(&self, changeset: &mut Vec<ChangeInstruction<'a>>, target: &Package, _: &Logger) -> PsqlpackResult<()> {
         // Only add schema's, we do not drop them at this point
         let schema_exists = target.schemas.iter().any(|s| s.name == self.name);
@@ -92,14 +92,14 @@ impl<'a> Comparable<'a> for &'a SchemaDefinition {
     }
 }
 
-impl<'a> Comparable<'a> for &'a ScriptDefinition {
+impl<'a> Diffable<'a> for &'a ScriptDefinition {
     fn generate(&self, changeset: &mut Vec<ChangeInstruction<'a>>, _: &Package, _: &Logger) -> PsqlpackResult<()> {
         changeset.push(ChangeInstruction::RunScript(self));
         Ok(())
     }
 }
 
-impl<'a> Comparable<'a> for &'a TableDefinition {
+impl<'a> Diffable<'a> for &'a TableDefinition {
     fn generate(&self, changeset: &mut Vec<ChangeInstruction<'a>>, target: &Package, _: &Logger) -> PsqlpackResult<()> {
         let table_exists = target.tables.iter().any(|t| t.name == self.name);
         if table_exists {
@@ -114,7 +114,7 @@ impl<'a> Comparable<'a> for &'a TableDefinition {
     }
 }
 
-impl<'a> Comparable<'a> for &'a TypeDefinition {
+impl<'a> Diffable<'a> for &'a TypeDefinition {
     fn generate(&self, changeset: &mut Vec<ChangeInstruction<'a>>, target: &Package, _: &Logger) -> PsqlpackResult<()> {
         let type_exists = target.types.iter().any(|t| t.name == self.name);
         if type_exists {
