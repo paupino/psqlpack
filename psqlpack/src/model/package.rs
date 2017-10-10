@@ -461,16 +461,18 @@ impl Package {
         errors.extend(self.tables.iter().flat_map(|t| {
             t.columns
                 .iter()
-                .filter(|c| match c.sql_type {
-                    SqlType::Custom(ref name, _) => !custom_types.contains(&&name[..]),
-                    _ => false,
-                })
-                .map(|c| match c.sql_type {
-                    SqlType::Custom(ref name, _) => ValidationKind::UnknownType {
-                        ty: name.to_owned(),
-                        table: t.name.to_string(),
-                    },
-                    _ => panic!("Not possible"),
+                .filter_map(|c| match c.sql_type {
+                    SqlType::Custom(ref name, _) => {
+                        if !custom_types.contains(&&name[..]) {
+                            Some(ValidationKind::UnknownType {
+                                ty: name.to_owned(),
+                                table: t.name.to_string(),
+                            })    
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
                 })
                 .collect::<Vec<_>>()
         }));
@@ -480,19 +482,15 @@ impl Package {
             .iter()
             .filter(|t| t.constraints.is_some())
             .flat_map(|t| t.constraints.clone().unwrap())
-            .filter(|c| match *c {
-                TableConstraint::Foreign { .. } => true,
-                _ => false,
-            })
-            .map(|c| match c {
-                TableConstraint::Foreign {
+            .filter_map(|c| match c {
+                TableConstraint::Foreign { 
                     name,
                     columns,
                     ref_table,
                     ref_columns,
                     ..
-                } => (name, columns, ref_table, ref_columns),
-                _ => panic!("Not possible"),
+                } => Some((name, columns, ref_table, ref_columns)),
+                _ => None,
             })
             .collect::<Vec<_>>();
 
