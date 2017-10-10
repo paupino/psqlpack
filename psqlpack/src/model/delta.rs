@@ -56,12 +56,12 @@ impl<'a> Comparable<'a> for DbObject<'a> {
             DbObject::Script(script) => script.generate_changeset(target, log),
             DbObject::Table(table) => table.generate_changeset(target, log),
             DbObject::Type(ty) => ty.generate_changeset(target, log),
-            ref unhandled => { 
+            ref unhandled => {
                 warn!(log, "TODO - unhandled DBObject: {}", unhandled);
                 Ok(None)
             }
         }
-    }   
+    }
 }
 
 impl<'a> Comparable<'a> for &'a ExtensionDefinition {
@@ -82,10 +82,7 @@ impl<'a> Comparable<'a> for &'a FunctionDefinition {
 impl<'a> Comparable<'a> for &'a SchemaDefinition {
     fn generate_changeset(&self, target: &Package, _: &Logger) -> PsqlpackResult<Option<Vec<ChangeInstruction<'a>>>> {
         // Only add schema's, we do not drop them at this point
-        let schema_exists = target
-            .schemas
-            .iter()
-            .any(|s| s.name == self.name);
+        let schema_exists = target.schemas.iter().any(|s| s.name == self.name);
         if !schema_exists {
             Ok(Some(vec![ChangeInstruction::AddSchema(self)]))
         } else {
@@ -102,17 +99,14 @@ impl<'a> Comparable<'a> for &'a ScriptDefinition {
 
 impl<'a> Comparable<'a> for &'a TableDefinition {
     fn generate_changeset(&self, target: &Package, _: &Logger) -> PsqlpackResult<Option<Vec<ChangeInstruction<'a>>>> {
-        let table_exists = target
-            .tables
-            .iter()
-            .any(|t| t.name == self.name);
+        let table_exists = target.tables.iter().any(|t| t.name == self.name);
         if table_exists {
             // Check the columns
 
             // Check the constraints
 
             // TODO
-            Ok(None) 
+            Ok(None)
         } else {
             Ok(Some(vec![ChangeInstruction::AddTable(self)]))
         }
@@ -204,10 +198,12 @@ impl<'package> Delta<'package> {
         // If we always recreate then add a drop and set to false
         let mut target = target;
         if target.is_some() && publish_profile.always_recreate_database {
-            changeset.push(ChangeInstruction::DropDatabase(target_database_name.to_owned()));
+            changeset.push(ChangeInstruction::DropDatabase(
+                target_database_name.to_owned(),
+            ));
             target = None;
         }
-        
+
         // If we have the DB we generate an actual change set, else we generate new instructions
         match target {
             Some(target_package) => {
@@ -220,7 +216,7 @@ impl<'package> Delta<'package> {
                 for item in &build_order {
                     match item.generate_changeset(&target_package, &log)? {
                         Some(set) => changeset.extend(set),
-                        None => {},
+                        None => {}
                     }
                 }
             }
@@ -616,7 +612,4 @@ impl<'input> ChangeInstruction<'input> {
 }
 
 #[cfg(test)]
-mod tests {
-
-
-}
+mod tests {}

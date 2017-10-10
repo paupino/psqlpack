@@ -447,7 +447,6 @@ impl Package {
     }
 
     pub fn validate(&self) -> PsqlpackResult<()> {
-
         // 1. Validate schema existance
         let schemata = self.schemas
             .iter()
@@ -474,27 +473,23 @@ impl Package {
             .collect::<Vec<_>>();
 
         // 2. Validate custom type are known
-        let custom_types = self.types
-            .iter()
-            .map(|ty| &ty.name[..])
-            .collect::<Vec<_>>();
-        errors.extend(self.tables
-            .iter()
-            .flat_map(|t| t.columns
-                    .iter()
-                    .filter(|c| match c.sql_type {
-                        SqlType::Custom(ref name, _) => !custom_types.contains(&&name[..]),
-                        _ => false,
-                    })
-                    .map(|c| match c.sql_type {
-                        SqlType::Custom(ref name, _) => ValidationKind::UnknownType {
-                            ty: name.to_owned(),
-                            table: t.name.to_string(),
-                        },
-                        _ => panic!("Not possible"),
-                    })
-                    .collect::<Vec<_>>()
-                ));
+        let custom_types = self.types.iter().map(|ty| &ty.name[..]).collect::<Vec<_>>();
+        errors.extend(self.tables.iter().flat_map(|t| {
+            t.columns
+                .iter()
+                .filter(|c| match c.sql_type {
+                    SqlType::Custom(ref name, _) => !custom_types.contains(&&name[..]),
+                    _ => false,
+                })
+                .map(|c| match c.sql_type {
+                    SqlType::Custom(ref name, _) => ValidationKind::UnknownType {
+                        ty: name.to_owned(),
+                        table: t.name.to_string(),
+                    },
+                    _ => panic!("Not possible"),
+                })
+                .collect::<Vec<_>>()
+        }));
 
         // 3. Validate constraints map to known tables
 
@@ -520,10 +515,7 @@ impl fmt::Display for ValidationKind {
                 ref schema,
                 ref object,
             } => write!(f, "Schema `{}` missing for object `{}`", schema, object),
-            ValidationKind::UnknownType {
-                ref ty,
-                ref table,
-            } => write!(f, "Unknown type `{}` used on table `{}`", ty, table),
+            ValidationKind::UnknownType { ref ty, ref table } => write!(f, "Unknown type `{}` used on table `{}`", ty, table),
         }
     }
 }
@@ -887,8 +879,10 @@ mod tests {
 
     #[test]
     fn it_validates_unknown_types() {
-        let mut package = package_sql("CREATE SCHEMA my;
-                                       CREATE TABLE my.items(id mytype);");
+        let mut package = package_sql(
+            "CREATE SCHEMA my;
+                                       CREATE TABLE my.items(id mytype);",
+        );
         let result = package.validate();
 
         // `mytype` is missing
@@ -899,10 +893,7 @@ mod tests {
         };
         assert_that!(validation_errors).has_length(1);
         match validation_errors[0] {
-            ValidationKind::UnknownType {
-                ref ty,
-                ref table,
-            } => {
+            ValidationKind::UnknownType { ref ty, ref table } => {
                 assert_that!(*ty).is_equal_to("mytype".to_owned());
                 assert_that!(*table).is_equal_to("my.items".to_owned());
             }

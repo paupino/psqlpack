@@ -25,7 +25,7 @@ pub fn extract<L: Into<Logger>>(log: L, source_connection_string: &str, target_p
             trace!(log, "Writing Package"; "output" => target_package_path.to_str().unwrap());
             data.write_to(target_package_path)
         }
-        None => bail!(PackageCreationError("database does not exist".into()))
+        None => bail!(PackageCreationError("database does not exist".into())),
     }
 }
 
@@ -43,7 +43,13 @@ pub fn publish<L: Into<Logger>>(
     // Now we generate our instructions
     let target_package = Package::from_connection(&log, &connection)?;
     let target_database_name = connection.database().to_owned();
-    let delta = Delta::generate(&log, &package, target_package, target_database_name, publish_profile)?;
+    let delta = Delta::generate(
+        &log,
+        &package,
+        target_package,
+        target_database_name,
+        publish_profile,
+    )?;
     delta.apply(&log, &connection)
 }
 
@@ -62,7 +68,13 @@ pub fn generate_sql<L: Into<Logger>>(
     // Now we generate our instructions
     let target_package = Package::from_connection(&log, &connection)?;
     let target_database_name = connection.database().to_owned();
-    let delta = Delta::generate(&log, &package, target_package, target_database_name, publish_profile)?;
+    let delta = Delta::generate(
+        &log,
+        &package,
+        target_package,
+        target_database_name,
+        publish_profile,
+    )?;
     delta.write_sql(&log, output_file)
 }
 
@@ -81,6 +93,12 @@ pub fn generate_report<L: Into<Logger>>(
     // Now we generate our instructions
     let target_package = Package::from_connection(&log, &connection)?;
     let target_database_name = connection.database().to_owned();
-    let delta = Delta::generate(&log, &package, target_package, target_database_name, publish_profile)?;
+    let delta = Delta::generate(
+        &log,
+        &package,
+        target_package,
+        target_database_name,
+        publish_profile,
+    )?;
     delta.write_report(output_file)
 }
