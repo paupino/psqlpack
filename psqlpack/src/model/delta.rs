@@ -214,9 +214,8 @@ impl<'package> Delta<'package> {
 
                 // Go through each item in order and figure out what to do with it
                 for item in &build_order {
-                    match item.generate_changeset(&target_package, &log)? {
-                        Some(set) => changeset.extend(set),
-                        None => {}
+                    if let Some(set) = item.generate_changeset(&target_package, &log)? {
+                        changeset.extend(set);
                     }
                 }
             }
