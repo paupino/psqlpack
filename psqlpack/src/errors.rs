@@ -187,7 +187,7 @@ struct ValidationErrorFormatter<'fmt>(&'fmt Vec<ValidationKind>);
 
 impl<'fmt> Display for ValidationErrorFormatter<'fmt> {
     fn fmt(&self, f: &mut Formatter) -> Result {
-        for (_, error) in self.0.iter().enumerate() {
+        for error in self.0.iter() {
             write!(f, "{}", error)?;
         }
         Ok(())
