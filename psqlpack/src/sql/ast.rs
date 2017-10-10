@@ -66,12 +66,12 @@ pub enum AnyValue {
     String(String),
 }
 
-#[derive(Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
 pub enum IndexParameter {
     FillFactor(u32),
 }
 
-#[derive(Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
 pub enum TableConstraint {
     Primary {
         name: String,
@@ -96,20 +96,20 @@ impl TableConstraint {
     }
 }
 
-#[derive(Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
 pub enum ForeignConstraintMatchType {
     Simple,
     Partial,
     Full,
 }
 
-#[derive(Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
 pub enum ForeignConstraintEvent {
     Delete(ForeignConstraintAction),
     Update(ForeignConstraintAction),
 }
 
-#[derive(Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
 pub enum ForeignConstraintAction {
     NoAction,
     Restrict,
