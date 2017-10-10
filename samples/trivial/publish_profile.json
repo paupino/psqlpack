@@ -1,4 +1,7 @@
 {
     "version": "1.0",
-    "alwaysRecreateDatabase": false
+    "generationOptions": {
+        "alwaysRecreateDatabase": false,
+        "allowUnsafeOperations": false
+    }
 }

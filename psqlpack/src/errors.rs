@@ -74,6 +74,14 @@ error_chain! {
             description("Couldn't inspect function return type")
             display("Couldn't inspect function return type: {}", return_type)
         }
+        PublishInvalidOperationError(message: String) {
+            description("Couldn't publish database due to an invalid operation")
+            display("Couldn't publish database due to an invalid operation: {}", message)
+        }
+        PublishUnsafeOperationError(message: String) {
+            description("Couldn't publish database due to an unsafe operation")
+            display("Couldn't publish database due to an unsafe operation: {}", message)
+        }
         IOError(file: String, message: String) {
             description("IO error when reading a file")
             display("IO error when reading {}: {}", file, message)
