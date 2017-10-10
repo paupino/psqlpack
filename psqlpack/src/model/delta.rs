@@ -44,11 +44,23 @@ impl<'a> fmt::Display for DbObject<'a> {
 }
 
 trait Diffable<'a, T> {
-    fn generate(&self, changeset: &mut Vec<ChangeInstruction<'a>>, target: &T, publish_profile: &PublishProfile, log: &Logger) -> PsqlpackResult<()>;
+    fn generate(
+        &self,
+        changeset: &mut Vec<ChangeInstruction<'a>>,
+        target: &T,
+        publish_profile: &PublishProfile,
+        log: &Logger,
+    ) -> PsqlpackResult<()>;
 }
 
 impl<'a> Diffable<'a, Package> for DbObject<'a> {
-    fn generate(&self, changeset: &mut Vec<ChangeInstruction<'a>>, target: &Package, publish_profile: &PublishProfile, log: &Logger) -> PsqlpackResult<()> {
+    fn generate(
+        &self,
+        changeset: &mut Vec<ChangeInstruction<'a>>,
+        target: &Package,
+        publish_profile: &PublishProfile,
+        log: &Logger,
+    ) -> PsqlpackResult<()> {
         match *self {
             DbObject::Extension(extension) => extension.generate(changeset, target, publish_profile, log),
             DbObject::Function(function) => function.generate(changeset, target, publish_profile, log),
@@ -65,14 +77,26 @@ impl<'a> Diffable<'a, Package> for DbObject<'a> {
 }
 
 impl<'a> Diffable<'a, Package> for &'a ExtensionDefinition {
-    fn generate(&self, changeset: &mut Vec<ChangeInstruction<'a>>, _: &Package, _: &PublishProfile, _: &Logger) -> PsqlpackResult<()> {
+    fn generate(
+        &self,
+        changeset: &mut Vec<ChangeInstruction<'a>>,
+        _: &Package,
+        _: &PublishProfile,
+        _: &Logger,
+    ) -> PsqlpackResult<()> {
         changeset.push(ChangeInstruction::AssertExtension(self));
         Ok(())
     }
 }
 
 impl<'a> Diffable<'a, Package> for &'a FunctionDefinition {
-    fn generate(&self, changeset: &mut Vec<ChangeInstruction<'a>>, _: &Package, _: &PublishProfile, _: &Logger) -> PsqlpackResult<()> {
+    fn generate(
+        &self,
+        changeset: &mut Vec<ChangeInstruction<'a>>,
+        _: &Package,
+        _: &PublishProfile,
+        _: &Logger,
+    ) -> PsqlpackResult<()> {
         // Since we don't really need to worry about this in PG we just
         // add it as is and rely on CREATE OR REPLACE. In the future, it'd
         // be good to check the hash or something to only do this when required
@@ -82,7 +106,13 @@ impl<'a> Diffable<'a, Package> for &'a FunctionDefinition {
 }
 
 impl<'a> Diffable<'a, Package> for &'a SchemaDefinition {
-    fn generate(&self, changeset: &mut Vec<ChangeInstruction<'a>>, target: &Package, _: &PublishProfile, _: &Logger) -> PsqlpackResult<()> {
+    fn generate(
+        &self,
+        changeset: &mut Vec<ChangeInstruction<'a>>,
+        target: &Package,
+        _: &PublishProfile,
+        _: &Logger,
+    ) -> PsqlpackResult<()> {
         // Only add schema's, we do not drop them at this point
         let schema_exists = target.schemas.iter().any(|s| s.name == self.name);
         if !schema_exists {
@@ -93,14 +123,26 @@ impl<'a> Diffable<'a, Package> for &'a SchemaDefinition {
 }
 
 impl<'a> Diffable<'a, Package> for &'a ScriptDefinition {
-    fn generate(&self, changeset: &mut Vec<ChangeInstruction<'a>>, _: &Package, _: &PublishProfile, _: &Logger) -> PsqlpackResult<()> {
+    fn generate(
+        &self,
+        changeset: &mut Vec<ChangeInstruction<'a>>,
+        _: &Package,
+        _: &PublishProfile,
+        _: &Logger,
+    ) -> PsqlpackResult<()> {
         changeset.push(ChangeInstruction::RunScript(self));
         Ok(())
     }
 }
 
 impl<'a> Diffable<'a, Package> for &'a TableDefinition {
-    fn generate(&self, changeset: &mut Vec<ChangeInstruction<'a>>, target: &Package, _: &PublishProfile, _: &Logger) -> PsqlpackResult<()> {
+    fn generate(
+        &self,
+        changeset: &mut Vec<ChangeInstruction<'a>>,
+        target: &Package,
+        _: &PublishProfile,
+        _: &Logger,
+    ) -> PsqlpackResult<()> {
         let table_exists = target.tables.iter().any(|t| t.name == self.name);
         if table_exists {
             // Check the columns
@@ -115,7 +157,13 @@ impl<'a> Diffable<'a, Package> for &'a TableDefinition {
 }
 
 impl<'a> Diffable<'a, Package> for &'a TypeDefinition {
-    fn generate(&self, changeset: &mut Vec<ChangeInstruction<'a>>, target: &Package, publish_profile: &PublishProfile, log: &Logger) -> PsqlpackResult<()> {
+    fn generate(
+        &self,
+        changeset: &mut Vec<ChangeInstruction<'a>>,
+        target: &Package,
+        publish_profile: &PublishProfile,
+        log: &Logger,
+    ) -> PsqlpackResult<()> {
         let ty = target.types.iter().find(|t| t.name == self.name);
         if let Some(ty) = ty {
             self.generate(changeset, ty, publish_profile, log)
@@ -127,9 +175,19 @@ impl<'a> Diffable<'a, Package> for &'a TypeDefinition {
 }
 
 impl<'a> Diffable<'a, TypeDefinition> for &'a TypeDefinition {
-    fn generate(&self, changeset: &mut Vec<ChangeInstruction<'a>>, target: &TypeDefinition, publish_profile: &PublishProfile, _: &Logger) -> PsqlpackResult<()> {
+    fn generate(
+        &self,
+        changeset: &mut Vec<ChangeInstruction<'a>>,
+        target: &TypeDefinition,
+        publish_profile: &PublishProfile,
+        _: &Logger,
+    ) -> PsqlpackResult<()> {
         if self.name.ne(&target.name) {
-            bail!(PublishInvalidOperationError(format!("Types not diffable: {} != {}", self.name, target.name)))
+            bail!(PublishInvalidOperationError(format!(
+                "Types not diffable: {} != {}",
+                self.name,
+                target.name
+            )))
         }
         // We can only diff types of the same kind. Only one type right now, but future proofing.
         match self.kind {
@@ -137,41 +195,66 @@ impl<'a> Diffable<'a, TypeDefinition> for &'a TypeDefinition {
                 match target.kind {
                     TypeDefinitionKind::Enum(ref target_values) => {
                         // Detect if anything needs to be deleted in the target
-                        let mut to_delete = target_values.iter()
-                                            .filter(|v| !source_values.contains(v))
-                                            .map(|v| TypeModificationAction::RemoveEnumValue { value: v.to_owned() })
-                                            .collect::<Vec<_>>();
+                        let mut to_delete = target_values
+                            .iter()
+                            .filter(|v| !source_values.contains(v))
+                            .map(|v| {
+                                TypeModificationAction::RemoveEnumValue {
+                                    value: v.to_owned(),
+                                }
+                            })
+                            .collect::<Vec<_>>();
                         if !to_delete.is_empty() {
                             if publish_profile.generation_options.allow_unsafe_operations {
-                                changeset.extend(to_delete.drain(..).map(|d| ChangeInstruction::ModifyType(self, d)));
+                                changeset.extend(
+                                    to_delete
+                                        .drain(..)
+                                        .map(|d| ChangeInstruction::ModifyType(self, d)),
+                                );
                             } else {
-                                bail!(PublishUnsafeOperationError(format!("Unable to remove enum value(s) as unsafe operations are disabled: {:?}", to_delete)))
+                                bail!(PublishUnsafeOperationError(format!(
+                                    "Unable to remove enum value(s) as unsafe operations are disabled: {:?}",
+                                    to_delete
+                                )))
                             }
                         }
 
                         // Our working group after items being deleted
-                        let mut working = target_values.iter()
-                                            .filter(|v| source_values.contains(v))
-                                            .collect::<Vec<_>>();
-                        
+                        let mut working = target_values
+                            .iter()
+                            .filter(|v| source_values.contains(v))
+                            .collect::<Vec<_>>();
+
                         // Detect what needs adding
                         let mut index = 0;
                         for value in source_values {
                             if !working.contains(&value) {
                                 if index == 0 {
-                                    changeset.push(ChangeInstruction::ModifyType(self, TypeModificationAction::AddEnumValueBefore { value: value.to_owned(), before: working[0].to_owned() }));
+                                    changeset.push(ChangeInstruction::ModifyType(
+                                        self,
+                                        TypeModificationAction::AddEnumValueBefore {
+                                            value: value.to_owned(),
+                                            before: working[0].to_owned(),
+                                        },
+                                    ));
                                     working.insert(0, value);
                                 } else {
-                                    changeset.push(ChangeInstruction::ModifyType(self, TypeModificationAction::AddEnumValueAfter { value: value.to_owned(), after: working[index - 1].to_owned() }));
+                                    changeset.push(ChangeInstruction::ModifyType(
+                                        self,
+                                        TypeModificationAction::AddEnumValueAfter {
+                                            value: value.to_owned(),
+                                            after: working[index - 1].to_owned(),
+                                        },
+                                    ));
                                     working.insert(index, value);
                                 }
                             }
-                            index = index + 1;
+                            index += 1;
                         }
                     }
                 }
             }
-        }   
+        }
         Ok(())
     }
 }
@@ -455,11 +538,16 @@ impl<'input> fmt::Display for ChangeInstruction<'input> {
 
             // Types
             AddType(ty) => write!(f, "Add type: {}", ty.name),
-            ModifyType(ty, ref action) => write!(f, "Modify type: {} {}", ty.name, match *action {
-                TypeModificationAction::AddEnumValueBefore { .. } => "(add enum value before)",
-                TypeModificationAction::AddEnumValueAfter { .. } => "(add enum value after)",
-                TypeModificationAction::RemoveEnumValue { .. } => "(remove enum value)",
-            }),
+            ModifyType(ty, ref action) => write!(
+                f,
+                "Modify type: {} {}",
+                ty.name,
+                match *action {
+                    TypeModificationAction::AddEnumValueBefore { .. } => "(add enum value before)",
+                    TypeModificationAction::AddEnumValueAfter { .. } => "(add enum value after)",
+                    TypeModificationAction::RemoveEnumValue { .. } => "(remove enum value)",
+                }
+            ),
             RemoveType(ref type_name) => write!(f, "Remove type: {}", type_name),
 
             // Tables
@@ -507,10 +595,10 @@ impl<'input> ChangeInstruction<'input> {
             },
 
             // Type level
-            ChangeInstruction::AddType(t) => {
+            ChangeInstruction::AddType(ty) => {
                 let mut def = String::new();
-                def.push_str(&format!("CREATE TYPE {} AS ", t.name)[..]);
-                match t.kind {
+                def.push_str(&format!("CREATE TYPE {} AS ", ty.name)[..]);
+                match ty.kind {
                     TypeDefinitionKind::Enum(ref values) => {
                         def.push_str("ENUM (\n");
                         let mut enum_comma_required = false;
@@ -527,9 +615,33 @@ impl<'input> ChangeInstruction<'input> {
                 }
                 def
             }
-            ChangeInstruction::ModifyType(t, ref action) => {
-                "TODO".to_owned()
-            }
+            ChangeInstruction::ModifyType(ty, ref action) => match *action {
+                TypeModificationAction::AddEnumValueBefore {
+                    ref value,
+                    ref before,
+                } => format!(
+                    "ALTER TYPE {} ADD VALUE '{}' BEFORE '{}'",
+                    ty.name,
+                    value,
+                    before
+                ),
+                TypeModificationAction::AddEnumValueAfter {
+                    ref value,
+                    ref after,
+                } => format!(
+                    "ALTER TYPE {} ADD VALUE '{}' AFTER '{}'",
+                    ty.name,
+                    value,
+                    after
+                ),
+                TypeModificationAction::RemoveEnumValue { ref value } => format!(
+                    "DELETE FROM pg_enum \
+                     WHERE enumlabel = '{}' AND \
+                     enumtypid = (SELECT oid FROM pg_type WHERE typname = '{}')",
+                    value,
+                    ty.name
+                ),
+            },
 
             // Function level
             ChangeInstruction::AddFunction(function) | ChangeInstruction::ModifyFunction(function) => {
@@ -695,17 +807,13 @@ mod tests {
     fn base_type() -> ast::TypeDefinition {
         ast::TypeDefinition {
             name: "colors".into(),
-            kind: ast::TypeDefinitionKind::Enum(vec![
-                "red".into(),
-                "green".into(),
-                "blue".into()
-            ]),
+            kind: ast::TypeDefinitionKind::Enum(vec!["red".into(), "green".into(), "blue".into()]),
         }
     }
 
     #[test]
     fn it_can_add_enum_type() {
-        let logger = empty_logger();
+        let log = empty_logger();
         let source_type = base_type();
 
         // Create an empty package (i.e. so it needs to create the type)
@@ -713,7 +821,7 @@ mod tests {
         let publish_profile = PublishProfile::new();
 
         let mut changeset = Vec::new();
-        let result = (&source_type).generate(&mut changeset, &package, &publish_profile, &logger);
+        let result = (&source_type).generate(&mut changeset, &package, &publish_profile, &log);
         assert_that!(result).is_ok();
 
         // We should have a single instruction to add
@@ -731,11 +839,15 @@ mod tests {
             }
             ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
         }
+
+        // Check the SQL generation
+        assert_that!(changeset[0].to_sql(&log))
+            .is_equal_to("CREATE TYPE colors AS ENUM (\n  'red',\n  'green',\n  'blue'\n)".to_owned());
     }
 
     #[test]
     fn it_ignores_enum_type_if_not_modified() {
-        let logger = empty_logger();
+        let log = empty_logger();
         let source_type = base_type();
 
         // Create a package with the type already defined (same as base type)
@@ -744,7 +856,7 @@ mod tests {
         let publish_profile = PublishProfile::new();
 
         let mut changeset = Vec::new();
-        let result = (&source_type).generate(&mut changeset, &package, &publish_profile, &logger);
+        let result = (&source_type).generate(&mut changeset, &package, &publish_profile, &log);
         assert_that!(result).is_ok();
 
         // We should have a single instruction to add
@@ -753,7 +865,7 @@ mod tests {
 
     #[test]
     fn it_can_modify_enum_type_by_adding_a_value_to_the_end() {
-        let logger = empty_logger();
+        let log = empty_logger();
         let source_type = ast::TypeDefinition {
             name: "colors".to_owned(),
             kind: ast::TypeDefinitionKind::Enum(vec![
@@ -770,7 +882,7 @@ mod tests {
         let publish_profile = PublishProfile::new();
 
         let mut changeset = Vec::new();
-        let result = (&source_type).generate(&mut changeset, &package, &publish_profile, &logger);
+        let result = (&source_type).generate(&mut changeset, &package, &publish_profile, &log);
         assert_that!(result).is_ok();
 
         // We should have a single instruction to modify the enum with an additional value
@@ -781,7 +893,10 @@ mod tests {
 
                 // Also, match the action
                 match *action {
-                    TypeModificationAction::AddEnumValueAfter { ref value, ref after } => {
+                    TypeModificationAction::AddEnumValueAfter {
+                        ref value,
+                        ref after,
+                    } => {
                         assert_that!(*value).is_equal_to("black".to_owned());
                         assert_that!(*after).is_equal_to("blue".to_owned());
                     }
@@ -790,11 +905,14 @@ mod tests {
             }
             ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
         }
+
+        // Check the SQL generation
+        assert_that!(changeset[0].to_sql(&log)).is_equal_to("ALTER TYPE colors ADD VALUE 'black' AFTER 'blue'".to_owned());
     }
 
     #[test]
     fn it_can_modify_enum_type_by_adding_a_value_to_the_start() {
-        let logger = empty_logger();
+        let log = empty_logger();
         let source_type = ast::TypeDefinition {
             name: "colors".to_owned(),
             kind: ast::TypeDefinitionKind::Enum(vec![
@@ -811,7 +929,7 @@ mod tests {
         let publish_profile = PublishProfile::new();
 
         let mut changeset = Vec::new();
-        let result = (&source_type).generate(&mut changeset, &package, &publish_profile, &logger);
+        let result = (&source_type).generate(&mut changeset, &package, &publish_profile, &log);
         assert_that!(result).is_ok();
 
         // We should have a single instruction to modify the enum with an additional value
@@ -822,7 +940,10 @@ mod tests {
 
                 // Also, match the action
                 match *action {
-                    TypeModificationAction::AddEnumValueBefore { ref value, ref before } => {
+                    TypeModificationAction::AddEnumValueBefore {
+                        ref value,
+                        ref before,
+                    } => {
                         assert_that!(*value).is_equal_to("black".to_owned());
                         assert_that!(*before).is_equal_to("red".to_owned());
                     }
@@ -831,11 +952,14 @@ mod tests {
             }
             ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
         }
+
+        // Check the SQL generation
+        assert_that!(changeset[0].to_sql(&log)).is_equal_to("ALTER TYPE colors ADD VALUE 'black' BEFORE 'red'".to_owned());
     }
 
     #[test]
     fn it_can_modify_enum_type_by_adding_a_value_to_the_middle() {
-        let logger = empty_logger();
+        let log = empty_logger();
         let source_type = ast::TypeDefinition {
             name: "colors".to_owned(),
             kind: ast::TypeDefinitionKind::Enum(vec![
@@ -852,7 +976,7 @@ mod tests {
         let publish_profile = PublishProfile::new();
 
         let mut changeset = Vec::new();
-        let result = (&source_type).generate(&mut changeset, &package, &publish_profile, &logger);
+        let result = (&source_type).generate(&mut changeset, &package, &publish_profile, &log);
         assert_that!(result).is_ok();
 
         // We should have a single instruction to modify the enum with an additional value
@@ -863,7 +987,10 @@ mod tests {
 
                 // Also, match the action
                 match *action {
-                    TypeModificationAction::AddEnumValueAfter { ref value, ref after } => {
+                    TypeModificationAction::AddEnumValueAfter {
+                        ref value,
+                        ref after,
+                    } => {
                         assert_that!(*value).is_equal_to("black".to_owned());
                         assert_that!(*after).is_equal_to("green".to_owned());
                     }
@@ -872,11 +999,14 @@ mod tests {
             }
             ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
         }
+
+        // Check the SQL generation
+        assert_that!(changeset[0].to_sql(&log)).is_equal_to("ALTER TYPE colors ADD VALUE 'black' AFTER 'green'".to_owned());
     }
 
     #[test]
     fn it_can_modify_enum_type_by_modifying_values_and_unsafe_declared() {
-        let logger = empty_logger();
+        let log = empty_logger();
         let source_type = ast::TypeDefinition {
             name: "colors".to_owned(),
             kind: ast::TypeDefinitionKind::Enum(vec![
@@ -898,7 +1028,7 @@ mod tests {
         };
 
         let mut changeset = Vec::new();
-        let result = (&source_type).generate(&mut changeset, &package, &publish_profile, &logger);
+        let result = (&source_type).generate(&mut changeset, &package, &publish_profile, &log);
         assert_that!(result).is_ok();
 
         // We should have a single instruction to modify the enum with an additional value
@@ -919,6 +1049,13 @@ mod tests {
             }
             ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
         }
+        // Check the SQL generation
+        assert_that!(changeset[0].to_sql(&log)).is_equal_to(
+            "DELETE FROM pg_enum \
+             WHERE enumlabel = 'red' AND \
+             enumtypid = (SELECT oid FROM pg_type WHERE typname = 'colors')"
+                .to_owned(),
+        );
 
         // Additions second
         match changeset[1] {
@@ -927,7 +1064,10 @@ mod tests {
 
                 // Also, match the action
                 match *action {
-                    TypeModificationAction::AddEnumValueBefore { ref value, ref before } => {
+                    TypeModificationAction::AddEnumValueBefore {
+                        ref value,
+                        ref before,
+                    } => {
                         assert_that!(*value).is_equal_to("black".to_owned());
                         assert_that!(*before).is_equal_to("green".to_owned());
                     }
@@ -936,11 +1076,13 @@ mod tests {
             }
             ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
         }
+        // Check the SQL generation
+        assert_that!(changeset[1].to_sql(&log)).is_equal_to("ALTER TYPE colors ADD VALUE 'black' BEFORE 'green'".to_owned());
     }
 
     #[test]
     fn it_rejects_modifying_enum_type_when_modifying_values_by_default() {
-        let logger = empty_logger();
+        let log = empty_logger();
         let source_type = ast::TypeDefinition {
             name: "colors".to_owned(),
             kind: ast::TypeDefinitionKind::Enum(vec![
@@ -956,23 +1098,23 @@ mod tests {
         let publish_profile = PublishProfile::new();
 
         let mut changeset = Vec::new();
-        let result = (&source_type).generate(&mut changeset, &package, &publish_profile, &logger);
+        let result = (&source_type).generate(&mut changeset, &package, &publish_profile, &log);
         assert_that!(result).is_err();
         match result.err().unwrap() {
-            PsqlpackError(PublishUnsafeOperationError(_), _) => {},
-            unexpected => panic!("Expected unsafe operation error however saw {:?}", unexpected),
+            PsqlpackError(PublishUnsafeOperationError(_), _) => {}
+            unexpected => panic!(
+                "Expected unsafe operation error however saw {:?}",
+                unexpected
+            ),
         };
     }
 
     #[test]
     fn it_can_modify_enum_type_by_removing_values_and_unsafe_declared() {
-        let logger = empty_logger();
+        let log = empty_logger();
         let source_type = ast::TypeDefinition {
             name: "colors".to_owned(),
-            kind: ast::TypeDefinitionKind::Enum(vec![
-                "green".to_owned(),
-                "blue".to_owned(),
-            ]),
+            kind: ast::TypeDefinitionKind::Enum(vec!["green".to_owned(), "blue".to_owned()]),
         };
 
         // Create a package with the type already defined
@@ -987,7 +1129,7 @@ mod tests {
         };
 
         let mut changeset = Vec::new();
-        let result = (&source_type).generate(&mut changeset, &package, &publish_profile, &logger);
+        let result = (&source_type).generate(&mut changeset, &package, &publish_profile, &log);
         assert_that!(result).is_ok();
 
         // We should have a single instruction to modify the enum with an additional value
@@ -1008,8 +1150,15 @@ mod tests {
             }
             ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
         }
+        // Check the SQL generation
+        assert_that!(changeset[0].to_sql(&log)).is_equal_to(
+            "DELETE FROM pg_enum \
+             WHERE enumlabel = 'red' AND \
+             enumtypid = (SELECT oid FROM pg_type WHERE typname = 'colors')"
+                .to_owned(),
+        );
     }
-/*
+    /*
     //TODO: Implement this when we have provision for dropping objects
     #[test]
     fn it_can_drop_enum_type() {

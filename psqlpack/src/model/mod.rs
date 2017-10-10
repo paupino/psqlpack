@@ -12,7 +12,7 @@ mod project;
 mod package;
 mod delta;
 
-pub use self::profiles::{PublishProfile,GenerationOptions};
+pub use self::profiles::{GenerationOptions, PublishProfile};
 pub use self::project::Project;
 pub use self::package::{Node, Package, ValidationKind};
 pub use self::delta::Delta;
