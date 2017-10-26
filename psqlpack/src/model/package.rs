@@ -478,16 +478,14 @@ impl Package {
             t.columns
                 .iter()
                 .filter_map(|c| match c.sql_type {
-                    SqlType::Custom(ref name, _) => {
-                        if !custom_types.contains(&&name[..]) {
-                            Some(ValidationKind::UnknownType {
-                                ty: name.to_owned(),
-                                table: t.name.to_string(),
-                            })    
-                        } else {
-                            None
-                        }
-                    }
+                    SqlType::Custom(ref name, _) => if !custom_types.contains(&&name[..]) {
+                        Some(ValidationKind::UnknownType {
+                            ty: name.to_owned(),
+                            table: t.name.to_string(),
+                        })
+                    } else {
+                        None
+                    },
                     _ => None,
                 })
                 .collect::<Vec<_>>()
@@ -499,7 +497,7 @@ impl Package {
             .filter(|t| t.constraints.is_some())
             .flat_map(|t| t.constraints.clone().unwrap())
             .filter_map(|c| match c {
-                TableConstraint::Foreign { 
+                TableConstraint::Foreign {
                     name,
                     columns,
                     ref_table,

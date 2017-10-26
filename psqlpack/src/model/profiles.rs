@@ -14,10 +14,26 @@ use errors::PsqlpackErrorKind::*;
 #[derive(Deserialize)]
 pub struct PublishProfile {
     pub version: String,
+    #[serde(rename = "generationOptions")] pub generation_options: GenerationOptions,
+}
+
+#[derive(Deserialize)]
+pub struct GenerationOptions {
     #[serde(rename = "alwaysRecreateDatabase")] pub always_recreate_database: bool,
+    #[serde(rename = "allowUnsafeOperations")] pub allow_unsafe_operations: bool,
 }
 
 impl PublishProfile {
+    pub fn new() -> Self {
+        PublishProfile {
+            version: "1.0".to_owned(),
+            generation_options: GenerationOptions {
+                always_recreate_database: false,
+                allow_unsafe_operations: false,
+            },
+        }
+    }
+
     pub fn from_path(profile_path: &Path) -> PsqlpackResult<PublishProfile> {
         File::open(profile_path)
             .chain_err(|| PublishProfileReadError(profile_path.to_path_buf()))

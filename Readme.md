@@ -145,19 +145,8 @@ The publish profile file helps define properties/values that define how we gener
 | Property                | Required   | Type                      | Default         | Description |
 |-------------------------|------------|---------------------------|-----------------|-------------|
 | alwaysRecreateDatabase  | No         | `boolean`                 | false           | Set to true to always recreate the database. |
+| allowUnsafeOperations   | No         | `boolean`                 | false           | Set to true to allow unsafe operations (e.g. enum value mods) to occur. |
 | blockOnPossibleDataLoss | No         | `boolean`                 | false           | Set to true to block deployment if data loss is detected. |
-| dropObjectsNotInSource  | No         | `boolean`                 | false           | If set to true, any objects not found in the source psqlpack will be dropped. |
-| tableChangeMode         | No         | [ChangeMode](#changemode) | Object Defaults | Sets the change mode to use for all table comparisons. |
-| functionChangeMode      | No         | [ChangeMode](#changemode) | Object Defaults | Sets the change mode to use for all function comparisons. |
-
-
-### ChangeMode
-
-| Property | Required | Type      | Default  | Description |
-|----------|----------|-----------|----------|-------------|
-| create   | No       | `boolean` | true     | Set to true to create the object when it is not detected. |
-| modify   | No       | `boolean` | true     | Set to true to modify the object when it is detected to have been changed. |
-| drop     | No       | `boolean` | true     | Set to true to drop the object when it is detected on the target and not in the source. |
 
 ### Example
 
