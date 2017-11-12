@@ -3,6 +3,7 @@ name = "psqlpack"
 version = "0.1.0"
 authors = ["Paul Mason <paul@form1.co.nz>", "Justin Latimer <justinlatimer@gmail.com>"]
 build = "build.rs"
+license = "MIT/Apache-2.0"
 
 [dependencies]
 error-chain = "0.11"
