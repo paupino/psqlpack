@@ -1,5 +1,8 @@
-psqlpack
-===========
+# psqlpack &emsp; [![Build Status]][travis]
+
+[Build Status]: https://api.travis-ci.org/paupino/psqlpack.svg?branch=master
+[travis]: https://travis-ci.org/paupino/psqlpack
+
 psqlpack is intended to be a close PostgreSQL alternative for [Microsoft SQL Server sqlpackage](https://msdn.microsoft.com/en-us/library/hh550080(v=vs.103).aspx). It is intended to support the following tasks:
 
 * [Package](#package-action): Create a psqlpack package (.psqlpack file) from a source PostgreSQL project.
