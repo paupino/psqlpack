@@ -8,7 +8,7 @@ readme = "../README.md"
 
 [dependencies]
 error-chain = "0.11"
-lazy_static = "0.2
+lazy_static = "0.2"
 lalrpop-util = "0.13"
 slog = { version = "2", features = ["max_level_trace", "release_max_level_trace"] }
 slog-stdlog = "3"
