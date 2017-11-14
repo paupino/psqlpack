@@ -24,6 +24,7 @@ pub struct GenerationOptions {
 }
 
 impl PublishProfile {
+    #[allow(dead_code)]
     pub fn new() -> Self {
         PublishProfile {
             version: "1.0".to_owned(),
