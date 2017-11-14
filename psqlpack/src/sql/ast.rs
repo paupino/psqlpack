@@ -9,14 +9,14 @@ pub enum Statement {
     Type(TypeDefinition),
 }
 
-#[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
 pub enum SqlType {
     Simple(SimpleSqlType),
     Array(SimpleSqlType, u32),
     Custom(String, Option<String>),
 }
 
-#[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
 pub enum SimpleSqlType {
     FixedLengthString(u32),    // char(size)
     VariableLengthString(u32), // varchar(size)
@@ -50,7 +50,7 @@ pub enum SimpleSqlType {
     Uuid, // uuid
 }
 
-#[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
 pub enum ColumnConstraint {
     Default(AnyValue),
     NotNull,
@@ -59,7 +59,7 @@ pub enum ColumnConstraint {
     PrimaryKey,
 }
 
-#[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
 pub enum AnyValue {
     Boolean(bool),
     Integer(i32),
@@ -131,7 +131,7 @@ pub struct TableDefinition {
     pub constraints: Option<Vec<TableConstraint>>,
 }
 
-#[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
 pub struct ColumnDefinition {
     pub name: String,
     pub sql_type: SqlType,
