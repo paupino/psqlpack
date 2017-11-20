@@ -1108,7 +1108,7 @@ mod tests {
 
         // Add the column and try again
         {
-            let mut parent = package
+            let parent = package
                 .tables
                 .iter_mut()
                 .find(|t| t.name.name.eq("parent"))
@@ -1155,7 +1155,7 @@ mod tests {
 
         // Add the column and try again
         {
-            let mut child = package
+            let child = package
                 .tables
                 .iter_mut()
                 .find(|t| t.name.name.eq("child"))
