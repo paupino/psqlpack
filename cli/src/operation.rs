@@ -2,9 +2,7 @@ use std::path::Path;
 
 use slog::Logger;
 
-use model::{Delta, Package, Project, PublishProfile};
-use errors::PsqlpackResult;
-use errors::PsqlpackErrorKind::PackageCreationError;
+use psqlpack::{Delta, Package, Project, PsqlpackResult, PsqlpackErrorKind, PublishProfile};
 
 pub fn package<L: Into<Logger>>(log: L, project_path: &Path, output_path: &Path) -> PsqlpackResult<()> {
     let log = log.into().new(o!("operation" => "package"));
@@ -25,7 +23,7 @@ pub fn extract<L: Into<Logger>>(log: L, source_connection_string: &str, target_p
             trace!(log, "Writing Package"; "output" => target_package_path.to_str().unwrap());
             data.write_to(target_package_path)
         }
-        None => bail!(PackageCreationError("database does not exist".into())),
+        None => Err(PsqlpackErrorKind::PackageCreationError("database does not exist".into()).into()),
     }
 }
 

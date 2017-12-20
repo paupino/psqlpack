@@ -5,6 +5,8 @@ extern crate psqlpack;
 extern crate slog;
 extern crate slog_term;
 
+mod operation;
+
 use std::env;
 use std::path::Path;
 use std::time::Instant;
@@ -14,7 +16,7 @@ use std::result;
 
 use clap::{App, Arg, ArgMatches, SubCommand};
 use slog::{Drain, Logger};
-use psqlpack::{operation, ChainedError, PsqlpackResult};
+use psqlpack::{ChainedError, PsqlpackResult};
 
 /// A threadsafe toggle.
 #[derive(Clone)]

@@ -25,7 +25,10 @@ pub use errors::*;
 mod connection;
 mod sql;
 mod model;
-pub mod operation;
+
+pub use model::{Delta, Package, Project, PublishProfile};
+pub use errors::PsqlpackResult;
+pub use errors::PsqlpackErrorKind;
 
 /// Allows usage of no logging, std `log`, or slog.
 pub enum LogConfig {
