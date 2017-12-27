@@ -138,28 +138,28 @@ pub struct ColumnDefinition {
     pub constraints: Option<Vec<ColumnConstraint>>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct SchemaDefinition {
     pub name: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct ExtensionDefinition {
     pub name: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct TypeDefinition {
     pub name: String,
     pub kind: TypeDefinitionKind,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub enum TypeDefinitionKind {
     Enum(Vec<String>),
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct ScriptDefinition {
     pub name: String,
     pub kind: ScriptKind,
@@ -167,7 +167,7 @@ pub struct ScriptDefinition {
     pub contents: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub enum ScriptKind {
     PreDeployment,
     PostDeployment,

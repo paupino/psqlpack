@@ -26,6 +26,9 @@ mod connection;
 mod sql;
 mod model;
 
+pub mod ast {
+    pub use sql::ast::*;  
+}
 pub use connection::ConnectionBuilder;
 pub use errors::{PsqlpackErrorKind, PsqlpackResult};
 pub use model::{Delta, Package, Project, PublishProfile};

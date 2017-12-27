@@ -140,6 +140,7 @@ macro_rules! map {
                                    FROM pg_attribute
                                    WHERE attnum > 0 AND attrelid IN ({})";*/
 
+#[derive(Debug, PartialEq)]
 pub struct Package {
     pub extensions: Vec<ExtensionDefinition>,
     pub functions: Vec<FunctionDefinition>,
@@ -215,6 +216,7 @@ impl Package {
         if db_result.is_empty() {
             return Ok(None);
         }
+        dbtry!(db_conn.finish());
 
         // We do five SQL queries to get the package details
         let db_conn = connection.connect_database()?;
@@ -296,6 +298,7 @@ impl Package {
         let tables = db_conn
             .query(Q_TABLES, &[])
             .chain_err(|| PackageQueryTablesError)?;
+        dbtry!(db_conn.finish());
 
         Ok(Some(Package {
             extensions: map!(extensions),

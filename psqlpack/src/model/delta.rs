@@ -283,7 +283,7 @@ impl<'a> Diffable<'a, TypeDefinition> for &'a TypeDefinition {
     }
 }
 
-
+#[derive(Debug)]
 pub struct Delta<'package>(Vec<ChangeInstruction<'package>>);
 
 impl<'package> Delta<'package> {
@@ -362,58 +362,27 @@ impl<'package> Delta<'package> {
             target = None;
         }
 
-        // If we have the DB we generate an actual change set, else we generate new instructions
-        match target {
-            Some(target_package) => {
-                // Set the connection instruction
-                changeset.push(ChangeInstruction::UseDatabase(
-                    target_database_name.to_owned(),
-                ));
-
-                // Go through each item in order and figure out what to do with it
-                for item in &build_order {
-                    item.generate(&mut changeset, &target_package, &publish_profile, &log)?;
-                }
-            }
+        // For an empty database use an empty package, but also push a CREATE DB instruction
+        let target_package = match target {
+            Some(target_package) => target_package,
             None => {
                 changeset.push(ChangeInstruction::CreateDatabase(
                     target_database_name.to_owned(),
                 ));
-                changeset.push(ChangeInstruction::UseDatabase(
-                    target_database_name.to_owned(),
-                ));
-
-                // Since this is a new database add everything (in order)
-                for item in &build_order {
-                    match *item {
-                        DbObject::Extension(extension) => {
-                            changeset.push(ChangeInstruction::AssertExtension(extension));
-                        }
-                        DbObject::Function(function) => {
-                            changeset.push(ChangeInstruction::AddFunction(function));
-                        }
-                        DbObject::Schema(schema) => {
-                            changeset.push(ChangeInstruction::AddSchema(schema));
-                        }
-                        DbObject::Script(script) => {
-                            changeset.push(ChangeInstruction::RunScript(script));
-                        }
-                        DbObject::Table(table) => {
-                            changeset.push(ChangeInstruction::AddTable(table));
-                        }
-                        DbObject::Column(table, column) => {
-                            changeset.push(ChangeInstruction::AddColumn(table, column));
-                        }
-                        DbObject::Constraint(table, constraint) => {
-                            changeset.push(ChangeInstruction::AddConstraint(table, constraint));
-                        }
-                        DbObject::Type(t) => {
-                            changeset.push(ChangeInstruction::AddType(t));
-                        }
-                    }
-                }
+                Package::new()
             }
+        };
+
+        // Set the connection instruction
+        changeset.push(ChangeInstruction::UseDatabase(
+            target_database_name.to_owned(),
+        ));
+
+        // Go through each item in order and figure out what to do with it
+        for item in &build_order {
+            item.generate(&mut changeset, &target_package, &publish_profile, &log)?;
         }
+
         Ok(Delta(changeset))
     }
 
@@ -605,7 +574,14 @@ impl<'input> ChangeInstruction<'input> {
         match *self {
             // Database level
             ChangeInstruction::CreateDatabase(ref db) => format!("CREATE DATABASE {}", db),
-            ChangeInstruction::DropDatabase(ref db) => format!("DROP DATABASE {}", db),
+            ChangeInstruction::DropDatabase(ref db) => {
+                let mut drop = String::new();
+                drop.push_str("SELECT pg_terminate_backend(pg_stat_activity.pid) ");
+                drop.push_str("FROM pg_stat_activity ");
+                drop.push_str(&format!("WHERE pg_stat_activity.datname = '{}';", db));
+                drop.push_str(&format!("DROP DATABASE {}", db));
+                drop
+            },
             ChangeInstruction::UseDatabase(ref db) => format!("-- Using database `{}`", db),
 
             // Extension level

@@ -1,12 +1,16 @@
 extern crate psqlpack;
 #[macro_use]
 extern crate slog;
+#[macro_use]
+extern crate spectral;
 
 #[macro_use]
 mod common;
 
 use psqlpack::*;
+use psqlpack::ast::*;
 use slog::{Discard, Drain, Logger};
+use spectral::prelude::*;
 
 #[test]
 fn it_can_create_a_database_that_doesnt_exist() {
@@ -35,8 +39,10 @@ fn it_can_create_a_database_that_doesnt_exist() {
         DB_NAME.into(),
         publish_profile,
     ).unwrap();
-    delta.apply(&log, &connection).ok();
+    delta.apply(&log, &connection).unwrap();
 
     // Confirm db exists with data
-    assert_simple_package!(DB_NAME, NAMESPACE, connection);
+    let final_package = Package::from_connection(&log, &connection).unwrap().unwrap();
+    assert_that!(final_package).is_equal_to(&package);
+    assert_simple_package!(final_package, NAMESPACE);
 }
