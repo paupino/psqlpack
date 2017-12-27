@@ -54,7 +54,7 @@ impl<'row> From<Row<'row>> for ExtensionDefinition {
 }
 
 static Q_SCHEMAS: &'static str = "SELECT schema_name FROM information_schema.schemata
-                                  WHERE catalog_name = $1 AND schema_owner <> 'postgres'";
+                                  WHERE catalog_name = $1 AND schema_name !~* 'pg_|information_schema'";
 impl<'row> From<Row<'row>> for SchemaDefinition {
     fn from(row: Row) -> Self {
         SchemaDefinition { name: row.get(0) }

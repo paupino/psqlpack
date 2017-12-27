@@ -38,6 +38,7 @@ macro_rules! generate_simple_package {
                 ],
                 constraints: None,
             });
+            package.set_defaults(&Project::default());
             package.validate().unwrap();
             package
         }
@@ -47,9 +48,9 @@ macro_rules! generate_simple_package {
 macro_rules! assert_simple_package {
     ($package:ident, $namespace:ident) => {{
         // Assert that the package exists in the expected format
-        assert_that!($package.schemas).has_length(1);
-        let schema = &$package.schemas[0];
-        assert_that!(schema.name).is_equal_to($namespace.to_string());
+        assert_that!($package.schemas).has_length(2);
+        assert!(&$package.schemas.iter().any(|s| s.name.eq($namespace)));
+        assert!(&$package.schemas.iter().any(|s| s.name.eq("public")));
 
         // Validate the table
         assert_that!($package.tables).has_length(1);
