@@ -273,7 +273,7 @@ foreign_constraint_action: ForeignConstraintAction = {
     SET DEFAULT => ForeignConstraintAction::SetDefault,
 };
 
-sql_type: SqlType = {
+pub sql_type: SqlType = {
     <simple_type> => SqlType::Simple(<>),
     <simple:simple_type> <dim:array_dimension> => SqlType::Array(simple, dim),
     <Ident> => SqlType::Custom(<>, None),
