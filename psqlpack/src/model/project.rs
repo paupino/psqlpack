@@ -37,7 +37,7 @@ pub struct Project {
 
 impl Project {
     #[allow(dead_code)]
-    pub(crate) fn default() -> Self {
+    pub fn default() -> Self {
         Project {
             path: None,
             version: "1.0".into(),

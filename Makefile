@@ -1,4 +1,5 @@
 SHELL := /bin/bash
+.DEFAULT_GOAL := build
 
 OSFLAG 				:=
 ifeq ($(OS),Windows_NT)
@@ -20,8 +21,8 @@ else
 	RM_BK += find . -name *.bk -delete
 endif
 
-clean:
-	$(RM_BK) 
-
 build:
 	cargo build -p psqlpack-cli
+
+clean:
+	$(RM_BK)

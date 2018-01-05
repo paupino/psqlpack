@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fmt;
 use std::path::Path;
 use std::fs::File;
@@ -42,6 +43,12 @@ macro_rules! zip_collection {
     }};
 }
 
+macro_rules! map {
+    ($expr:expr) => {{
+        $expr.iter().map(|row| row.into()).collect()
+    }};
+}
+
 static Q_DATABASE_EXISTS: &'static str = "SELECT 1 FROM pg_database WHERE datname=$1;";
 
 static Q_EXTENSIONS: &'static str = "SELECT extname, extversion
@@ -54,7 +61,7 @@ impl<'row> From<Row<'row>> for ExtensionDefinition {
 }
 
 static Q_SCHEMAS: &'static str = "SELECT schema_name FROM information_schema.schemata
-                                  WHERE catalog_name = $1 AND schema_owner <> 'postgres'";
+                                  WHERE catalog_name = $1 AND schema_name !~* 'pg_|information_schema'";
 impl<'row> From<Row<'row>> for SchemaDefinition {
     fn from(row: Row) -> Self {
         SchemaDefinition { name: row.get(0) }
@@ -99,7 +106,7 @@ static Q_FUNCTIONS: &'static str = "SELECT
                                     LEFT JOIN pg_depend ON
                                         pg_depend.objid = pg_proc.oid AND pg_depend.deptype = 'e'
                                     WHERE pg_depend.objid IS NULL AND
-                                          nspname NOT IN ('pg_catalog', 'information_schema');";
+                                          nspname !~* 'pg_|information_schema';";
 
 static Q_TABLES: &'static str = "SELECT
                                     pg_class.oid,
@@ -116,7 +123,7 @@ static Q_TABLES: &'static str = "SELECT
                                     pg_constraint.conrelid = pg_class.oid
                                 WHERE pg_class.relkind='r' AND
                                       pg_depend.objid IS NULL AND
-                                      nspname NOT IN ('pg_catalog', 'information_schema')";
+                                      nspname !~* 'pg_|information_schema'";
 impl<'row> From<Row<'row>> for TableDefinition {
     fn from(row: Row) -> Self {
         TableDefinition {
@@ -130,16 +137,63 @@ impl<'row> From<Row<'row>> for TableDefinition {
     }
 }
 
-macro_rules! map {
-    ($expr:expr) => {{
-        $expr.iter().map(|row| row.into()).collect()
-    }};
+static Q_COLUMNS : &'static str =  "SELECT DISTINCT
+                                        ns.nspname as schema_name,
+                                        pgc.relname as table_name,
+                                        a.attnum as num,
+                                        a.attname as name,
+                                        CASE WHEN a.atttypid = ANY ('{int,int8,int2}'::regtype[])
+                                              AND def.adsrc = 'nextval('''
+                                                    || (pg_get_serial_sequence (a.attrelid::regclass::text, a.attname))::regclass
+                                                    || '''::regclass)'
+                                            THEN CASE a.atttypid
+                                                    WHEN 'int'::regtype  THEN 'serial'
+                                                    WHEN 'int8'::regtype THEN 'bigserial'
+                                                    WHEN 'int2'::regtype THEN 'smallserial'
+                                                 END
+                                            ELSE format_type(a.atttypid, a.atttypmod)
+                                        END AS data_type,
+                                        a.attnotnull as notnull,
+                                        coalesce(i.indisprimary,false) as primary_key,
+                                        def.adsrc as default
+                                    FROM pg_attribute a
+                                    INNER JOIN pg_class pgc ON pgc.oid = a.attrelid
+                                    INNER JOIN pg_namespace ns ON ns.oid = pgc.relnamespace
+                                    LEFT JOIN pg_index i ON pgc.oid = i.indrelid AND i.indkey[0] = a.attnum
+                                    LEFT JOIN pg_attrdef def ON a.attrelid = def.adrelid AND a.attnum = def.adnum
+                                    WHERE attnum > 0 AND pgc.relkind='r' AND NOT a.attisdropped AND ns.nspname !~* 'pg_|information_schema'
+                                    ORDER BY pgc.relname, a.attnum";
+
+impl<'row> From<Row<'row>> for ColumnDefinition {
+    fn from(row: Row) -> Self {
+        // Do the column constraints first
+        let mut constraints = Vec::new();
+        let not_null : bool = row.get(5);
+        let primary_key : bool = row.get(6);
+        // TODO: Default value + unique
+        constraints.push(if not_null { ColumnConstraint::NotNull } else { ColumnConstraint::Null });
+        if primary_key {
+            constraints.push(ColumnConstraint::PrimaryKey);
+        }
+        let sql_type : String = row.get(4);
+
+        ColumnDefinition {
+            name: row.get(3),
+            sql_type: sql_type.into(),
+            constraints: Some(constraints),
+        }
+    }
 }
 
-/*static Q_COLUMNS : &'static str = "SELECT attrelid, attname, format_type(atttypid, atttypmod), attnotnull
-                                   FROM pg_attribute
-                                   WHERE attnum > 0 AND attrelid IN ({})";*/
+impl From<String> for SqlType {
+    fn from(s: String) -> Self {
+        // TODO: Error handling for this
+        let tokens = lexer::tokenize(&s).unwrap();
+        parser::parse_sql_type(tokens).unwrap()
+    }
+}
 
+#[derive(Debug, PartialEq)]
 pub struct Package {
     pub extensions: Vec<ExtensionDefinition>,
     pub functions: Vec<FunctionDefinition>,
@@ -215,6 +269,7 @@ impl Package {
         if db_result.is_empty() {
             return Ok(None);
         }
+        dbtry!(db_conn.finish());
 
         // We do five SQL queries to get the package details
         let db_conn = connection.connect_database()?;
@@ -293,16 +348,36 @@ impl Package {
             });
         }
 
-        let tables = db_conn
-            .query(Q_TABLES, &[])
-            .chain_err(|| PackageQueryTablesError)?;
+        let mut tables = HashMap::new();
+        for row in &db_conn.query(Q_TABLES, &[])
+                           .chain_err(|| PackageQueryTablesError)? {
+            let table : TableDefinition = row.into();
+            tables.insert(table.name.to_string(), table);
+        }
+
+        // Get a list of columns and map them to the appropriate tables
+        for row in &db_conn.query(Q_COLUMNS, &[])
+                           .chain_err(|| PackageQueryColumnsError)? {
+            // Get the table name and find it in our collection
+            let schema : String = row.get(0);
+            let table : String = row.get(1);
+            let key = format!("{}.{}", schema, table);
+
+            // Now look up the mutable key
+            if let Some(definition) = tables.get_mut(&key) {
+                definition.columns.push(row.into());
+            }
+        }
+
+        // Close the connection
+        dbtry!(db_conn.finish());
 
         Ok(Some(Package {
             extensions: map!(extensions),
             functions: functions,   // functions,
             schemas: map!(schemas), // schemas,
             scripts: Vec::new(),    // Scripts can't be known from a connection
-            tables: map!(tables),   // tables,
+            tables: tables.into_iter().map(|(_,b)| b).collect(),   // tables,
             types: map!(types),     // types,
         }))
     }
