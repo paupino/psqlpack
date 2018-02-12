@@ -50,7 +50,7 @@ pub enum SimpleSqlType {
     Uuid, // uuid
 }
 
-#[derive(Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
 pub enum ColumnConstraint {
     Default(AnyValue),
     NotNull,
@@ -59,7 +59,7 @@ pub enum ColumnConstraint {
     PrimaryKey,
 }
 
-#[derive(Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
 pub enum AnyValue {
     Boolean(bool),
     Integer(i32),

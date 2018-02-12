@@ -1,11 +1,28 @@
 macro_rules! drop_db {
-    ($connection:expr) => {{
-        let connection = $connection.connect_host().unwrap();
-        connection.query("SELECT pg_terminate_backend(pg_stat_activity.pid) \
+    ($connection:expr, $database:expr) => {{
+        $connection.query("SELECT pg_terminate_backend(pg_stat_activity.pid) \
                           FROM pg_stat_activity \
-                          WHERE pg_stat_activity.datname = $1;", &[&$connection.database()]).unwrap();
-        connection.query(&format!("DROP DATABASE IF EXISTS {}", $connection.database()), &[]).unwrap();
-        connection.finish().unwrap();
+                          WHERE pg_stat_activity.datname = $1;", &[&$database]).unwrap();
+        $connection.batch_execute(&format!("DROP DATABASE IF EXISTS {}", $database)).unwrap();
+    }};
+}
+
+macro_rules! create_db {
+    ($connection:expr) => {{
+        let conn = $connection.connect_host().unwrap();
+        let result = conn.query("SELECT 1 FROM pg_database WHERE datname=$1", &[&$connection.database()]).unwrap();
+        if result.is_empty() {
+            conn.batch_execute(&format!("CREATE DATABASE IF NOT EXIST {}", $connection.database())).unwrap();
+        }
+        conn.finish().unwrap();
+        $connection.connect_database().unwrap()
+    }};
+}
+
+macro_rules! drop_table {
+    ($connection:expr, $name:expr) => {{
+        let cmd = format!("DROP TABLE IF EXISTS {}", $name);
+        $connection.batch_execute(&cmd).unwrap();
     }};
 }
 
@@ -26,7 +43,7 @@ macro_rules! generate_simple_package {
                         name: "id".into(),
                         sql_type: SqlType::Simple(SimpleSqlType::Serial),
                         constraints: Some(vec![
-                            ColumnConstraint::PrimaryKey, 
+                            ColumnConstraint::PrimaryKey,
                             ColumnConstraint::NotNull
                         ])
                     },
@@ -47,14 +64,18 @@ macro_rules! generate_simple_package {
 
 macro_rules! assert_simple_package {
     ($package:ident, $namespace:ident) => {{
+        // We don't assert the length of collection's, only that our one's exist
+
         // Assert that the package exists in the expected format
-        assert_that!($package.schemas).has_length(2);
+        //assert_that!($package.schemas).has_length(2);
         assert!(&$package.schemas.iter().any(|s| s.name.eq($namespace)));
         assert!(&$package.schemas.iter().any(|s| s.name.eq("public")));
 
         // Validate the table
-        assert_that!($package.tables).has_length(1);
-        let table = &$package.tables[0];
+        //assert_that!($package.tables).has_length(1);
+        let table = $package.tables.iter().find(|s| s.name.to_string().eq(&format!("{}.contacts", $namespace)));
+        assert_that!(table).is_some();
+        let table = table.unwrap();
         assert_that!(table.name.to_string()).is_equal_to(format!("{}.contacts", $namespace));
         assert_that!(table.columns).has_length(2);
         assert_that!(table.constraints).is_none();
@@ -84,6 +105,6 @@ macro_rules! assert_simple_package {
                 assert_that!(constraints).contains(ColumnConstraint::NotNull);
             }
             None => panic!("Expected constraints to exist for contacts.name"),
-        }       
+        }
     }};
 }
