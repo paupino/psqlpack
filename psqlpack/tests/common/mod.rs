@@ -12,7 +12,7 @@ macro_rules! create_db {
         let conn = $connection.connect_host().unwrap();
         let result = conn.query("SELECT 1 FROM pg_database WHERE datname=$1", &[&$connection.database()]).unwrap();
         if result.is_empty() {
-            conn.batch_execute(&format!("CREATE DATABASE IF NOT EXIST {}", $connection.database())).unwrap();
+            conn.batch_execute(&format!("CREATE DATABASE {}", $connection.database())).unwrap();
         }
         conn.finish().unwrap();
         $connection.connect_database().unwrap()
