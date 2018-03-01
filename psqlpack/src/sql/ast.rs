@@ -128,14 +128,14 @@ pub struct ObjectName {
 pub struct TableDefinition {
     pub name: ObjectName,
     pub columns: Vec<ColumnDefinition>,
-    pub constraints: Option<Vec<TableConstraint>>,
+    pub constraints: Vec<TableConstraint>,
 }
 
 #[derive(Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
 pub struct ColumnDefinition {
     pub name: String,
     pub sql_type: SqlType,
-    pub constraints: Option<Vec<ColumnConstraint>>,
+    pub constraints: Vec<ColumnConstraint>,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]

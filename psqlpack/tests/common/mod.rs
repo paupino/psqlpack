@@ -42,18 +42,18 @@ macro_rules! generate_simple_package {
                     ColumnDefinition {
                         name: "id".into(),
                         sql_type: SqlType::Simple(SimpleSqlType::Serial),
-                        constraints: Some(vec![
+                        constraints: vec![
                             ColumnConstraint::PrimaryKey,
                             ColumnConstraint::NotNull
-                        ])
+                        ]
                     },
                     ColumnDefinition {
                         name: "name".into(),
                         sql_type: SqlType::Simple(SimpleSqlType::VariableLengthString(50)),
-                        constraints: Some(vec![ColumnConstraint::NotNull])
+                        constraints: vec![ColumnConstraint::NotNull]
                     },
                 ],
-                constraints: None,
+                constraints: Vec::new(),
             });
             package.set_defaults(&Project::default());
             package.validate().unwrap();
@@ -78,33 +78,22 @@ macro_rules! assert_simple_package {
         let table = table.unwrap();
         assert_that!(table.name.to_string()).is_equal_to(format!("{}.contacts", $namespace));
         assert_that!(table.columns).has_length(2);
-        assert_that!(table.constraints).is_none();
+        assert_that!(table.constraints).is_empty();
 
         // Validate the id column
         let col_id = &table.columns[0];
         assert_that!(col_id.name).is_equal_to("id".to_string());
         assert_that!(col_id.sql_type).is_equal_to(SqlType::Simple(SimpleSqlType::Serial));
-        assert_that!(col_id.constraints).is_some().has_length(2);
-        match col_id.constraints {
-            Some(ref constraints) => {
-                let constraints = constraints.iter();
-                assert_that!(constraints).contains(ColumnConstraint::PrimaryKey);
-                assert_that!(constraints).contains(ColumnConstraint::NotNull);
-            }
-            None => panic!("Expected constraints to exist for contacts.id"),
-        }
+        assert_that!(col_id.constraints).has_length(2);
+        let constraints = col_id.constraints.iter();
+        assert_that!(constraints).contains(ColumnConstraint::PrimaryKey);
+        assert_that!(constraints).contains(ColumnConstraint::NotNull);
 
         // Validate the name column
         let col_name = &table.columns[1];
         assert_that!(col_name.name).is_equal_to("name".to_string());
         assert_that!(col_name.sql_type).is_equal_to(SqlType::Simple(SimpleSqlType::VariableLengthString(50)));
-        assert_that!(col_name.constraints).is_some().has_length(1);
-        match col_name.constraints {
-            Some(ref constraints) => {
-                let constraints = constraints.iter();
-                assert_that!(constraints).contains(ColumnConstraint::NotNull);
-            }
-            None => panic!("Expected constraints to exist for contacts.name"),
-        }
+        assert_that!(col_name.constraints).has_length(1);
+        assert_that!(col_name.constraints[0]).is_equal_to(ColumnConstraint::NotNull);
     }};
 }
