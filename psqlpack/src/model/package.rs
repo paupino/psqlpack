@@ -132,7 +132,7 @@ impl<'row> From<Row<'row>> for TableDefinition {
                 name: row.get(2),
             },
             columns: Vec::new(), // TODO
-            constraints: None,   // TODO
+            constraints: Vec::new(),   // TODO
         }
     }
 }
@@ -180,7 +180,7 @@ impl<'row> From<Row<'row>> for ColumnDefinition {
         ColumnDefinition {
             name: row.get(3),
             sql_type: sql_type.into(),
-            constraints: Some(constraints),
+            constraints: constraints,
         }
     }
 }
@@ -461,15 +461,13 @@ impl Package {
             if table.name.schema.is_none() {
                 table.name.schema = Some(project.default_schema.clone());
             }
-            if let Some(ref mut constraints) = table.constraints {
-                for constraint in constraints.iter_mut() {
-                    if let TableConstraint::Foreign {
-                        ref mut ref_table, ..
-                    } = *constraint
-                    {
-                        if ref_table.schema.is_none() {
-                            ref_table.schema = Some(project.default_schema.clone());
-                        }
+            for constraint in table.constraints.iter_mut() {
+                if let TableConstraint::Foreign {
+                    ref mut ref_table, ..
+                } = *constraint
+                {
+                    if ref_table.schema.is_none() {
+                        ref_table.schema = Some(project.default_schema.clone());
                     }
                 }
             }
@@ -490,14 +488,12 @@ impl Package {
         }
         trace!(log, "Scanning table constraints");
         for table in &self.tables {
-            if let Some(ref table_constaints) = table.constraints {
-                let log = log.new(o!("table" => table.name.to_string()));
-                let table_node = Node::Table(table);
-                trace!(log, "Scanning constraints");
-                for constraint in table_constaints {
-                    let constraint_node = constraint.graph(&log, &mut graph, Some(&table_node));
-                    graph.add_edge(table_node, constraint_node, ());
-                }
+            let log = log.new(o!("table" => table.name.to_string()));
+            let table_node = Node::Table(table);
+            trace!(log, "Scanning constraints");
+            for constraint in &table.constraints {
+                let constraint_node = constraint.graph(&log, &mut graph, Some(&table_node));
+                graph.add_edge(table_node, constraint_node, ());
             }
         }
 
@@ -569,8 +565,7 @@ impl Package {
         // 3. Validate constraints map to known tables
         let foreign_keys = self.tables
             .iter()
-            .filter(|t| t.constraints.is_some())
-            .flat_map(|t| t.constraints.clone().unwrap())
+            .flat_map(|t| t.constraints.clone())
             .filter_map(|c| match c {
                 TableConstraint::Foreign {
                     name,
@@ -626,11 +621,7 @@ impl Package {
                 .filter(|&&(ref constraint, ref columns, _, _)| {
                     let table = self.tables
                         .iter()
-                        .find(|t| if let Some(ref constraints) = t.constraints {
-                            constraints.iter().any(|c| c.name() == constraint)
-                        } else {
-                            false
-                        });
+                        .find(|t| t.constraints.iter().any(|c| c.name() == constraint));
                     match table {
                         Some(t) => !columns
                             .iter()
@@ -881,12 +872,10 @@ impl Graphable for TableConstraint {
                     graph.add_edge(Node::Column(table_def, ref_column), constraint, ());
 
                     // If required, add an edge to any primary keys.
-                    if let Some(ref constraints) = table_def.constraints {
-                        for primary in constraints {
-                            if let TableConstraint::Primary { ref columns, .. } = *primary {
-                                if columns.contains(ref_column_name) {
-                                    graph.add_edge(Node::Constraint(table_def, primary), constraint, ());
-                                }
+                    for primary in &table_def.constraints {
+                        if let TableConstraint::Primary { ref columns, .. } = *primary {
+                            if columns.contains(ref_column_name) {
+                                graph.add_edge(Node::Constraint(table_def, primary), constraint, ());
                             }
                         }
                     }
@@ -1140,10 +1129,10 @@ mod tests {
                 ast::ColumnDefinition {
                     name: "id".to_owned(),
                     sql_type: ast::SqlType::Simple(ast::SimpleSqlType::Serial),
-                    constraints: None,
+                    constraints: Vec::new(),
                 },
             ],
-            constraints: None,
+            constraints: Vec::new(),
         });
         assert_that!(package.validate()).is_ok();
     }
@@ -1191,7 +1180,7 @@ mod tests {
             parent.columns.push(ast::ColumnDefinition {
                 name: "parent_id".to_owned(),
                 sql_type: ast::SqlType::Simple(ast::SimpleSqlType::Integer),
-                constraints: None,
+                constraints: Vec::new(),
             });
         }
         assert_that!(package.validate()).is_ok();
@@ -1238,7 +1227,7 @@ mod tests {
             child.columns.push(ast::ColumnDefinition {
                 name: "par_id".to_owned(),
                 sql_type: ast::SqlType::Simple(ast::SimpleSqlType::Integer),
-                constraints: None,
+                constraints: Vec::new(),
             });
         }
         assert_that!(package.validate()).is_ok();

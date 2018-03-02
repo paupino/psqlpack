@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::fmt;
 use std::io::Write;
 use std::path::Path;
@@ -144,27 +145,39 @@ impl<'a> Diffable<'a, Package> for &'a TableDefinition {
         _: &Logger,
     ) -> PsqlpackResult<()> {
         let table_result = target.tables.iter().find(|t| t.name == self.name);
-        if let Some(table) = table_result {
+        if let Some(target_table) = table_result {
             // Check the columns
-            // TODO: possibly look into HashSet::difference
 
             // Get all the differences
-            for src in self.columns.iter() {
-                let column = table.columns.iter().find(|tgt| tgt.name.eq(&src.name));
-                if let Some(column) = column {
-                    // Exists - modify if it's different
-                    if !column.eq(&src) {
-                        // TODO: I suspect we'll want to put various rules around this.
-                        //       e.g. binary -> int
-                        //       We may also want to filter out constraints here
-                        changeset.push(ChangeInstruction::ModifyColumn(self, &src));
+            for src_column in self.columns.iter() {
+                let target_column = target_table.columns.iter().find(|tgt| tgt.name.eq(&src_column.name));
+                if let Some(target_column) = target_column {
+                    // Check the type
+                    if !src_column.sql_type.eq(&target_column.sql_type) {
+                        changeset.push(ChangeInstruction::ModifyColumnType(self, &src_column));
                     }
+
+                    // Check constraints
+                    let src_set: HashSet<_> = src_column.constraints.iter().cloned().collect();
+                    let target_set: HashSet<_> = target_column.constraints.iter().cloned().collect();
+                    // target_set - src_set (e.g. adding new constraints)
+                    for x in target_set.difference(&src_set) {
+                        match *x {
+                            ColumnConstraint::Null | ColumnConstraint::NotNull => changeset.push(ChangeInstruction::ModifyColumnNull(self, &src_column)),
+                            ColumnConstraint::Default(_) => changeset.push(ChangeInstruction::ModifyColumnDefault(self, &src_column)),
+                            ColumnConstraint::Unique => changeset.push(ChangeInstruction::ModifyColumnUniqueConstraint(self, &src_column)),
+                            ColumnConstraint::PrimaryKey => changeset.push(ChangeInstruction::ModifyColumnPrimaryKeyConstraint(self, &src_column)),
+                        }
+                    }
+
+                    // TODO: src_sec - target_set (e.g. what's been removed)
+
                 } else {
                     // Doesn't exist, add it
-                    changeset.push(ChangeInstruction::AddColumn(self, &src));
+                    changeset.push(ChangeInstruction::AddColumn(self, &src_column));
                 }
             }
-            for tgt in table.columns.iter() {
+            for tgt in target_table.columns.iter() {
                 if !self.columns.iter().any(|src| tgt.name.eq(&src.name)) {
                     // Column in target but not in source
                     changeset.push(ChangeInstruction::RemoveColumn(self, tgt.name.to_owned()));
@@ -489,7 +502,11 @@ pub enum ChangeInstruction<'input> {
 
     // Columns
     AddColumn(&'input TableDefinition, &'input ColumnDefinition),
-    ModifyColumn(&'input TableDefinition, &'input ColumnDefinition),
+    ModifyColumnType(&'input TableDefinition, &'input ColumnDefinition),
+    ModifyColumnNull(&'input TableDefinition, &'input ColumnDefinition),
+    ModifyColumnDefault(&'input TableDefinition, &'input ColumnDefinition),
+    ModifyColumnUniqueConstraint(&'input TableDefinition, &'input ColumnDefinition),
+    ModifyColumnPrimaryKeyConstraint(&'input TableDefinition, &'input ColumnDefinition),
     RemoveColumn(&'input TableDefinition, String),
 
     // Constraints
@@ -549,7 +566,11 @@ impl<'input> fmt::Display for ChangeInstruction<'input> {
 
             // Columns
             AddColumn(table, column) => write!(f, "Add column: {} to table: {}", column.name, table.name),
-            ModifyColumn(table, column) => write!(f, "Modify column: {} on table: {}", column.name, table.name),
+            ModifyColumnType(table, column) => write!(f, "Modify type for column: {} on table: {}", column.name, table.name),
+            ModifyColumnNull(table, column) => write!(f, "Modify null for column: {} on table: {}", column.name, table.name),
+            ModifyColumnDefault(table, column) => write!(f, "Modify default for column: {} on table: {}", column.name, table.name),
+            ModifyColumnUniqueConstraint(table, column) => write!(f, "Modify unique constraint for column: {} on table: {}", column.name, table.name),
+            ModifyColumnPrimaryKeyConstraint(table, column) => write!(f, "Modify primary key constraint for column: {} on table: {}", column.name, table.name),
             RemoveColumn(table, ref column_name) => write!(f, "Remove column: {} on table: {}", column_name, table.name),
 
             // Constraints
@@ -700,15 +721,13 @@ impl<'input> ChangeInstruction<'input> {
                     }
                     instr.push_str("\n\t");
                     instr.push_str(&format!("{} {}", column.name, column.sql_type));
-                    if let Some(ref constraints) = column.constraints {
-                        for constraint in constraints.iter() {
-                            match *constraint {
-                                ColumnConstraint::Default(ref any_type) => instr.push_str(&format!(" DEFAULT {}", any_type)),
-                                ColumnConstraint::NotNull => instr.push_str(" NOT NULL"),
-                                ColumnConstraint::Null => instr.push_str(" NULL"),
-                                ColumnConstraint::Unique => instr.push_str(" UNIQUE"),
-                                ColumnConstraint::PrimaryKey => instr.push_str(" PRIMARY KEY"),
-                            }
+                    for constraint in column.constraints.iter() {
+                        match *constraint {
+                            ColumnConstraint::Default(ref any_type) => instr.push_str(&format!(" DEFAULT {}", any_type)),
+                            ColumnConstraint::NotNull => instr.push_str(" NOT NULL"),
+                            ColumnConstraint::Null => instr.push_str(" NULL"),
+                            ColumnConstraint::Unique => instr.push_str(" UNIQUE"),
+                            ColumnConstraint::PrimaryKey => instr.push_str(" PRIMARY KEY"),
                         }
                     }
                 }
@@ -720,47 +739,70 @@ impl<'input> ChangeInstruction<'input> {
             ChangeInstruction::AddColumn(table, column) => {
                 let mut instr = String::new();
                 instr.push_str(&format!("ALTER TABLE {} ADD COLUMN {} {}", table.name, column.name, column.sql_type));
-                if let Some(ref constraints) = column.constraints {
-                    for constraint in constraints.iter() {
-                        match *constraint {
-                            ColumnConstraint::Default(ref any_type) => instr.push_str(&format!(" DEFAULT {}", any_type)),
-                            ColumnConstraint::NotNull => instr.push_str(" NOT NULL"),
-                            ColumnConstraint::Null => instr.push_str(" NULL"),
-                            ColumnConstraint::Unique => instr.push_str(" UNIQUE"),
-                            ColumnConstraint::PrimaryKey => instr.push_str(" PRIMARY KEY"),
-                        }
+                for constraint in column.constraints.iter() {
+                    match *constraint {
+                        ColumnConstraint::Default(ref any_type) => instr.push_str(&format!(" DEFAULT {}", any_type)),
+                        ColumnConstraint::NotNull => instr.push_str(" NOT NULL"),
+                        ColumnConstraint::Null => instr.push_str(" NULL"),
+                        ColumnConstraint::Unique => instr.push_str(" UNIQUE"),
+                        ColumnConstraint::PrimaryKey => instr.push_str(" PRIMARY KEY"),
                     }
                 }
                 instr
             }
-            ChangeInstruction::ModifyColumn(table, column) => {
-                let mut instr = String::new();
-                instr.push_str(&format!("ALTER TABLE {} ALTER COLUMN {} TYPE {}", table.name, column.name, column.sql_type));
-                // TODO: Could probably make this more efficient
-                if let Some(ref constraints) = column.constraints {
-                    for constraint in constraints.iter() {
-                        match *constraint {
-                            ColumnConstraint::Default(ref any_type) => {
-                                instr.push_str(&format!(";\nALTER TABLE {} ALTER COLUMN {} SET DEFAULT {}", table.name, column.name, any_type));
-                            }
-                            ColumnConstraint::NotNull => {
-                                instr.push_str(&format!(";\nALTER TABLE {} ALTER COLUMN {} SET NOT NULL", table.name, column.name));
-                            }
-                            ColumnConstraint::Null => {
-                                instr.push_str(&format!(";\nALTER TABLE {} ALTER COLUMN {} DROP NOT NULL", table.name, column.name));
-                            }
-                            ColumnConstraint::Unique => {
-                                // TODO: These have to be table level constraints. Ignore??
-                                warn!(log, "Ignoring UNIQUE column constraint for {}.{}", table.name, column.name);
-                            }
-                            ColumnConstraint::PrimaryKey => {
-                                // TODO: These have to be table level constraints. Ignore??
-                                warn!(log, "Ignoring PRIMARY KEY column constraint for {}.{}", table.name, column.name);
-                            }
+            ChangeInstruction::ModifyColumnType(table, column) => {
+                format!("ALTER TABLE {} ALTER COLUMN {} TYPE {}", table.name, column.name, column.sql_type)
+            }
+            ChangeInstruction::ModifyColumnNull(table, column) => {
+                for constraint in column.constraints.iter() {
+                    match *constraint {
+                        ColumnConstraint::NotNull => {
+                            return format!("ALTER TABLE {} ALTER COLUMN {} SET NOT NULL", table.name, column.name);
                         }
+                        ColumnConstraint::Null => {
+                            return format!("ALTER TABLE {} ALTER COLUMN {} DROP NOT NULL", table.name, column.name);
+                        }
+                        _ => {}
                     }
                 }
-                instr
+                error!(log, "Expected to modify column null constraint for {}.{}", table.name, column.name);
+                "".to_owned()
+            }
+            ChangeInstruction::ModifyColumnDefault(table, column) => {
+                for constraint in column.constraints.iter() {
+                    match *constraint {
+                        ColumnConstraint::Default(ref any_type) => {
+                            return format!(";\nALTER TABLE {} ALTER COLUMN {} SET DEFAULT {}", table.name, column.name, any_type);
+                        }
+                        _ => {}
+                    }
+                }
+                error!(log, "Expected to modify column default constraint for {}.{}", table.name, column.name);
+                "".to_owned()
+            }
+            ChangeInstruction::ModifyColumnUniqueConstraint(table, column) => {
+                for constraint in column.constraints.iter() {
+                    match *constraint {
+                        ColumnConstraint::Unique => {
+                            // TODO: These have to be table level constraints. Ignore??
+                            warn!(log, "Ignoring UNIQUE column constraint for {}.{}", table.name, column.name);
+                        }
+                        _ => {}
+                    }
+                }
+                "".to_owned()
+            }
+            ChangeInstruction::ModifyColumnPrimaryKeyConstraint(table, column) => {
+                for constraint in column.constraints.iter() {
+                    match *constraint {
+                        ColumnConstraint::PrimaryKey => {
+                            // TODO: These have to be table level constraints. Ignore??
+                            warn!(log, "Ignoring PRIMARY KEY column constraint for {}.{}", table.name, column.name);
+                        }
+                        _ => {}
+                    }
+                }
+                "".to_owned()
             }
             ChangeInstruction::RemoveColumn(table, ref column_name) => {
                 format!("ALTER TABLE {} DROP COLUMN {}", table.name, column_name)
@@ -1222,20 +1264,20 @@ mod tests {
                 ColumnDefinition {
                     name: "id".to_owned(),
                     sql_type: SqlType::Simple(SimpleSqlType::Serial),
-                    constraints: Some(vec![
+                    constraints: vec![
                         ColumnConstraint::NotNull,
                         ColumnConstraint::PrimaryKey,
-                    ]),
+                    ],
                 },
                 ColumnDefinition {
                     name: "first_name".to_owned(),
                     sql_type: SqlType::Simple(SimpleSqlType::VariableLengthString(100)),
-                    constraints: Some(vec![
+                    constraints: vec![
                         ColumnConstraint::NotNull,
-                    ]),
+                    ],
                 },
             ],
-            constraints: None,
+            constraints: Vec::new(),
         }
     }
 
@@ -1266,7 +1308,7 @@ mod tests {
                 assert_that!(table.columns).has_length(2);
                 assert_that!(table.columns[0].name).is_equal_to("id".to_owned());
                 assert_that!(table.columns[1].name).is_equal_to("first_name".to_owned());
-                assert_that!(table.constraints).is_none();
+                assert_that!(table.constraints).is_empty();
             }
             ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
         }
@@ -1287,9 +1329,9 @@ mod tests {
             ColumnDefinition {
                 name: "last_name".to_owned(),
                 sql_type: SqlType::Simple(SimpleSqlType::VariableLengthString(100)),
-                constraints: Some(vec![
+                constraints: vec![
                     ColumnConstraint::NotNull,
-                ]),
+                ],
             });
 
         // Create a database with the base table already defined.
@@ -1314,7 +1356,7 @@ mod tests {
                 assert_that!(table.name.to_string()).is_equal_to("my.contacts".to_owned());
                 assert_that!(column.name).is_equal_to("last_name".to_owned());
                 assert_that!(column.sql_type).is_equal_to(SqlType::Simple(SimpleSqlType::VariableLengthString(100)));
-                assert_that!(column.constraints).is_some().has_length(1);
+                assert_that!(column.constraints).has_length(1);
             }
             ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
         }
@@ -1332,9 +1374,9 @@ mod tests {
             ColumnDefinition {
                 name: "last_name".to_owned(),
                 sql_type: SqlType::Simple(SimpleSqlType::VariableLengthString(200)),
-                constraints: Some(vec![
+                constraints: vec![
                     ColumnConstraint::NotNull,
-                ]),
+                ],
             });
 
         // Create a database with the base table already defined.
@@ -1344,9 +1386,9 @@ mod tests {
             ColumnDefinition {
                 name: "last_name".to_owned(),
                 sql_type: SqlType::Simple(SimpleSqlType::VariableLengthString(100)),
-                constraints: Some(vec![
+                constraints: vec![
                     ColumnConstraint::NotNull,
-                ]),
+                ],
             });
 
         existing_database.tables.push(existing_table);
@@ -1365,19 +1407,18 @@ mod tests {
         // We should have a single instruction to create a new table
         assert_that!(changeset).has_length(1);
         match changeset[0] {
-            ChangeInstruction::ModifyColumn(ref table, ref column) => {
+            ChangeInstruction::ModifyColumnType(ref table, ref column) => {
                 assert_that!(table.name.to_string()).is_equal_to("my.contacts".to_owned());
                 assert_that!(column.name).is_equal_to("last_name".to_owned());
                 assert_that!(column.sql_type).is_equal_to(SqlType::Simple(SimpleSqlType::VariableLengthString(200)));
-                assert_that!(column.constraints).is_some().has_length(1);
+                assert_that!(column.constraints).has_length(1);
             }
             ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
         }
 
         // Check the SQL generation
         assert_that!(changeset[0].to_sql(&log))
-            .is_equal_to("ALTER TABLE my.contacts ALTER COLUMN last_name TYPE varchar(200);\n\
-                          ALTER TABLE my.contacts ALTER COLUMN last_name SET NOT NULL".to_owned());
+            .is_equal_to("ALTER TABLE my.contacts ALTER COLUMN last_name TYPE varchar(200)".to_owned());
     }
 
     #[test]
@@ -1392,9 +1433,9 @@ mod tests {
             ColumnDefinition {
                 name: "last_name".to_owned(),
                 sql_type: SqlType::Simple(SimpleSqlType::VariableLengthString(100)),
-                constraints: Some(vec![
+                constraints: vec![
                     ColumnConstraint::NotNull,
-                ]),
+                ],
             });
 
         existing_database.tables.push(existing_table);

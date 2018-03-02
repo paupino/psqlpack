@@ -50,7 +50,7 @@ pub enum SimpleSqlType {
     Uuid, // uuid
 }
 
-#[derive(Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
 pub enum ColumnConstraint {
     Default(AnyValue),
     NotNull,
@@ -59,7 +59,7 @@ pub enum ColumnConstraint {
     PrimaryKey,
 }
 
-#[derive(Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
 pub enum AnyValue {
     Boolean(bool),
     Integer(i32),
@@ -128,14 +128,14 @@ pub struct ObjectName {
 pub struct TableDefinition {
     pub name: ObjectName,
     pub columns: Vec<ColumnDefinition>,
-    pub constraints: Option<Vec<TableConstraint>>,
+    pub constraints: Vec<TableConstraint>,
 }
 
 #[derive(Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
 pub struct ColumnDefinition {
     pub name: String,
     pub sql_type: SqlType,
-    pub constraints: Option<Vec<ColumnConstraint>>,
+    pub constraints: Vec<ColumnConstraint>,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
