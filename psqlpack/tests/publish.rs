@@ -49,7 +49,7 @@ fn it_can_create_a_database_that_doesnt_exist() {
 
     // Preliminary: remove existing database
     let connection = ConnectionBuilder::new(DB_NAME, "localhost", "postgres").build().unwrap();
-    let mut conn = connection.connect_host().unwrap();
+    let conn = connection.connect_host().unwrap();
     drop_db!(conn, connection.database());
     conn.finish().unwrap();
 
