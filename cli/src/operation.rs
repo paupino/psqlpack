@@ -27,6 +27,18 @@ pub fn extract<L: Into<Logger>>(log: L, source_connection_string: &str, target_p
     }
 }
 
+pub fn generate_template<L: Into<Logger>>(log: L, template: &str, output_path: &Path, template_name: &str) -> PsqlpackResult<()> {
+    match template {
+        "project" => {
+            Ok(())
+        }
+        "publishprofile" => {
+            Ok(())
+        }
+        unrecognized => Err(PsqlpackErrorKind::TemplateGenerationError(format!("Template not found: {}", unrecognized)).into())
+    }
+}
+
 pub fn publish<L: Into<Logger>>(
     log: L,
     source_package_path: &Path,
