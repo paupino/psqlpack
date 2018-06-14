@@ -11,6 +11,7 @@ mod profiles;
 mod project;
 mod package;
 mod delta;
+pub mod template;
 
 pub use self::profiles::{GenerationOptions, PublishProfile};
 pub use self::project::Project;

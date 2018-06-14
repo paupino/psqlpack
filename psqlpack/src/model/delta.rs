@@ -913,7 +913,7 @@ mod tests {
 
         // Create an empty package (i.e. so it needs to create the type)
         let existing_database = Package::new();
-        let publish_profile = PublishProfile::new();
+        let publish_profile = PublishProfile::default();
 
         let mut changeset = Vec::new();
         let result = (&source_type).generate(&mut changeset, &existing_database, &publish_profile, &log);
@@ -948,7 +948,7 @@ mod tests {
         // Create a package with the type already defined (same as base type)
         let mut existing_database = Package::new();
         existing_database.types.push(base_type());
-        let publish_profile = PublishProfile::new();
+        let publish_profile = PublishProfile::default();
 
         let mut changeset = Vec::new();
         let result = (&source_type).generate(&mut changeset, &existing_database, &publish_profile, &log);
@@ -974,7 +974,7 @@ mod tests {
         // Create a package with the type already defined
         let mut existing_database = Package::new();
         existing_database.types.push(base_type());
-        let publish_profile = PublishProfile::new();
+        let publish_profile = PublishProfile::default();
 
         let mut changeset = Vec::new();
         let result = (&source_type).generate(&mut changeset, &existing_database, &publish_profile, &log);
@@ -1021,7 +1021,7 @@ mod tests {
         // Create a package with the type already defined
         let mut existing_database = Package::new();
         existing_database.types.push(base_type());
-        let publish_profile = PublishProfile::new();
+        let publish_profile = PublishProfile::default();
 
         let mut changeset = Vec::new();
         let result = (&source_type).generate(&mut changeset, &existing_database, &publish_profile, &log);
@@ -1068,7 +1068,7 @@ mod tests {
         // Create a package with the type already defined
         let mut existing_database = Package::new();
         existing_database.types.push(base_type());
-        let publish_profile = PublishProfile::new();
+        let publish_profile = PublishProfile::default();
 
         let mut changeset = Vec::new();
         let result = (&source_type).generate(&mut changeset, &existing_database, &publish_profile, &log);
@@ -1190,7 +1190,7 @@ mod tests {
         // Create a package with the type already defined
         let mut existing_database = Package::new();
         existing_database.types.push(base_type());
-        let publish_profile = PublishProfile::new();
+        let publish_profile = PublishProfile::default();
 
         let mut changeset = Vec::new();
         let result = (&source_type).generate(&mut changeset, &existing_database, &publish_profile, &log);
