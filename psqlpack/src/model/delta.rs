@@ -63,16 +63,14 @@ impl<'a> Diffable<'a, Package> for DbObject<'a> {
         log: &Logger,
     ) -> PsqlpackResult<()> {
         match *self {
+            DbObject::Column(table, column) => LinkedColumn { table: &table, column: &column }.generate(changeset, target, publish_profile, log),
+            DbObject::Constraint(table, constraint) => LinkedTableConstraint { table: &table, constraint: &constraint }.generate(changeset, target, publish_profile, log),
             DbObject::Extension(extension) => extension.generate(changeset, target, publish_profile, log),
             DbObject::Function(function) => function.generate(changeset, target, publish_profile, log),
             DbObject::Schema(schema) => schema.generate(changeset, target, publish_profile, log),
             DbObject::Script(script) => script.generate(changeset, target, publish_profile, log),
             DbObject::Table(table) => table.generate(changeset, target, publish_profile, log),
             DbObject::Type(ty) => ty.generate(changeset, target, publish_profile, log),
-            ref unhandled => {
-                warn!(log, "TODO - unhandled DBObject: {}", unhandled);
-                Ok(())
-            }
         }
     }
 }
@@ -146,49 +144,84 @@ impl<'a> Diffable<'a, Package> for &'a TableDefinition {
     ) -> PsqlpackResult<()> {
         let table_result = target.tables.iter().find(|t| t.name == self.name);
         if let Some(target_table) = table_result {
-            // Check the columns
-
-            // Get all the differences
-            for src_column in self.columns.iter() {
-                let target_column = target_table.columns.iter().find(|tgt| tgt.name.eq(&src_column.name));
-                if let Some(target_column) = target_column {
-                    // Check the type
-                    if !src_column.sql_type.eq(&target_column.sql_type) {
-                        changeset.push(ChangeInstruction::ModifyColumnType(self, &src_column));
-                    }
-
-                    // Check constraints
-                    let src_set: HashSet<_> = src_column.constraints.iter().cloned().collect();
-                    let target_set: HashSet<_> = target_column.constraints.iter().cloned().collect();
-                    // target_set - src_set (e.g. adding new constraints)
-                    for x in target_set.difference(&src_set) {
-                        match *x {
-                            ColumnConstraint::Null | ColumnConstraint::NotNull => changeset.push(ChangeInstruction::ModifyColumnNull(self, &src_column)),
-                            ColumnConstraint::Default(_) => changeset.push(ChangeInstruction::ModifyColumnDefault(self, &src_column)),
-                            ColumnConstraint::Unique => changeset.push(ChangeInstruction::ModifyColumnUniqueConstraint(self, &src_column)),
-                            ColumnConstraint::PrimaryKey => changeset.push(ChangeInstruction::ModifyColumnPrimaryKeyConstraint(self, &src_column)),
-                        }
-                    }
-
-                    // TODO: src_sec - target_set (e.g. what's been removed)
-
-                } else {
-                    // Doesn't exist, add it
-                    changeset.push(ChangeInstruction::AddColumn(self, &src_column));
-                }
-            }
+            // We check for column removals here
             for tgt in target_table.columns.iter() {
                 if !self.columns.iter().any(|src| tgt.name.eq(&src.name)) {
                     // Column in target but not in source
                     changeset.push(ChangeInstruction::RemoveColumn(self, tgt.name.to_owned()));
                 }
             }
-
-            // TODO: Check the table constraints
-
         } else {
             changeset.push(ChangeInstruction::AddTable(self));
         }
+        Ok(())
+    }
+}
+
+struct LinkedColumn<'a> {
+    table: &'a TableDefinition,
+    column: &'a ColumnDefinition
+}
+
+impl<'a> Diffable<'a, Package> for LinkedColumn<'a> {
+    fn generate(
+        &self,
+        changeset: &mut Vec<ChangeInstruction<'a>>,
+        target: &Package,
+        _: &PublishProfile,
+        _: &Logger,
+    ) -> PsqlpackResult<()> {
+        // We only generate items here if the table doesn't exist (for the time being)
+        // We should consider if we want to just generate empty tables and then be consistent adding
+        let table_result = target.tables.iter().find(|t| t.name == self.table.name);
+        if let Some(target_table) = table_result {
+
+            // Check if the column exists on the target
+            let target_column = target_table.columns.iter().find(|tgt| tgt.name.eq(&self.column.name));
+            if let Some(target_column) = target_column {
+                // Check the type
+                if !self.column.sql_type.eq(&target_column.sql_type) {
+                    changeset.push(ChangeInstruction::ModifyColumnType(self.table, &self.column));
+                }
+
+                // Check constraints
+                let src_set: HashSet<_> = self.column.constraints.iter().cloned().collect();
+                let target_set: HashSet<_> = target_column.constraints.iter().cloned().collect();
+                // target_set - src_set (e.g. adding new constraints)
+                for x in target_set.difference(&src_set) {
+                    match *x {
+                        ColumnConstraint::Null | ColumnConstraint::NotNull => changeset.push(ChangeInstruction::ModifyColumnNull(self.table, &self.column)),
+                        ColumnConstraint::Default(_) => changeset.push(ChangeInstruction::ModifyColumnDefault(self.table, &self.column)),
+                        ColumnConstraint::Unique => changeset.push(ChangeInstruction::ModifyColumnUniqueConstraint(self.table, &self.column)),
+                        ColumnConstraint::PrimaryKey => changeset.push(ChangeInstruction::ModifyColumnPrimaryKeyConstraint(self.table, &self.column)),
+                    }
+                }
+
+                // TODO: src_sec - target_set (e.g. what constraints have been removed)
+
+            } else {
+                // Doesn't exist, add it
+                changeset.push(ChangeInstruction::AddColumn(self.table, &self.column));
+            }
+        }
+        Ok(())
+    }
+}
+
+struct LinkedTableConstraint<'a> {
+    table: &'a TableDefinition,
+    constraint: &'a TableConstraint
+}
+
+impl<'a> Diffable<'a, Package> for LinkedTableConstraint<'a> {
+    fn generate(
+        &self,
+        changeset: &mut Vec<ChangeInstruction<'a>>,
+        _: &Package,
+        _: &PublishProfile,
+        log: &Logger,
+    ) -> PsqlpackResult<()> {
+        warn!(log, "TODO: Table constraints not yet implemented");
         Ok(())
     }
 }
@@ -1325,8 +1358,7 @@ mod tests {
     fn it_can_add_column_to_existing_table() {
         let log = empty_logger();
         let mut source_table = base_table();
-        source_table.columns.push(
-            ColumnDefinition {
+        source_table.columns.push(ColumnDefinition {
                 name: "last_name".to_owned(),
                 sql_type: SqlType::Simple(SimpleSqlType::VariableLengthString(100)),
                 constraints: vec![
@@ -1346,7 +1378,13 @@ mod tests {
         };
 
         let mut changeset = Vec::new();
+        // First, check that source table changes do nothing
         let result = (&source_table).generate(&mut changeset, &existing_database, &publish_profile, &log);
+        assert_that!(changeset).is_empty();
+
+        // Now we check with a linked column
+        let result = LinkedColumn { table: &source_table, column: &source_table.columns.last().unwrap()}
+                        .generate(&mut changeset, &existing_database, &publish_profile, &log);
         assert_that!(result).is_ok();
 
         // We should have a single instruction to create a new table
@@ -1401,7 +1439,13 @@ mod tests {
         };
 
         let mut changeset = Vec::new();
+        // First, check that source table changes do nothing
         let result = (&source_table).generate(&mut changeset, &existing_database, &publish_profile, &log);
+        assert_that!(changeset).is_empty();
+
+        // Now we check with a linked column
+        let result = LinkedColumn { table: &source_table, column: &source_table.columns.last().unwrap()}
+                        .generate(&mut changeset, &existing_database, &publish_profile, &log);
         assert_that!(result).is_ok();
 
         // We should have a single instruction to create a new table

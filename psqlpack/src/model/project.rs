@@ -8,7 +8,8 @@ use serde_json;
 use walkdir::WalkDir;
 
 use sql::ast::*;
-use sql::{lexer, parser};
+use sql::lexer;
+use sql::parser::StatementListParser;
 use model::Package;
 use errors::{PsqlpackError, PsqlpackResult, PsqlpackResultExt};
 use errors::PsqlpackErrorKind::*;
@@ -169,7 +170,7 @@ impl Project {
                 trace!(log, "Parsing file");
                 // TODO: In the future it'd be nice to allow the parser to generate
                 //       shift/reduce rules when dump-symbols is defined
-                match parser::parse_statement_list(tokens) {
+                match StatementListParser::new().parse(tokens) {
                     Ok(statement_list) => {
                         trace!(log, "Finished parsing statements"; "count" => statement_list.len());
                         for statement in statement_list {

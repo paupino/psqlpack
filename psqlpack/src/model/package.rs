@@ -13,8 +13,9 @@ use postgres::rows::Row;
 use lalrpop_util;
 
 use connection::Connection;
-use sql::{lexer, parser};
+use sql::lexer;
 use sql::ast::*;
+use sql::parser::{SqlTypeParser, FunctionArgumentListParser, FunctionReturnTypeParser};
 use model::Project;
 use errors::{PsqlpackError, PsqlpackResult, PsqlpackResultExt};
 use errors::PsqlpackErrorKind::*;
@@ -189,7 +190,7 @@ impl From<String> for SqlType {
     fn from(s: String) -> Self {
         // TODO: Error handling for this
         let tokens = lexer::tokenize(&s).unwrap();
-        parser::parse_sql_type(tokens).unwrap()
+        SqlTypeParser::new().parse(tokens).unwrap()
     }
 }
 
@@ -314,7 +315,7 @@ impl Package {
                     err.end_pos,
                 ).into()
             };
-            fn parse(err: lalrpop_util::ParseError<(), lexer::Token, ()>) -> PsqlpackError {
+            fn parse(err: lalrpop_util::ParseError<(), lexer::Token, &'static str>) -> PsqlpackError {
                 InlineParseError(err).into()
             };
 
@@ -324,14 +325,14 @@ impl Package {
                 lexer::tokenize(&raw_args)
                     .map_err(lexical)
                     .and_then(|tokens| {
-                        parser::parse_function_argument_list(tokens).map_err(parse)
+                        FunctionArgumentListParser::new().parse(tokens).map_err(parse)
                     })
                     .chain_err(|| PackageFunctionArgsInspectError(raw_args))?
             };
             let return_type = lexer::tokenize(&raw_result)
                 .map_err(&lexical)
                 .and_then(|tokens| {
-                    parser::parse_function_return_type(tokens).map_err(parse)
+                    FunctionReturnTypeParser::new().parse(tokens).map_err(parse)
                 })
                 .chain_err(|| PackageFunctionReturnTypeInspectError(raw_result))?;
 
@@ -437,8 +438,6 @@ impl Package {
     }
 
     pub fn set_defaults(&mut self, project: &Project) {
-        use std::ascii::AsciiExt;
-
         // Make sure the public schema exists
         let mut has_public = false;
         for schema in &mut self.schemas {
@@ -892,7 +891,8 @@ mod tests {
     use errors::PsqlpackError;
     use errors::PsqlpackErrorKind::*;
     use model::*;
-    use sql::{ast, lexer, parser};
+    use sql::{ast, lexer};
+    use sql::parser::StatementListParser;
 
     use slog::{Discard, Drain, Logger};
     use spectral::prelude::*;
@@ -903,7 +903,7 @@ mod tests {
             Err(e) => panic!("Syntax error: {}", e.line),
         };
         let mut package = Package::new();
-        match parser::parse_statement_list(tokens) {
+        match StatementListParser::new().parse(tokens) {
             Ok(statement_list) => for statement in statement_list {
                 match statement {
                     ast::Statement::Extension(_) => panic!("Extension statement found"),

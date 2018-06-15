@@ -1,4 +1,3 @@
-use std::ascii::AsciiExt;
 use std::str::FromStr;
 
 use postgres::{Connection as PostgresConnection, TlsMode};
