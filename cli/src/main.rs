@@ -83,36 +83,66 @@ fn main() {
         .version(crate_version!())
         .author(crate_authors!())
         .subcommand(
-            SubCommand::with_name("package")
-                .about("creates a psqlpack from the specified target")
-                .arg(
-                    Arg::with_name("SOURCE")
-                        .long("source")
-                        .required(false)
-                        .takes_value(true)
-                        .help("The source project JSON file"),
-                )
-                .arg(
-                    Arg::with_name("OUT")
-                        .long("out")
-                        .required(true)
-                        .takes_value(true)
-                        .help("The location of the folder to export the psqlpack to"),
-                ),
-        )
-        .subcommand(
             SubCommand::with_name("extract")
-                .about("creates a psqlpack from an existing database")
+                .about("Creates a psqlpack from an existing database")
                 .arg(
                     Arg::with_name("SOURCE")
                         .long("source")
+                        .short("s")
                         .required(false)
                         .takes_value(true)
                         .help("The source database connection string"),
                 )
                 .arg(
-                    Arg::with_name("OUT")
-                        .long("out")
+                    Arg::with_name("OUTPUT")
+                        .long("output")
+                        .short("o")
+                        .required(true)
+                        .takes_value(true)
+                        .help("The location of the folder to export the psqlpack to"),
+                ),
+        )        
+        .subcommand(
+            SubCommand::with_name("new")
+                .about("Creates a new project or publish profile based upon the specified template")
+                .arg(
+                    Arg::with_name("TEMPLATE")
+                        .required(true)
+                        .index(1)
+                        .help("The template to instantiate (e.g. project, publishprofile)"),
+                )
+                .arg(
+                    Arg::with_name("NAME")
+                        .long("name")
+                        .short("n")
+                        .required(false)
+                        .takes_value(true)
+                        .help("The name for the created output (if none specified, the name of the current directory is used)"),
+                )
+                .arg(
+                    Arg::with_name("OUTPUT")
+                        .long("output")
+                        .short("o")
+                        .required(true)
+                        .takes_value(true)
+                        .help("The location to place the generated output"),
+                ),
+        )
+        .subcommand(
+            SubCommand::with_name("package")
+                .about("Creates a psqlpack from the specified target")
+                .arg(
+                    Arg::with_name("SOURCE")
+                        .long("source")
+                        .short("s")
+                        .required(false)
+                        .takes_value(true)
+                        .help("The source project JSON file"),
+                )
+                .arg(
+                    Arg::with_name("OUTPUT")
+                        .long("output")
+                        .short("o")
                         .required(true)
                         .takes_value(true)
                         .help("The location of the folder to export the psqlpack to"),
@@ -120,10 +150,11 @@ fn main() {
         )
         .subcommand(
             SubCommand::with_name("publish")
-                .about("publishes a psqlpack to target")
+                .about("Publishes a psqlpack to target")
                 .arg(
                     Arg::with_name("SOURCE")
                         .long("source")
+                        .short("s")
                         .required(true)
                         .takes_value(true)
                         .help("The source package to use for publishing"),
@@ -131,6 +162,7 @@ fn main() {
                 .arg(
                     Arg::with_name("TARGET")
                         .long("target")
+                        .short("t")
                         .required(true)
                         .takes_value(true)
                         .help("The target database to publish to"),
@@ -138,17 +170,55 @@ fn main() {
                 .arg(
                     Arg::with_name("PROFILE")
                         .long("profile")
+                        .short("p")
                         .required(true)
                         .takes_value(true)
                         .help("The publish profile to use for publishing"),
                 ),
         )
         .subcommand(
-            SubCommand::with_name("script")
-                .about("outputs the SQL file that would be executed against the target")
+            SubCommand::with_name("report")
+                .about("Outputs a deployment report for proposed changes to the target")
                 .arg(
                     Arg::with_name("SOURCE")
                         .long("source")
+                        .short("s")
+                        .required(true)
+                        .takes_value(true)
+                        .help("The source package to use for the deploy report"),
+                )
+                .arg(
+                    Arg::with_name("TARGET")
+                        .long("target")
+                        .short("t")
+                        .required(true)
+                        .takes_value(true)
+                        .help("The target database to compare to"),
+                )
+                .arg(
+                    Arg::with_name("PROFILE")
+                        .long("profile")
+                        .short("p")
+                        .required(true)
+                        .takes_value(true)
+                        .help("The publish profile to use for the deploy report"),
+                )
+                .arg(
+                    Arg::with_name("OUTPUT")
+                        .long("output")
+                        .short("o")
+                        .required(true)
+                        .takes_value(true)
+                        .help("The report file to generate"),
+                ),
+        )
+        .subcommand(
+            SubCommand::with_name("script")
+                .about("Outputs the SQL file that would be executed against the target")
+                .arg(
+                    Arg::with_name("SOURCE")
+                        .long("source")
+                        .short("s")
                         .required(false)
                         .takes_value(true)
                         .help("The source package to use for the deploy report"),
@@ -156,6 +226,7 @@ fn main() {
                 .arg(
                     Arg::with_name("TARGET")
                         .long("target")
+                        .short("t")
                         .required(true)
                         .takes_value(true)
                         .help("The target database to compare to"),
@@ -163,53 +234,22 @@ fn main() {
                 .arg(
                     Arg::with_name("PROFILE")
                         .long("profile")
+                        .short("p")
                         .required(true)
                         .takes_value(true)
                         .help("The publish profile to use for the deploy report"),
                 )
                 .arg(
-                    Arg::with_name("OUT")
-                        .long("out")
+                    Arg::with_name("OUTPUT")
+                        .long("output")
+                        .short("o")
                         .required(true)
                         .takes_value(true)
                         .help("The SQL file to generate"),
                 ),
         )
-        .subcommand(
-            SubCommand::with_name("report")
-                .about("outputs a JSON deployment report for proposed changes to the target")
-                .arg(
-                    Arg::with_name("SOURCE")
-                        .long("source")
-                        .required(true)
-                        .takes_value(true)
-                        .help("The source package to use for the deploy report"),
-                )
-                .arg(
-                    Arg::with_name("TARGET")
-                        .long("target")
-                        .required(true)
-                        .takes_value(true)
-                        .help("The target database to compare to"),
-                )
-                .arg(
-                    Arg::with_name("PROFILE")
-                        .long("profile")
-                        .required(true)
-                        .takes_value(true)
-                        .help("The publish profile to use for the deploy report"),
-                )
-                .arg(
-                    Arg::with_name("OUT")
-                        .long("out")
-                        .required(true)
-                        .takes_value(true)
-                        .help("The report file to generate"),
-                ),
-        )
         .arg(
             Arg::with_name("trace")
-                .short("t")
                 .long("trace")
                 .global(true)
                 .help("Enables trace level logging"),
@@ -265,6 +305,32 @@ enum HandleResult {
 fn handle(log: &Logger, matches: &ArgMatches) -> HandleResult {
     // TODO: do some validation
     match matches.subcommand() {
+        (command @ "extract", Some(extract)) => {
+            let log = log.new(o!("command" => command.to_owned()));
+            // Source is a DB, target is a path
+            let source = String::from(extract.value_of("SOURCE").unwrap());
+            info!(log, "Source connection string"; "source" => &source);
+            let output = Path::new(extract.value_of("OUTPUT").unwrap());
+            info!(log, "Output path"; "output" => output.to_str().unwrap());
+            let result = operation::extract(log, &source, output);
+            HandleResult::Outcome(command.to_owned(), result)
+        }
+        (command @ "new", Some(new)) => {
+            let log = log.new(o!("command" => command.to_owned()));
+            let template = String::from(new.value_of("TEMPLATE").unwrap());
+            info!(log, "Template selected"; "template" => &template);
+            let output = Path::new(new.value_of("OUTPUT").unwrap());
+            info!(log, "Output path"; "output" => output.to_str().unwrap());
+            let name = match new.value_of("NAME") {
+                Some(cmd_name) => cmd_name.into(),
+                None => {
+                    output.file_name().unwrap().to_str().unwrap().to_owned()
+                }
+            };
+            info!(log, "Template name"; "name" => &name);
+            let result = operation::generate_template(log, &template, &output, &name);
+            HandleResult::Outcome(command.to_owned(), result)
+        }
         (command @ "package", Some(package)) => {
             let log = log.new(o!("command" => command.to_owned()));
             // Source is a directory to begin with
@@ -278,19 +344,9 @@ fn handle(log: &Logger, matches: &ArgMatches) -> HandleResult {
                 }
             };
             info!(log, "Project file path"; "source" => source.to_str().unwrap());
-            let output = Path::new(package.value_of("OUT").unwrap());
+            let output = Path::new(package.value_of("OUTPUT").unwrap());
             info!(log, "Output path"; "output" => output.to_str().unwrap());
             let result = operation::package(log, &source, output);
-            HandleResult::Outcome(command.to_owned(), result)
-        }
-        (command @ "extract", Some(extract)) => {
-            let log = log.new(o!("command" => command.to_owned()));
-            // Source is a DB, target is a path
-            let source = String::from(extract.value_of("SOURCE").unwrap());
-            info!(log, "Source connection string"; "source" => &source);
-            let output = Path::new(extract.value_of("OUT").unwrap());
-            info!(log, "Output path"; "output" => output.to_str().unwrap());
-            let result = operation::extract(log, &source, output);
             HandleResult::Outcome(command.to_owned(), result)
         }
         (command @ "publish", Some(publish)) => {
@@ -302,24 +358,24 @@ fn handle(log: &Logger, matches: &ArgMatches) -> HandleResult {
             let result = operation::publish(log, source, &target, profile);
             HandleResult::Outcome(command.to_owned(), result)
         }
-        (command @ "script", Some(script)) => {
-            let log = log.new(o!("command" => command.to_owned()));
-            // Source is the psqlpack, target is the DB
-            let source = Path::new(script.value_of("SOURCE").unwrap());
-            let target = String::from(script.value_of("TARGET").unwrap());
-            let profile = Path::new(script.value_of("PROFILE").unwrap());
-            let output_file = Path::new(script.value_of("OUT").unwrap());
-            let result = operation::generate_sql(log, source, &target, profile, output_file);
-            HandleResult::Outcome(command.to_owned(), result)
-        }
         (command @ "report", Some(report)) => {
             let log = log.new(o!("command" => command.to_owned()));
             // Source is the psqlpack, target is the DB
             let source = Path::new(report.value_of("SOURCE").unwrap());
             let target = String::from(report.value_of("TARGET").unwrap());
             let profile = Path::new(report.value_of("PROFILE").unwrap());
-            let output_file = Path::new(report.value_of("OUT").unwrap());
+            let output_file = Path::new(report.value_of("OUTPUT").unwrap());
             let result = operation::generate_report(log, source, &target, profile, output_file);
+            HandleResult::Outcome(command.to_owned(), result)
+        }
+        (command @ "script", Some(script)) => {
+            let log = log.new(o!("command" => command.to_owned()));
+            // Source is the psqlpack, target is the DB
+            let source = Path::new(script.value_of("SOURCE").unwrap());
+            let target = String::from(script.value_of("TARGET").unwrap());
+            let profile = Path::new(script.value_of("PROFILE").unwrap());
+            let output_file = Path::new(script.value_of("OUTPUT").unwrap());
+            let result = operation::generate_sql(log, source, &target, profile, output_file);
             HandleResult::Outcome(command.to_owned(), result)
         }
         _ => HandleResult::UnknownSubcommand,

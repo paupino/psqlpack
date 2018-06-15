@@ -2,7 +2,7 @@ use std::path::Path;
 
 use slog::Logger;
 
-use psqlpack::{Delta, Package, Project, PsqlpackResult, PsqlpackErrorKind, PublishProfile};
+use psqlpack::{Delta, Package, Project, PsqlpackResult, PsqlpackErrorKind, PublishProfile, template};
 
 pub fn package<L: Into<Logger>>(log: L, project_path: &Path, output_path: &Path) -> PsqlpackResult<()> {
     let log = log.into().new(o!("operation" => "package"));
@@ -24,6 +24,21 @@ pub fn extract<L: Into<Logger>>(log: L, source_connection_string: &str, target_p
             data.write_to(target_package_path)
         }
         None => Err(PsqlpackErrorKind::PackageCreationError("database does not exist".into()).into()),
+    }
+}
+
+pub fn generate_template<L: Into<Logger>>(log: L, template: &str, output_path: &Path, name: &str) -> PsqlpackResult<()> {
+    let log = log.into().new(o!("operation" => "generate_template"));
+    match template {
+        "project" => {
+            info!(log, "Generating project"; "destination" => output_path.to_str().unwrap());
+            template::generate_project(output_path, name)
+        }
+        "publishprofile" | "publish_profile" => {
+            info!(log, "Generating publish profile"; "destination" => output_path.to_str().unwrap());
+            template::generate_publish_profile(output_path, name)
+        }
+        unrecognized => Err(PsqlpackErrorKind::TemplateGenerationError(format!("Template not found: {}", unrecognized)).into())
     }
 }
 

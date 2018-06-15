@@ -108,6 +108,10 @@ error_chain! {
             description("Parser error")
             display("Parser error: {}", ParseErrorFormatter(error))
         }
+        TemplateGenerationError(message: String) {
+            description("Error generating template")
+            display("Error generating template: {}", message)
+        }
         GenerationError(message: String) {
             description("Error generating package")
             display("Error generating package: {}", message)

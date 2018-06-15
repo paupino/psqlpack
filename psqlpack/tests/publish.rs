@@ -18,7 +18,7 @@ macro_rules! publish_simple_package {
         let package = generate_simple_package!($namespace);
 
         // Use the default publish profile
-        let publish_profile = PublishProfile::new();
+        let publish_profile = PublishProfile::default();
 
         // Create a target package from connection string
         let log = Logger::root(Discard.fuse(), o!());

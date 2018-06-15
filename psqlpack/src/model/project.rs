@@ -1,3 +1,4 @@
+use std::default::Default;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::fs::{self, File};
@@ -25,7 +26,7 @@ macro_rules! dump_statement {
     ($log:ident, $statement:ident) => {}
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 pub struct Project {
     #[serde(skip_serializing)] path: Option<PathBuf>,
     pub version: String,
@@ -35,9 +36,8 @@ pub struct Project {
     pub extensions: Option<Vec<String>>,
 }
 
-impl Project {
-    #[allow(dead_code)]
-    pub fn default() -> Self {
+impl Default for Project {
+    fn default() -> Self {
         Project {
             path: None,
             version: "1.0".into(),
@@ -47,7 +47,9 @@ impl Project {
             extensions: None,
         }
     }
+}
 
+impl Project {
     pub fn from_path(log: &Logger, path: &Path) -> PsqlpackResult<Project> {
         let log = log.new(o!("project" => "from_path"));
         trace!(log, "Attempting to open project file"; "path" => path.to_str().unwrap());

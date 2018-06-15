@@ -10,7 +10,7 @@ name = "psqlpack"
 path = "src/main.rs"
 
 [dependencies]
-clap = "2.26"
+clap = { version = "2.26", features = [ "wrap_help" ] }
 slog = "2.1"
 slog-term = "2.3"
 psqlpack = { path = "../psqlpack/" }
