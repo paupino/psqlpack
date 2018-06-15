@@ -64,17 +64,13 @@ impl<'a> Diffable<'a, Package> for DbObject<'a> {
     ) -> PsqlpackResult<()> {
         match *self {
             DbObject::Column(table, column) => LinkedColumn { table: &table, column: &column }.generate(changeset, target, publish_profile, log),
-            DbObject::Constraint(table, constraint) => LinkedConstraint { table: &table, constraint: &constraint }.generate(changeset, target, publish_profile, log),
+            DbObject::Constraint(table, constraint) => LinkedTableConstraint { table: &table, constraint: &constraint }.generate(changeset, target, publish_profile, log),
             DbObject::Extension(extension) => extension.generate(changeset, target, publish_profile, log),
             DbObject::Function(function) => function.generate(changeset, target, publish_profile, log),
             DbObject::Schema(schema) => schema.generate(changeset, target, publish_profile, log),
             DbObject::Script(script) => script.generate(changeset, target, publish_profile, log),
             DbObject::Table(table) => table.generate(changeset, target, publish_profile, log),
             DbObject::Type(ty) => ty.generate(changeset, target, publish_profile, log),
-            ref unhandled => {
-                warn!(log, "TODO - unhandled DBObject: {}", unhandled);
-                Ok(())
-            }
         }
     }
 }
@@ -212,19 +208,20 @@ impl<'a> Diffable<'a, Package> for LinkedColumn<'a> {
     }
 }
 
-struct LinkedConstraint<'a> {
+struct LinkedTableConstraint<'a> {
     table: &'a TableDefinition,
     constraint: &'a TableConstraint
 }
 
-impl<'a> Diffable<'a, Package> for LinkedConstraint<'a> {
+impl<'a> Diffable<'a, Package> for LinkedTableConstraint<'a> {
     fn generate(
         &self,
         changeset: &mut Vec<ChangeInstruction<'a>>,
         _: &Package,
         _: &PublishProfile,
-        _: &Logger,
+        log: &Logger,
     ) -> PsqlpackResult<()> {
+        warn!(log, "TODO: Table constraints not yet implemented");
         Ok(())
     }
 }
