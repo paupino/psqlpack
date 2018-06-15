@@ -98,27 +98,27 @@ extern {
     }
 }
 
-pub statement_list: Vec<Statement> = {
-    <v:statement_list> <stmt:statement> => {
+pub StatementList: Vec<Statement> = {
+    <v:StatementList> <stmt:Statement> => {
         let mut v = v;
         v.push(stmt);
         v
     },
-    <statement> => vec!(<>),
+    <Statement> => vec!(<>),
 };
 
-statement: Statement = {
+Statement: Statement = {
     CREATE EXTENSION <name:Ident> ";"? => Statement::Extension(ExtensionDefinition {
         name: name,
     }),
-    CREATE (OR REPLACE)? FUNCTION <name:object_name> "(" ")" RETURNS <return_type:function_return_type> AS <body:Literal> LANGUAGE <lang:function_type> ";"? => Statement::Function(FunctionDefinition {
+    CREATE (OR REPLACE)? FUNCTION <name:ObjectName> "(" ")" RETURNS <return_type:FunctionReturnType> AS <body:Literal> LANGUAGE <lang:FunctionType> ";"? => Statement::Function(FunctionDefinition {
         name: name,
         arguments: Vec::new(),
         return_type: return_type,
         body: body,
         language: lang,
     }),
-    CREATE (OR REPLACE)? FUNCTION <name:object_name> "(" <args:function_argument_list> ")" RETURNS <return_type:function_return_type> AS <body:Literal> LANGUAGE <lang:function_type> ";"? => Statement::Function(FunctionDefinition {
+    CREATE (OR REPLACE)? FUNCTION <name:ObjectName> "(" <args:FunctionArgumentList> ")" RETURNS <return_type:FunctionReturnType> AS <body:Literal> LANGUAGE <lang:FunctionType> ";"? => Statement::Function(FunctionDefinition {
         name: name,
         arguments: args,
         return_type: return_type,
@@ -128,51 +128,51 @@ statement: Statement = {
     CREATE SCHEMA <name:Ident> ";"? => Statement::Schema(SchemaDefinition {
         name: name,
     }),
-    CREATE TABLE <name:object_name> "(" <columns:column_definition_list> "," <table_constraints:table_constraint_list> ")" ";"? => Statement::Table(TableDefinition {
+    CREATE TABLE <name:ObjectName> "(" <columns:ColumnDefinitionList> "," <table_constraints:TableConstraintList> ")" ";"? => Statement::Table(TableDefinition {
         name: name,
         columns: columns,
         constraints: table_constraints,
     }),
-    CREATE TABLE <name:object_name> "(" <columns:column_definition_list> ")" ";"? => Statement::Table(TableDefinition {
+    CREATE TABLE <name:ObjectName> "(" <columns:ColumnDefinitionList> ")" ";"? => Statement::Table(TableDefinition {
         name: name,
         columns: columns,
         constraints: Vec::new(),
     }),
-    CREATE TYPE <name:Ident> AS ENUM "(" <values:enum_value_list> ")" ";"? => Statement::Type(TypeDefinition {
+    CREATE TYPE <name:Ident> AS ENUM "(" <values:EnumValueList> ")" ";"? => Statement::Type(TypeDefinition {
         name: name,
         kind: TypeDefinitionKind::Enum(values),
     }),
 };
 
-object_name: ObjectName = {
+ObjectName: ObjectName = {
     <schema:Ident> "." <name:Ident> => ObjectName { schema: Some(schema), name: name },
     <name:Ident> => ObjectName { schema: None, name: name },
 };
 
-column_definition_list: Vec<ColumnDefinition> = {
-    <v:column_definition_list> "," <c:column_definition> => {
+ColumnDefinitionList: Vec<ColumnDefinition> = {
+    <v:ColumnDefinitionList> "," <c:ColumnDefinition> => {
         let mut v = v;
         v.push(c);
         v
     },
-    <column_definition> => vec!(<>)
+    <ColumnDefinition> => vec!(<>)
 };
 
-column_definition: ColumnDefinition = {
-    <name:Ident> <t:sql_type> <constraints:column_constraint_list> => ColumnDefinition {
+ColumnDefinition: ColumnDefinition = {
+    <name:Ident> <t:SqlType> <constraints:ColumnConstraintList> => ColumnDefinition {
         name: name,
         sql_type: t,
         constraints: constraints,
     },
-    <name:Ident> <t:sql_type> => ColumnDefinition {
+    <name:Ident> <t:SqlType> => ColumnDefinition {
         name: name,
         sql_type: t,
         constraints: Vec::new(),
     },
 };
 
-column_list: Vec<String> = {
-    <v:column_list> "," <c:Ident> => {
+ColumnList: Vec<String> = {
+    <v:ColumnList> "," <c:Ident> => {
         let mut v = v;
         v.push(c);
         v
@@ -180,50 +180,50 @@ column_list: Vec<String> = {
     <Ident> => vec!(<>),
 };
 
-pub function_argument_list: Vec<FunctionArgument> = {
-    <v:function_argument_list> "," <a:function_argument> => {
+pub FunctionArgumentList: Vec<FunctionArgument> = {
+    <v:FunctionArgumentList> "," <a:FunctionArgument> => {
         let mut v = v;
         v.push(a);
         v
     },
-    <function_argument> => vec!(<>)
+    <FunctionArgument> => vec!(<>)
 };
 
-function_argument: FunctionArgument = {
-    <name:Ident> <t:sql_type> => FunctionArgument {
+FunctionArgument: FunctionArgument = {
+    <name:Ident> <t:SqlType> => FunctionArgument {
         name: name,
         sql_type: t,
     }
 };
 
-pub function_return_type: FunctionReturnType = {
-    TABLE "(" <columns:column_definition_list> ")" => FunctionReturnType::Table(columns),
-    <t:sql_type> => FunctionReturnType::SqlType(t),
+pub FunctionReturnType: FunctionReturnType = {
+    TABLE "(" <columns:ColumnDefinitionList> ")" => FunctionReturnType::Table(columns),
+    <t:SqlType> => FunctionReturnType::SqlType(t),
 };
 
-function_type: FunctionLanguage = {
+FunctionType: FunctionLanguage = {
     C => FunctionLanguage::C,
     INTERNAL => FunctionLanguage::Internal,
     PLPGSQL => FunctionLanguage::PostgreSQL,
     SQL => FunctionLanguage::SQL,
 };
 
-table_constraint_list: Vec<TableConstraint> = {
-    <v:table_constraint_list> "," <c:table_constraint> => {
+TableConstraintList: Vec<TableConstraint> = {
+    <v:TableConstraintList> "," <c:TableConstraint> => {
         let mut v = v;
         v.push(c);
         v
     },
-    <table_constraint> => vec!(<>),
+    <TableConstraint> => vec!(<>),
 };
 
-table_constraint: TableConstraint = {
-    CONSTRAINT <name:Ident> PRIMARY KEY "(" <columns:column_list> ")" <parameters:index_parameters?> => TableConstraint::Primary {
+TableConstraint: TableConstraint = {
+    CONSTRAINT <name:Ident> PRIMARY KEY "(" <columns:ColumnList> ")" <parameters:WithIndexParameters?> => TableConstraint::Primary {
         name: name,
         columns: columns,
         parameters: parameters
     },
-    CONSTRAINT <name:Ident> FOREIGN KEY "(" <columns:column_list> ")" REFERENCES <ref_table:object_name> "(" <ref_columns:column_list> ")" <match_type:match_type?> <events:constraint_events?> => TableConstraint::Foreign {
+    CONSTRAINT <name:Ident> FOREIGN KEY "(" <columns:ColumnList> ")" REFERENCES <ref_table:ObjectName> "(" <ref_columns:ColumnList> ")" <match_type:MatchType?> <events:ConstraintEventList?> => TableConstraint::Foreign {
         name: name,
         columns: columns,
         ref_table: ref_table,
@@ -233,44 +233,44 @@ table_constraint: TableConstraint = {
     },
 };
 
-index_parameters: Vec<IndexParameter> = {
-    WITH "(" <index_parameter_list> ")" => <>,
+WithIndexParameters: Vec<IndexParameter> = {
+    WITH "(" <IndexParameterList> ")" => <>,
 };
 
-index_parameter_list: Vec<IndexParameter> = {
-    <v:index_parameter_list> "," <i:index_parameter> => {
+IndexParameterList: Vec<IndexParameter> = {
+    <v:IndexParameterList> "," <i:IndexParameter> => {
         let mut v = v;
         v.push(i);
         v
     },
-    <index_parameter> => vec!(<>),
+    <IndexParameter> => vec!(<>),
 };
 
-index_parameter: IndexParameter = {
+IndexParameter: IndexParameter = {
     FILLFACTOR "=" <Digit> => IndexParameter::FillFactor(<> as u32),
 };
 
-match_type: ForeignConstraintMatchType = {
+MatchType: ForeignConstraintMatchType = {
     MATCH SIMPLE => ForeignConstraintMatchType::Simple,
     MATCH PARTIAL => ForeignConstraintMatchType::Partial,
     MATCH FULL => ForeignConstraintMatchType::Full,
 };
 
-constraint_events: Vec<ForeignConstraintEvent> = {
-    <v:constraint_events> <e:constraint_event> => {
+ConstraintEventList: Vec<ForeignConstraintEvent> = {
+    <v:ConstraintEventList> <e:ConstraintEvent> => {
         let mut v = v;
         v.push(e);
         v
     },
-    <constraint_event> => vec!(<>),
+    <ConstraintEvent> => vec!(<>),
 };
 
-constraint_event: ForeignConstraintEvent = {
-    ON DELETE <foreign_constraint_action> => ForeignConstraintEvent::Delete(<>),
-    ON UPDATE <foreign_constraint_action> => ForeignConstraintEvent::Update(<>),
+ConstraintEvent: ForeignConstraintEvent = {
+    ON DELETE <ForeignConstraintAction> => ForeignConstraintEvent::Delete(<>),
+    ON UPDATE <ForeignConstraintAction> => ForeignConstraintEvent::Update(<>),
 };
 
-foreign_constraint_action: ForeignConstraintAction = {
+ForeignConstraintAction: ForeignConstraintAction = {
     NO ACTION => ForeignConstraintAction::NoAction,
     RESTRICT => ForeignConstraintAction::Restrict,
     CASCADE => ForeignConstraintAction::Cascade,
@@ -278,14 +278,14 @@ foreign_constraint_action: ForeignConstraintAction = {
     SET DEFAULT => ForeignConstraintAction::SetDefault,
 };
 
-pub sql_type: SqlType = {
-    <simple_type> => SqlType::Simple(<>),
-    <simple:simple_type> <dim:array_dimension> => SqlType::Array(simple, dim),
+pub SqlType: SqlType = {
+    <SimpleType> => SqlType::Simple(<>),
+    <simple:SimpleType> <dim:ArrayDimension> => SqlType::Array(simple, dim),
     <Ident> => SqlType::Custom(<>, None),
     <name:Ident> "(" <options:Ident> ")" => SqlType::Custom(name, Some(options)),
 };
 
-simple_type: SimpleSqlType = {
+SimpleType: SimpleSqlType = {
     CHAR "(" <Digit> ")" => SimpleSqlType::FixedLengthString(<> as u32),
     CHARACTER "(" <Digit> ")" => SimpleSqlType::FixedLengthString(<> as u32),
     VARCHAR "(" <Digit> ")" => SimpleSqlType::VariableLengthString(<> as u32),
@@ -332,37 +332,37 @@ simple_type: SimpleSqlType = {
     UUID => SimpleSqlType::Uuid,
 };
 
-array_dimension: u32 = {
+ArrayDimension: u32 = {
     "[" "]" => 1u32,
-    <dim:array_dimension> "[" "]" => dim + 1u32,
+    <dim:ArrayDimension> "[" "]" => dim + 1u32,
 };
 
-column_constraint_list: Vec<ColumnConstraint> = {
-    <v:column_constraint_list> <q:column_constraint> => {
+ColumnConstraintList: Vec<ColumnConstraint> = {
+    <v:ColumnConstraintList> <q:ColumnConstraint> => {
         let mut v = v;
         v.push(q);
         v
     },
-    <column_constraint> => vec!(<>),
+    <ColumnConstraint> => vec!(<>),
 };
 
-column_constraint: ColumnConstraint = {
-    DEFAULT <any_value> => ColumnConstraint::Default(<>),
-    DEFAULT "(" <any_value> ")" => ColumnConstraint::Default(<>),
+ColumnConstraint: ColumnConstraint = {
+    DEFAULT <AnyValue> => ColumnConstraint::Default(<>),
+    DEFAULT "(" <AnyValue> ")" => ColumnConstraint::Default(<>),
     NULL => ColumnConstraint::Null,
     NOT NULL => ColumnConstraint::NotNull,
     UNIQUE => ColumnConstraint::Unique,
     PRIMARY KEY => ColumnConstraint::PrimaryKey,
 };
 
-any_value: AnyValue = {
+AnyValue: AnyValue = {
     <Boolean> => AnyValue::Boolean(<>),
     <Digit> => AnyValue::Integer(<>),
     <String> => AnyValue::String(<>),
 };
 
-enum_value_list: Vec<String> = {
-    <v:enum_value_list> "," <e:String> => {
+EnumValueList: Vec<String> = {
+    <v:EnumValueList> "," <e:String> => {
         let mut v = v;
         v.push(e);
         v

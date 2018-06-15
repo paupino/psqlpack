@@ -100,11 +100,11 @@ error_chain! {
                 "SQL syntax error encountered in {} on line {}:\n  {}\n  {}{}",
                 file, line_number, line, " ".repeat(*start), "^".repeat(end - start))
         }
-        ParseError(file: String, errors: Vec<ParseError<(), lexer::Token, ()>>) {
+        ParseError(file: String, errors: Vec<ParseError<(), lexer::Token, &'static str>>) {
             description("Parser error")
             display("Parser errors in {}:\n{}", file, ParseErrorsFormatter(errors))
         }
-        InlineParseError(error: ParseError<(), lexer::Token, ()>) {
+        InlineParseError(error: ParseError<(), lexer::Token, &'static str>) {
             description("Parser error")
             display("Parser error: {}", ParseErrorFormatter(error))
         }
@@ -149,7 +149,7 @@ error_chain! {
 
 use std::fmt::{Display, Formatter, Result};
 
-fn write_err(f: &mut Formatter, error: &ParseError<(), lexer::Token, ()>) -> Result {
+fn write_err(f: &mut Formatter, error: &ParseError<(), lexer::Token, &'static str>) -> Result {
     match *error {
         ParseError::InvalidToken { .. } => write!(f, "Invalid token"),
         ParseError::UnrecognizedToken {
@@ -167,7 +167,7 @@ fn write_err(f: &mut Formatter, error: &ParseError<(), lexer::Token, ()>) -> Res
     }
 }
 
-struct ParseErrorsFormatter<'fmt>(&'fmt Vec<ParseError<(), lexer::Token, ()>>);
+struct ParseErrorsFormatter<'fmt>(&'fmt Vec<ParseError<(), lexer::Token, &'static str>>);
 
 impl<'fmt> Display for ParseErrorsFormatter<'fmt> {
     fn fmt(&self, f: &mut Formatter) -> Result {
@@ -179,7 +179,7 @@ impl<'fmt> Display for ParseErrorsFormatter<'fmt> {
     }
 }
 
-struct ParseErrorFormatter<'fmt>(&'fmt ParseError<(), lexer::Token, ()>);
+struct ParseErrorFormatter<'fmt>(&'fmt ParseError<(), lexer::Token, &'static str>);
 
 impl<'fmt> Display for ParseErrorFormatter<'fmt> {
     fn fmt(&self, f: &mut Formatter) -> Result {
