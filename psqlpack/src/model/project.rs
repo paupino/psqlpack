@@ -26,7 +26,7 @@ macro_rules! dump_statement {
     ($log:ident, $statement:ident) => {}
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 pub struct Project {
     #[serde(skip_serializing)] path: Option<PathBuf>,
     pub version: String,

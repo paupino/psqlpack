@@ -20,11 +20,11 @@ username=`whoami`
 case $1 in
     package)
         echo "Packaging '$db'"
-        cargo run -p psqlpack-cli -- package --source samples/$db/project.json --output out/$db.psqlpack --trace
+        cargo run -p psqlpack-cli -- package --source samples/$db/$db.psqlproj --output out/$db.psqlpack --trace
         ;;
     debug-package)
         echo "Packaging '$db'"
-        cargo run -p psqlpack-cli --features symbols -- package --source samples/$db/project.json --output out/$db.psqlpack --trace
+        cargo run -p psqlpack-cli --features symbols -- package --source samples/$db/$db.psqlproj --output out/$db.psqlpack --trace
         ;;        
     publish)
         action="Publishing '$db'"
