@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::path::Path;
 use std::fs::File;
-use std::io::Write;
+use std::io::{BufReader, Read, Write};
 
 use slog::Logger;
 use serde_json;
@@ -205,7 +205,40 @@ pub struct Package {
 }
 
 impl Package {
-    pub fn from_path(source_path: &Path) -> PsqlpackResult<Package> {
+    fn maybe_packaged_file(source_path: &Path) -> PsqlpackResult<bool> {
+        File::open(&source_path)
+            .chain_err(|| IOError(source_path.to_str().unwrap().into(), "Failed to open file".into()))
+            .and_then(|file| {
+                let mut reader = BufReader::with_capacity(4, file);
+                let mut buffer = [0; 2];
+                let b = reader.read(&mut buffer[..])
+                    .map_err(|e| IOError(source_path.to_str().unwrap().into(), format!("Failed to read file: {}", e)))?;
+                if b != 2 {
+                    bail!(IOError(source_path.to_str().unwrap().into(), "Invalid file provide (< 4 bytes)".into()));
+                }
+
+                Ok(
+                    buffer[0] == 0x50 && 
+                    buffer[1] == 0x4B
+                )
+            })
+    }
+
+    pub fn from_path(log: &Logger, source_path: &Path) -> PsqlpackResult<Package> {
+        let log = log.new(o!("package" => "from_path"));
+        // source_path could be either a project file or a psqlpack file
+        // Try and guess which type it is first
+        if Self::maybe_packaged_file(source_path)? {
+            Self::from_packaged_file(&log, source_path)
+        } else {
+            // We'll optimistically load it as a project
+            let project = Project::from_project_file(&log, source_path)?;
+            project.to_package(&log)
+        }
+    }
+
+    pub fn from_packaged_file(log: &Logger, source_path: &Path) -> PsqlpackResult<Package> {
+        let _log = log.new(o!("package" => "from_packaged_file"));
         let mut archive = File::open(&source_path)
             .chain_err(|| PackageReadError(source_path.to_path_buf()))
             .and_then(|file| {
@@ -455,19 +488,49 @@ impl Package {
             });
         }
 
-        // Set default schema's
+        fn ensure_not_null_column(column: &mut ColumnDefinition) {
+            // Remove null for primary keys
+            let pos = column.constraints.iter().position(|c| c.eq(&ColumnConstraint::Null));
+            if let Some(pos) = pos {
+                column.constraints.remove(pos);
+            }
+
+            // Add not null for primary keys
+            let pos = column.constraints.iter().position(|c| c.eq(&ColumnConstraint::NotNull));
+            if pos.is_none() {
+                column.constraints.push(ColumnConstraint::NotNull);
+            }
+        }
+
+        // Set default schema's as well as marking primary key columns as not null
         for table in &mut self.tables {
             if table.name.schema.is_none() {
                 table.name.schema = Some(project.default_schema.clone());
             }
+            
             for constraint in table.constraints.iter_mut() {
-                if let TableConstraint::Foreign {
-                    ref mut ref_table, ..
-                } = *constraint
-                {
-                    if ref_table.schema.is_none() {
-                        ref_table.schema = Some(project.default_schema.clone());
+                match *constraint {
+                    TableConstraint::Primary { ref columns, .. } => {
+                        for column in columns {
+                            let item = table.columns.iter_mut().find(|item| item.name.eq(column));
+                            if let Some(item) = item {
+                                ensure_not_null_column(item);
+                            }
+                        }
                     }
+                    TableConstraint::Foreign { ref mut ref_table, .. } => {
+                        if ref_table.schema.is_none() {
+                            ref_table.schema = Some(project.default_schema.clone());
+                        }
+                    }
+                }
+            }
+
+            // Primary keys may also be specified against the column directly
+            for column in table.columns.iter_mut() {
+                let pk = column.constraints.iter().position(|c| c.eq(&ColumnConstraint::PrimaryKey));
+                if pk.is_some() {
+                    ensure_not_null_column(column);
                 }
             }
         }

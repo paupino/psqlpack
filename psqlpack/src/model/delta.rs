@@ -175,8 +175,8 @@ impl<'a> Diffable<'a, Package> for LinkedColumn<'a> {
         &self,
         changeset: &mut Vec<ChangeInstruction<'a>>,
         target: &Package,
-        _: &PublishProfile,
-        _: &Logger,
+        _publish_profile: &PublishProfile,
+        _log: &Logger,
     ) -> PsqlpackResult<()> {
         // We only generate items here if the table doesn't exist (for the time being)
         // We should consider if we want to just generate empty tables and then be consistent adding
@@ -194,6 +194,7 @@ impl<'a> Diffable<'a, Package> for LinkedColumn<'a> {
                 // Check column constraints
                 let src_set: HashSet<_> = self.column.constraints.iter().cloned().collect();
                 let target_set: HashSet<_> = target_column.constraints.iter().cloned().collect();
+
                 // target_set - src_set (e.g. adding new constraints)
                 for x in target_set.difference(&src_set) {
                     match *x {
@@ -225,8 +226,8 @@ impl<'a> Diffable<'a, Package> for LinkedTableConstraint<'a> {
         &self,
         changeset: &mut Vec<ChangeInstruction<'a>>,
         target: &Package,
-        _: &PublishProfile,
-        _: &Logger,
+        _publish_profile: &PublishProfile,
+        _log: &Logger,
     ) -> PsqlpackResult<()> {
         fn vec_different<T: PartialEq>(src: &Vec<T>, tgt: &Vec<T>) -> bool {
             if src.len() != tgt.len() {
