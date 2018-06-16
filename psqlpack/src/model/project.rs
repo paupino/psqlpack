@@ -5,7 +5,7 @@ use std::fs::{self, File};
 
 use slog::Logger;
 use serde_json;
-use walkdir::WalkDir;
+use glob::glob;
 
 use sql::ast::*;
 use sql::lexer;
@@ -29,12 +29,29 @@ macro_rules! dump_statement {
 
 #[derive(Deserialize, Serialize)]
 pub struct Project {
+    // Internal only tracking for the project path
     #[serde(skip_serializing)] path: Option<PathBuf>,
+
+    /// The version of this profile file format
     pub version: String,
+
+    /// The default schema for the database. Typically `public`
     #[serde(rename = "defaultSchema")] pub default_schema: String,
+
+    /// An array of scripts to run before anything is deployed
     #[serde(rename = "preDeployScripts")] pub pre_deploy_scripts: Vec<String>,
+
+    /// An array of scripts to run after everything has been deployed
     #[serde(rename = "postDeployScripts")] pub post_deploy_scripts: Vec<String>,
-    pub extensions: Option<Vec<String>>,
+
+    /// An array of extensions to include within this project
+    #[serde(skip_serializing_if = "Option::is_none")] pub extensions: Option<Vec<String>>,
+
+    /// An array of globs representing files/folders to be included within your project. Defaults to `["**/*.sql"]`.
+    #[serde(rename = "fileIncludeGlobs")] pub include_globs: Option<Vec<String>>,
+
+    /// An array of globs representing files/folders to be excluded within your project. 
+    #[serde(rename = "fileExcludeGlobs")] pub exclude_globs: Option<Vec<String>>,
 }
 
 impl Default for Project {
@@ -46,6 +63,8 @@ impl Default for Project {
             pre_deploy_scripts: Vec::new(),
             post_deploy_scripts: Vec::new(),
             extensions: None,
+            include_globs: None,
+            exclude_globs: None,
         }
     }
 }
@@ -74,7 +93,7 @@ impl Project {
 
         // Turn the pre/post into paths to quickly check
         let parent = match self.path {
-            Some(ref path) => path.parent().unwrap(),
+            Some(ref path) => path.parent().unwrap().canonicalize().unwrap(),
             None => bail!(GenerationError("Project path not set".to_owned())),
         };
         let make_path = |script: &str| {
@@ -112,15 +131,8 @@ impl Project {
 
         let mut errors: Vec<PsqlpackError> = Vec::new();
 
-        // Enumerate the directory
-        for entry in WalkDir::new(parent).follow_links(false) {
-            // Read in the file contents
-            let e = entry.unwrap();
-            let path = e.path();
-            if path.extension().is_none() || path.extension().unwrap() != "sql" {
-                continue;
-            }
-
+        // Enumerate the glob paths
+        for path in self.walk_files(&parent)? {
             let log = log.new(o!("file" => path.to_str().unwrap().to_owned()));
 
             let mut contents = String::new();
@@ -216,4 +228,123 @@ impl Project {
         trace!(log, "Writing package file"; "output" => output_path.to_str().unwrap());
         package.write_to(output_path)
     }
+
+    // Walk the files according to the include and exclude globs. This could be made more efficient with an iterator
+    // in the future (may want to extend glob). One downside of the current implementation is that pre/post deploy
+    // scripts could be inadvertantly excluded
+    fn walk_files(&self, parent: &Path) -> PsqlpackResult<Vec<PathBuf>> {
+        let include_globs = match self.include_globs {
+            Some(ref globs) => globs.to_owned(),
+            None => vec![ "**/*.sql".into() ],
+        };
+        let mut exclude_paths = Vec::new();
+        match self.exclude_globs {
+            Some(ref globs) => {
+                for exclude_glob in globs {
+                    for entry in glob(&format!("{}/{}", parent.to_str().unwrap(), exclude_glob)).map_err(|err| GlobPatternError(err))? {
+                        let path = entry.unwrap().canonicalize().unwrap();
+                        exclude_paths.push(path);
+                    }
+                }
+            }
+            None => {}
+        }
+
+        let mut paths = Vec::new();
+        for include_glob in include_globs {
+            for entry in glob(&format!("{}/{}", parent.to_str().unwrap(), include_glob)).map_err(|err| GlobPatternError(err))? {
+                // Get the path entry
+                let path = entry.unwrap();
+
+                // If this has been explicitly excluded then continue
+                let real_path = path.to_path_buf().canonicalize().unwrap();
+                if exclude_paths.iter().position(|x| real_path.eq(x)).is_some() {
+                    continue;
+                }
+
+                paths.push(path);
+            }
+        }
+        Ok(paths)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use std::path::Path;
+    use super::Project;
+    use spectral::prelude::*;
+
+    #[test]
+    fn it_can_iterate_default_include_exclude_globs_correctly() {
+        // This test relies on the `simple` samples directory
+        let parent = Path::new("../samples/simple");
+        let project = Project::default();
+        let result = project.walk_files(&parent);
+
+        // Check the expected files were returned
+        assert_that!(result).is_ok().has_length(4);
+        let result = result.unwrap();
+        let result : Vec<&str> = result.iter().map(|x| x.to_str().unwrap()).collect();
+        assert_that!(result).contains_all_of(&vec![
+            &"../samples/simple/public/tables/public.expense_status.sql",
+            &"../samples/simple/public/tables/public.organisation.sql",
+            &"../samples/simple/public/tables/public.tax_table.sql",
+            &"../samples/simple/public/tables/public.vendor.sql",
+        ]);
+    }
+
+    #[test]
+    fn it_can_iterate_custom_exclude_globs_correctly() {
+        // This test relies on the `simple` samples directory
+        let parent = Path::new("../samples/simple");
+        let project = Project {
+            path: None,
+            version: "1.0".into(),
+            default_schema: "public".into(),
+            pre_deploy_scripts: Vec::new(),
+            post_deploy_scripts: Vec::new(),
+            extensions: None,
+            include_globs: None,
+            exclude_globs: Some(vec!["**/*org*".into()]),
+        };
+        let result = project.walk_files(&parent);
+
+        // Check the expected files were returned
+        assert_that!(result).is_ok().has_length(3);
+        let result = result.unwrap();
+        let result : Vec<&str> = result.iter().map(|x| x.to_str().unwrap()).collect();
+        assert_that!(result).contains_all_of(&vec![
+            &"../samples/simple/public/tables/public.expense_status.sql",
+            &"../samples/simple/public/tables/public.tax_table.sql",
+            &"../samples/simple/public/tables/public.vendor.sql",
+        ]);
+    }
+
+    #[test]
+    fn it_can_iterate_custom_include_globs_correctly() {
+        // This test relies on the `simple` samples directory
+        let parent = Path::new("../samples/simple");
+        let project = Project {
+            path: None,
+            version: "1.0".into(),
+            default_schema: "public".into(),
+            pre_deploy_scripts: Vec::new(),
+            post_deploy_scripts: Vec::new(),
+            extensions: None,
+            include_globs: Some(vec!["**/*org*.sql".into()]),
+            exclude_globs: None,
+        };
+        let result = project.walk_files(&parent);
+
+        // Check the expected files were returned
+        assert_that!(result).is_ok().has_length(1);
+        let result = result.unwrap();
+        let result : Vec<&str> = result.iter().map(|x| x.to_str().unwrap()).collect();
+        assert_that!(result).contains_all_of(&vec![
+            &"../samples/simple/public/tables/public.organisation.sql",
+        ]);
+    }
+
 }
