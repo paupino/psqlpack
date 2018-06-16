@@ -18,7 +18,7 @@ extern crate slog_stdlog;
 #[cfg(test)]
 #[macro_use]
 extern crate spectral;
-extern crate walkdir;
+extern crate glob;
 extern crate zip;
 
 mod errors;

@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use glob::PatternError;
 
 pub use error_chain::ChainedError;
 pub use lalrpop_util::ParseError;
@@ -84,6 +85,10 @@ error_chain! {
         PublishUnsafeOperationError(message: String) {
             description("Couldn't publish database due to an unsafe operation")
             display("Couldn't publish database due to an unsafe operation: {}", message)
+        }
+        GlobPatternError(err: PatternError) {
+            description("An error in the glob pattern was found")
+            display("An error in the glob pattern was found: {}", err)
         }
         IOError(file: String, message: String) {
             description("IO error when reading a file")
