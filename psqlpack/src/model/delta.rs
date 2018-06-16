@@ -228,6 +228,25 @@ impl<'a> Diffable<'a, Package> for LinkedTableConstraint<'a> {
         _: &PublishProfile,
         _: &Logger,
     ) -> PsqlpackResult<()> {
+        fn vec_different<T: PartialEq>(src: &Vec<T>, tgt: &Vec<T>) -> bool {
+            if src.len() != tgt.len() {
+                return true;
+            }
+            for i in 0..src.len() {
+                if src[i].ne(&tgt[i]) {
+                    return true;
+                }
+            }
+            false
+        }
+        fn optional_vec_different<T: PartialEq>(src: &Option<Vec<T>>, tgt: &Option<Vec<T>>) -> bool {
+            if src.is_some() && tgt.is_some() {
+                vec_different(src.as_ref().unwrap(), tgt.as_ref().unwrap())
+            } else {
+                true
+            }
+        }
+
         // We only generate items here if the table doesn't exist (for the time being)
         // We should consider if we want to just generate empty tables and then be consistent adding
         let table_result = target.tables.iter().find(|t| t.name == self.table.name);
@@ -236,22 +255,55 @@ impl<'a> Diffable<'a, Package> for LinkedTableConstraint<'a> {
             let target_constraint = target_table.constraints.iter().find(|tgt| tgt.name().eq(self.constraint.name()));
             if let Some(target_constraint) = target_constraint {
                 // Exists on target - compare to see if it's equal
-                match *self.constraint {
-                    TableConstraint::Primary { ref name, ref columns, ref parameters } => {
-                        let src_columns = columns;
-                        let src_parameters = parameters;
-                        match target_constraint {
-                            TableConstraint::Primary { ref name, ref columns, ref parameters } => {
-                                panic!("TODO: Compare columns and parameters");
-                            }
-                            TableConstraint::Foreign { .. } => {
-                                // A bit weird... droping a pk and replacing with a fk... ok...
-                                changeset.push(ChangeInstruction::RemoveConstraint(self.table, name.to_owned()));
-                                changeset.push(ChangeInstruction::AddConstraint(self.table, self.constraint));
+                // TODO: After we have a min defined Postgres version we may be able to use ALTER in some cases as supported
+                let has_changed = match *self.constraint {
+                        TableConstraint::Primary { name: _, ref columns, ref parameters } => {
+                            let src_columns = columns;
+                            let src_parameters = parameters;
+                            match target_constraint {
+                                TableConstraint::Primary { name: _, ref columns, ref parameters } => {
+                                    vec_different(src_columns, columns) || 
+                                        optional_vec_different(src_parameters, parameters)
+                                },
+                                TableConstraint::Foreign { .. } => true,
                             }
                         }
-                    }
-                    _ => panic!("TODO"),
+                        TableConstraint::Foreign { 
+                            name: _, 
+                            ref columns, 
+                            ref ref_table, 
+                            ref ref_columns, 
+                            ref match_type, 
+                            ref events 
+                        } => {
+                            let src_columns = columns;
+                            let src_ref_table = ref_table;
+                            let src_ref_columns = ref_columns;
+                            let src_match_type = match_type;
+                            let src_events = events;
+                            match target_constraint {
+                                TableConstraint::Primary { .. } => true,
+                                TableConstraint::Foreign {
+                                    name: _, 
+                                    ref columns, 
+                                    ref ref_table, 
+                                    ref ref_columns, 
+                                    ref match_type, 
+                                    ref events 
+                                } => {
+                                    vec_different(src_columns, columns) ||
+                                        src_ref_table.ne(ref_table) ||
+                                        vec_different(src_ref_columns, ref_columns) ||
+                                        ((src_match_type.is_none() || match_type.is_none()) || 
+                                            src_match_type.as_ref().unwrap().ne(match_type.as_ref().unwrap())) ||
+                                        optional_vec_different(src_events, events)
+                                }
+                            }
+                        }
+                    };
+                if has_changed {
+                    changeset.push(ChangeInstruction::RemoveConstraint(self.table, self.constraint.name().to_owned()));
+                    changeset.push(ChangeInstruction::AddConstraint(self.table, self.constraint));
                 }
             } else {
                 // Doesn't exist, add it
@@ -1715,9 +1767,8 @@ mod tests {
                 match *constraint {
                     TableConstraint::Primary { name, columns, parameters } => {
                         assert_that!(*name).is_equal_to("pk_my_contacts_id".to_owned());
-                        assert_that!(*columns).has_length(2);
+                        assert_that!(*columns).has_length(1);
                         assert_that!(columns.iter()).contains("id".to_owned());
-                        assert_that!(columns.iter()).contains("company_id".to_owned());
                         assert_that!(*parameters).is_some().has_length(1);
                     }
                     unxpected => panic!("Unexpected constraint: {:?}", unxpected),
@@ -1728,6 +1779,8 @@ mod tests {
 
         // Check the SQL generation
         assert_that!(changeset[0].to_sql(&log))
+            .is_equal_to("ALTER TABLE my.contacts\nDROP CONSTRAINT pk_my_contacts_id".to_owned());
+        assert_that!(changeset[1].to_sql(&log))
             .is_equal_to("ALTER TABLE my.contacts\nADD CONSTRAINT pk_my_contacts_id PRIMARY KEY (id) WITH (FILLFACTOR=80)".to_owned());
     }
 
@@ -1847,6 +1900,88 @@ mod tests {
 
     #[test]
     fn it_can_modify_an_existing_foreign_key() {
-        panic!("TODO");
+        let log = empty_logger();
+        let mut source_table = base_table();
+        source_table.constraints.push(TableConstraint::Foreign {
+                name: "fk_my_contacts_my_companies".to_owned(), 
+                columns: vec!["company_id".into()],
+                ref_table: ObjectName { schema: Some("my".into()), name: "companies".into() },
+                ref_columns: vec!["id".into()],
+                match_type: Some(ForeignConstraintMatchType::Simple),
+                events: Some(vec![
+                    ForeignConstraintEvent::Update(ForeignConstraintAction::NoAction),
+                    ForeignConstraintEvent::Delete(ForeignConstraintAction::NoAction),
+                ]),
+            });
+
+        // Create a database with the base table already defined.
+        let mut existing_database = Package::new();
+        let mut existing_table = base_table();
+        existing_table.constraints.push(TableConstraint::Foreign {
+                name: "fk_my_contacts_my_companies".to_owned(), 
+                columns: vec!["company_id".into()],
+                ref_table: ObjectName { schema: Some("my".into()), name: "companies".into() },
+                ref_columns: vec!["id".into()],
+                match_type: Some(ForeignConstraintMatchType::Simple),
+                events: Some(vec![
+                    ForeignConstraintEvent::Update(ForeignConstraintAction::Cascade),
+                    ForeignConstraintEvent::Delete(ForeignConstraintAction::NoAction),
+                ]),
+            });
+        existing_database.tables.push(existing_table);
+        let publish_profile = PublishProfile {
+            version: "1.0".to_owned(),
+            generation_options: GenerationOptions {
+                always_recreate_database: false,
+                allow_unsafe_operations: false,
+            },
+        };
+
+        let mut changeset = Vec::new();
+        // First, check that source table changes do nothing
+        let _ = (&source_table).generate(&mut changeset, &existing_database, &publish_profile, &log);
+        assert_that!(changeset).is_empty();
+
+        // Now we check with a linked table constraint
+        let result = LinkedTableConstraint { table: &source_table, constraint: &source_table.constraints.first().unwrap()}
+                        .generate(&mut changeset, &existing_database, &publish_profile, &log);
+        assert_that!(result).is_ok();
+
+        // Primary keys cannot be altered, so we drop/create
+        assert_that!(changeset).has_length(2);
+        match changeset[0] {
+            ChangeInstruction::RemoveConstraint(ref table, ref name) => {
+                assert_that!(table.name.to_string()).is_equal_to("my.contacts".to_owned());
+                assert_that!(*name).is_equal_to("fk_my_contacts_my_companies".to_owned());
+            }
+            ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
+        }
+        match changeset[1] {
+            ChangeInstruction::AddConstraint(ref table, ref constraint) => {
+                assert_that!(table.name.to_string()).is_equal_to("my.contacts".to_owned());
+                match *constraint {
+                    TableConstraint::Foreign { name, columns, ref_table, ref_columns, match_type, events } => {
+                        assert_that!(*name).is_equal_to("fk_my_contacts_my_companies".to_owned());
+                        assert_that!(*columns).has_length(1);
+                        assert_that!(columns.iter()).contains("company_id".to_owned());
+                        assert_that!(ref_table.to_string()).is_equal_to("my.companies".to_owned());
+                        assert_that!(*ref_columns).has_length(1);
+                        assert_that!(ref_columns.iter()).contains("id".to_owned());
+                        assert_that!(*match_type).is_some().is_equal_to(ForeignConstraintMatchType::Simple);
+                        assert_that!(*events).is_some().has_length(2); // We test this further below
+                    }
+                    unxpected => panic!("Unexpected constraint: {:?}", unxpected),
+                }
+            }
+            ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
+        }
+
+        // Check the SQL generation
+        assert_that!(changeset[0].to_sql(&log))
+            .is_equal_to("ALTER TABLE my.contacts\nDROP CONSTRAINT fk_my_contacts_my_companies".to_owned());
+        assert_that!(changeset[1].to_sql(&log))
+            .is_equal_to("ALTER TABLE my.contacts\n\
+                          ADD CONSTRAINT fk_my_contacts_my_companies FOREIGN KEY (company_id) \
+                          REFERENCES my.companies (id) MATCH SIMPLE ON UPDATE NO ACTION ON DELETE NO ACTION".to_owned());
     }
 }
