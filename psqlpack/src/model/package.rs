@@ -195,15 +195,19 @@ static Q_TABLE_CONSTRAINTS : &'static str = "SELECT
                                     string_agg(DISTINCT kcu.column_name, ',') as column_names, 
                                     ccu.table_name as foreign_table_name, 
                                     string_agg(DISTINCT ccu.column_name, ',') as foreign_column_names,
-                                    pgc.reloptions as pk_parameters
+                                    pgcls.reloptions as pk_parameters,
+                                    confupdtype,
+                                    confdeltype,
+                                    confmatchtype::text
                                 FROM 
                                     information_schema.table_constraints as tc  
                                     JOIN (SELECT DISTINCT column_name, constraint_name, table_name, ordinal_position 
                                         FROM information_schema.key_column_usage 
                                         ORDER BY ordinal_position ASC) kcu ON kcu.constraint_name = tc.constraint_name AND kcu.table_name = tc.table_name
                                     JOIN information_schema.constraint_column_usage as ccu on ccu.constraint_name = tc.constraint_name
-                                    JOIN pg_namespace pgn ON pgn.nspname = tc.constraint_schema
-                                    LEFT JOIN pg_class pgc ON pgc.relname=tc.constraint_name AND pgc.relnamespace = pgn.oid
+                                    JOIN pg_catalog.pg_namespace pgn ON pgn.nspname = tc.constraint_schema
+                                    LEFT JOIN pg_catalog.pg_class pgcls ON pgcls.relname=tc.constraint_name AND pgcls.relnamespace = pgn.oid
+                                    LEFT JOIN pg_catalog.pg_constraint pgcon ON pgcon.conname=tc.constraint_name AND pgcon.connamespace = pgn.oid
                                 WHERE 
                                     constraint_type in ('PRIMARY KEY','FOREIGN KEY')
                                 GROUP BY
@@ -212,7 +216,10 @@ static Q_TABLE_CONSTRAINTS : &'static str = "SELECT
                                     tc.constraint_type,
                                     tc.constraint_name,
                                     ccu.table_name,
-                                    pgc.reloptions";
+                                    pgcls.reloptions,
+                                    confupdtype,
+                                    confdeltype,
+                                    confmatchtype::text";
 lazy_static! {
     static ref FILL_FACTOR : Regex = Regex::new("fillfactor=(\\d+)").unwrap();
 }
@@ -261,6 +268,16 @@ impl<'row> From<Row<'row>> for TableConstraint {
                                                             .split_terminator(',')
                                                             .map(|s| s.into())
                                                             .collect();
+                let ev : String = row.get(10);
+                let match_type = match &ev[..] {
+                    "f" => Some(ForeignConstraintMatchType::Full),
+                    "s" => Some(ForeignConstraintMatchType::Simple),
+                    "p" => Some(ForeignConstraintMatchType::Partial),
+                    _ => None,
+                };
+
+                let upd : i8 = row.get(8);
+                let del : i8 = row.get(9);
 
                 TableConstraint::Foreign {
                     name: constraint_name,
@@ -270,7 +287,7 @@ impl<'row> From<Row<'row>> for TableConstraint {
                         name: foreign_table_name
                     },
                     ref_columns: foreign_column_names,
-                    match_type: None, //TODO
+                    match_type: match_type,
                     events: None, //TODO
                 }
             },
