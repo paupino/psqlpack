@@ -70,6 +70,9 @@ error_chain! {
         PackageQueryColumnsError {
             description("Couldn't query columns")
         }
+        PackageQueryTableConstraintsError {
+            description("Couldn't query table constraints")
+        }
         PackageFunctionArgsInspectError(args: String) {
             description("Couldn't inspect function args")
             display("Couldn't inspect function args: {}", args)

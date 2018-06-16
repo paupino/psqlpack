@@ -4,6 +4,7 @@ use std::path::Path;
 use std::fs::File;
 use std::io::{BufReader, Read, Write};
 
+use regex::Regex;
 use slog::Logger;
 use serde_json;
 use zip::{ZipArchive, ZipWriter};
@@ -182,6 +183,98 @@ impl<'row> From<Row<'row>> for ColumnDefinition {
             name: row.get(3),
             sql_type: sql_type.into(),
             constraints: constraints,
+        }
+    }
+}
+
+static Q_TABLE_CONSTRAINTS : &'static str = "SELECT  
+                                    tc.constraint_schema,
+                                    tc.table_name, 
+                                    tc.constraint_type,
+                                    tc.constraint_name, 
+                                    string_agg(DISTINCT kcu.column_name, ',') as column_names, 
+                                    ccu.table_name as foreign_table_name, 
+                                    string_agg(DISTINCT ccu.column_name, ',') as foreign_column_names,
+                                    pgc.reloptions as pk_parameters
+                                FROM 
+                                    information_schema.table_constraints as tc  
+                                    JOIN (SELECT DISTINCT column_name, constraint_name, table_name, ordinal_position 
+                                        FROM information_schema.key_column_usage 
+                                        ORDER BY ordinal_position ASC) kcu ON kcu.constraint_name = tc.constraint_name AND kcu.table_name = tc.table_name
+                                    JOIN information_schema.constraint_column_usage as ccu on ccu.constraint_name = tc.constraint_name
+                                    JOIN pg_namespace pgn ON pgn.nspname = tc.constraint_schema
+                                    LEFT JOIN pg_class pgc ON pgc.relname=tc.constraint_name AND pgc.relnamespace = pgn.oid
+                                WHERE 
+                                    constraint_type in ('PRIMARY KEY','FOREIGN KEY')
+                                GROUP BY
+                                    tc.constraint_schema,
+                                    tc.table_name, 
+                                    tc.constraint_type,
+                                    tc.constraint_name,
+                                    ccu.table_name,
+                                    pgc.reloptions";
+lazy_static! {
+    static ref FILL_FACTOR : Regex = Regex::new("fillfactor=(\\d+)").unwrap();
+}
+
+impl<'row> From<Row<'row>> for TableConstraint {
+    fn from(row: Row) -> Self {
+        let schema : String = row.get(0);
+        let constraint_type : String = row.get(2);
+        let constraint_name : String = row.get(3);
+        
+        let raw_column_names : String = row.get(4);
+        let column_names : Vec<String> = raw_column_names
+                                            .split_terminator(',')
+                                            .map(|s| s.into())
+                                            .collect();
+
+        match &constraint_type[..] {
+            "PRIMARY KEY" => {
+                let raw_parameters: Option<Vec<String>> = row.get(7);
+                let parameters = match raw_parameters {
+                    Some(parameters) => {
+                        // We only have one type at the moment
+                        if let Some(parameters) = parameters.first() {
+                            let ff = FILL_FACTOR.captures(&parameters[..]);
+                            if let Some(ff) = ff {
+                                Some(vec![IndexParameter::FillFactor(ff[1].parse::<u32>().unwrap())])
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    }
+                    None => None,
+                };
+                TableConstraint::Primary {
+                    name: constraint_name,
+                    columns: column_names,
+                    parameters: parameters,
+                }
+            },
+            "FOREIGN KEY" => {
+                let foreign_table_name : String = row.get(5);
+                let raw_foreign_column_names : String = row.get(6);
+                let foreign_column_names : Vec<String> = raw_foreign_column_names
+                                                            .split_terminator(',')
+                                                            .map(|s| s.into())
+                                                            .collect();
+
+                TableConstraint::Foreign {
+                    name: constraint_name,
+                    columns: column_names,
+                    ref_table: ObjectName { 
+                        schema: Some(schema),
+                        name: foreign_table_name
+                    },
+                    ref_columns: foreign_column_names,
+                    match_type: None, //TODO
+                    events: None, //TODO
+                }
+            },
+            unknown => panic!("Unknown constraint type: {}", unknown),
         }
     }
 }
@@ -401,6 +494,20 @@ impl Package {
             if let Some(definition) = tables.get_mut(&key) {
                 definition.columns.push(row.into());
             }
+        }
+
+        // Get a list of table constraints
+        for row in &db_conn.query(Q_TABLE_CONSTRAINTS, &[])
+                            .chain_err(|| PackageQueryTableConstraintsError)? {
+            // Get the table name and find it in our collection
+            let schema : String = row.get(0);
+            let table : String = row.get(1);
+            let key = format!("{}.{}", schema, table);
+
+            // Now look up the mutable key
+            if let Some(definition) = tables.get_mut(&key) {
+                definition.constraints.push(row.into());
+            }            
         }
 
         // Close the connection
