@@ -48,10 +48,10 @@ pub struct Project {
     #[serde(skip_serializing_if = "Option::is_none")] pub extensions: Option<Vec<String>>,
 
     /// An array of globs representing files/folders to be included within your project. Defaults to `["**/*.sql"]`.
-    #[serde(rename = "fileIncludeGlobs")] pub include_globs: Option<Vec<String>>,
+    #[serde(rename = "fileIncludeGlobs", skip_serializing_if = "Option::is_none")] pub include_globs: Option<Vec<String>>,
 
     /// An array of globs representing files/folders to be excluded within your project. 
-    #[serde(rename = "fileExcludeGlobs")] pub exclude_globs: Option<Vec<String>>,
+    #[serde(rename = "fileExcludeGlobs", skip_serializing_if = "Option::is_none")] pub exclude_globs: Option<Vec<String>>,
 }
 
 impl Default for Project {
