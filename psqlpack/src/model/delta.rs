@@ -303,13 +303,11 @@ impl<'a> Diffable<'a, Package> for LinkedTableConstraint<'a> {
                         }
                     };
                 if has_changed {
-                    trace!(_log, "Src: {:?}\n\nDest: {:?}", self.constraint, target_constraint);
                     changeset.push(ChangeInstruction::RemoveConstraint(self.table, self.constraint.name().to_owned()));
                     changeset.push(ChangeInstruction::AddConstraint(self.table, self.constraint));
                 }
             } else {
                 // Doesn't exist, add it
-                trace!(_log, "Removing: {:?}", self.constraint);
                 changeset.push(ChangeInstruction::AddConstraint(self.table, &self.constraint));
             }
 

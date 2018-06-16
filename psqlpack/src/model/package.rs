@@ -372,14 +372,16 @@ impl Package {
             }
         }
 
-        Ok(Package {
+        let mut package = Package {
             extensions: extensions,
             functions: functions,
             schemas: schemas,
             scripts: scripts,
             tables: tables,
             types: types,
-        })
+        };
+        package.promote_primary_keys_to_table_constraints();
+        Ok(package)
     }
 
     pub fn from_connection(log: &Logger, connection: &Connection) -> PsqlpackResult<Option<Package>> {
@@ -513,14 +515,18 @@ impl Package {
         // Close the connection
         dbtry!(db_conn.finish());
 
-        Ok(Some(Package {
+        // Get the package
+        let mut package = Package {
             extensions: map!(extensions),
             functions: functions,   // functions,
             schemas: map!(schemas), // schemas,
             scripts: Vec::new(),    // Scripts can't be known from a connection
             tables: tables.into_iter().map(|(_,b)| b).collect(),   // tables,
             types: map!(types),     // types,
-        }))
+        };
+        package.promote_primary_keys_to_table_constraints();
+
+        Ok(Some(package))
     }
 
     pub fn write_to(&self, destination: &Path) -> PsqlpackResult<()> {
@@ -633,11 +639,40 @@ impl Package {
                 }
             }
 
-            // Primary keys may also be specified against the column directly
+            // Primary keys may also be specified against the column directly. We promote these to table constraints.`
             for column in table.columns.iter_mut() {
                 let pk = column.constraints.iter().position(|c| c.eq(&ColumnConstraint::PrimaryKey));
                 if pk.is_some() {
+                    // Make sure it is not null
                     ensure_not_null_column(column);
+                }
+            }
+        }
+
+        // We also do the promotion here
+        self.promote_primary_keys_to_table_constraints();
+    }
+
+    fn promote_primary_keys_to_table_constraints(&mut self) {
+        // Set default schema's as well as marking primary key columns as not null
+        for table in &mut self.tables {
+            // Primary keys may also be specified against the column directly. We promote these to table constraints.`
+            for column in table.columns.iter_mut() {
+                let pk_pos = column.constraints.iter().position(|c| c.eq(&ColumnConstraint::PrimaryKey));
+                if let Some(pk_pos) = pk_pos {
+                    // Remove the PK constraint
+                    column.constraints.remove(pk_pos);
+                    
+                    // Add a table constraint if it doesn't exist
+                    let name = format!("{}_pkey", table.name.name);
+                    let found = table.constraints.iter().position(|c| c.name().eq(&name));
+                    if found.is_none() {
+                        table.constraints.push(TableConstraint::Primary {
+                            name: name,
+                            columns: vec![column.name.to_owned()],
+                            parameters: None,
+                        });
+                    }
                 }
             }
         }
