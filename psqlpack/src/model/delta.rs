@@ -151,6 +151,13 @@ impl<'a> Diffable<'a, Package> for &'a TableDefinition {
                     changeset.push(ChangeInstruction::RemoveColumn(self, tgt.name.to_owned()));
                 }
             }
+
+            // We also check for table constraint removals here
+            for tgt in target_table.constraints.iter() {
+                if !self.constraints.iter().any(|src| tgt.name().eq(src.name())) {
+                    changeset.push(ChangeInstruction::RemoveConstraint(self, tgt.name().to_owned()));
+                }
+            }
         } else {
             changeset.push(ChangeInstruction::AddTable(self));
         }
@@ -184,7 +191,7 @@ impl<'a> Diffable<'a, Package> for LinkedColumn<'a> {
                     changeset.push(ChangeInstruction::ModifyColumnType(self.table, &self.column));
                 }
 
-                // Check constraints
+                // Check column constraints
                 let src_set: HashSet<_> = self.column.constraints.iter().cloned().collect();
                 let target_set: HashSet<_> = target_column.constraints.iter().cloned().collect();
                 // target_set - src_set (e.g. adding new constraints)
@@ -197,7 +204,7 @@ impl<'a> Diffable<'a, Package> for LinkedColumn<'a> {
                     }
                 }
 
-                // TODO: src_sec - target_set (e.g. what constraints have been removed)
+                // TODO: src_sec - target_set (e.g. what column constraints have been removed)
 
             } else {
                 // Doesn't exist, add it
@@ -228,7 +235,24 @@ impl<'a> Diffable<'a, Package> for LinkedTableConstraint<'a> {
             // Check if the constraint exists on the target - this is a basic comparison of name
             let target_constraint = target_table.constraints.iter().find(|tgt| tgt.name().eq(self.constraint.name()));
             if let Some(target_constraint) = target_constraint {
-                // Exists on target
+                // Exists on target - compare to see if it's equal
+                match *self.constraint {
+                    TableConstraint::Primary { ref name, ref columns, ref parameters } => {
+                        let src_columns = columns;
+                        let src_parameters = parameters;
+                        match target_constraint {
+                            TableConstraint::Primary { ref name, ref columns, ref parameters } => {
+                                panic!("TODO: Compare columns and parameters");
+                            }
+                            TableConstraint::Foreign { .. } => {
+                                // A bit weird... droping a pk and replacing with a fk... ok...
+                                changeset.push(ChangeInstruction::RemoveConstraint(self.table, name.to_owned()));
+                                changeset.push(ChangeInstruction::AddConstraint(self.table, self.constraint));
+                            }
+                        }
+                    }
+                    _ => panic!("TODO"),
+                }
             } else {
                 // Doesn't exist, add it
                 changeset.push(ChangeInstruction::AddConstraint(self.table, &self.constraint));
@@ -557,6 +581,7 @@ pub enum ChangeInstruction<'input> {
 
     // Constraints
     AddConstraint(&'input TableDefinition, &'input TableConstraint),
+    RemoveConstraint(&'input TableDefinition, String),
 
     // Functions
     AddFunction(&'input FunctionDefinition),
@@ -624,6 +649,12 @@ impl<'input> fmt::Display for ChangeInstruction<'input> {
                 f,
                 "Add constraint: {} to table: {}",
                 constraint.name(),
+                table.name
+            ),
+            RemoveConstraint(table, ref name) => write!(
+                f,
+                "Remove constraint: {} to table: {}",
+                name,
                 table.name
             ),
 
@@ -911,6 +942,10 @@ impl<'input> ChangeInstruction<'input> {
                     }
                 }
                 instr
+            }
+
+            ChangeInstruction::RemoveConstraint(table, ref name) => {
+                format!("ALTER TABLE {}\nDROP CONSTRAINT {}", table.name, name)
             }
 
             // Raw scripts
@@ -1563,7 +1598,7 @@ mod tests {
                         .generate(&mut changeset, &existing_database, &publish_profile, &log);
         assert_that!(result).is_ok();
 
-        // We should have a single instruction to create a new table
+        // We should have a single instruction to add a constraint
         assert_that!(changeset).has_length(1);
         match changeset[0] {
             ChangeInstruction::AddConstraint(ref table, ref constraint) => {
@@ -1588,12 +1623,112 @@ mod tests {
 
     #[test]
     fn it_can_remove_an_existing_primary_key() {
-        panic!("TODO");
+        let log = empty_logger();
+        let source_table = base_table();
+
+        // Create a database with the base table already defined.
+        let mut existing_database = Package::new();
+        let mut existing_table = base_table();
+        existing_table.constraints.push(TableConstraint::Primary {
+            name: "pk_my_contacts_id".to_owned(),
+            columns: vec!["id".into()],
+            parameters: Some(vec![IndexParameter::FillFactor(80)]),
+        });
+        existing_database.tables.push(existing_table);
+        let publish_profile = PublishProfile {
+            version: "1.0".to_owned(),
+            generation_options: GenerationOptions {
+                always_recreate_database: false,
+                allow_unsafe_operations: false,
+            },
+        };
+
+        let mut changeset = Vec::new();
+        // This changeset gets generated at the table level
+        let result = (&source_table).generate(&mut changeset, &existing_database, &publish_profile, &log);
+        assert_that!(result).is_ok();
+
+        // We should have a single instruction to remove the constraint
+        assert_that!(changeset).has_length(1);
+        match changeset[0] {
+            ChangeInstruction::RemoveConstraint(ref table, ref name) => {
+                assert_that!(table.name.to_string()).is_equal_to("my.contacts".to_owned());
+                assert_that!(*name).is_equal_to("pk_my_contacts_id".to_owned());
+            }
+            ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
+        }
+
+        // Check the SQL generation
+        assert_that!(changeset[0].to_sql(&log))
+            .is_equal_to("ALTER TABLE my.contacts\nDROP CONSTRAINT pk_my_contacts_id".to_owned());
     }
 
     #[test]
     fn it_can_modify_an_existing_primary_key() {
-        panic!("TODO");
+        let log = empty_logger();
+        let mut source_table = base_table();
+        source_table.constraints.push(TableConstraint::Primary {
+                name: "pk_my_contacts_id".to_owned(),
+                columns: vec!["id".into()],
+                parameters: Some(vec![IndexParameter::FillFactor(80)]),
+            });
+
+        // Create a database with the base table already defined.
+        let mut existing_database = Package::new();
+        let mut existing_table = base_table();
+        existing_table.constraints.push(TableConstraint::Primary {
+                name: "pk_my_contacts_id".to_owned(),
+                columns: vec!["id".into(), "company_id".into()],
+                parameters: Some(vec![IndexParameter::FillFactor(80)]),
+            });
+        existing_database.tables.push(existing_table);
+        let publish_profile = PublishProfile {
+            version: "1.0".to_owned(),
+            generation_options: GenerationOptions {
+                always_recreate_database: false,
+                allow_unsafe_operations: false,
+            },
+        };
+
+        let mut changeset = Vec::new();
+        // First, check that source table changes do nothing
+        let _ = (&source_table).generate(&mut changeset, &existing_database, &publish_profile, &log);
+        assert_that!(changeset).is_empty();
+
+        // Now we check with a linked table constraint
+        let result = LinkedTableConstraint { table: &source_table, constraint: &source_table.constraints.first().unwrap()}
+                        .generate(&mut changeset, &existing_database, &publish_profile, &log);
+        assert_that!(result).is_ok();
+
+        // Primary keys cannot be altered, so we drop/create
+        assert_that!(changeset).has_length(2);
+        match changeset[0] {
+            ChangeInstruction::RemoveConstraint(ref table, ref name) => {
+                assert_that!(table.name.to_string()).is_equal_to("my.contacts".to_owned());
+                assert_that!(*name).is_equal_to("pk_my_contacts_id".to_owned());
+            }
+            ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
+        }
+        match changeset[1] {
+            ChangeInstruction::AddConstraint(ref table, ref constraint) => {
+                assert_that!(table.name.to_string()).is_equal_to("my.contacts".to_owned());
+                match *constraint {
+                    TableConstraint::Primary { name, columns, parameters } => {
+                        assert_that!(*name).is_equal_to("pk_my_contacts_id".to_owned());
+                        assert_that!(*columns).has_length(2);
+                        assert_that!(columns.iter()).contains("id".to_owned());
+                        assert_that!(columns.iter()).contains("company_id".to_owned());
+                        assert_that!(*parameters).is_some().has_length(1);
+                    }
+                    unxpected => panic!("Unexpected constraint: {:?}", unxpected),
+                }
+            }
+            ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
+        }
+
+        // Check the SQL generation
+        assert_that!(changeset[0].to_sql(&log))
+            .is_equal_to("ALTER TABLE my.contacts\nADD CONSTRAINT pk_my_contacts_id PRIMARY KEY (id) WITH (FILLFACTOR=80)".to_owned());
     }
 
     #[test]
@@ -1633,7 +1768,7 @@ mod tests {
                         .generate(&mut changeset, &existing_database, &publish_profile, &log);
         assert_that!(result).is_ok();
 
-        // We should have a single instruction to create a new table
+        // We should have a single instruction to create a new constraint
         assert_that!(changeset).has_length(1);
         match changeset[0] {
             ChangeInstruction::AddConstraint(ref table, ref constraint) => {
@@ -1664,7 +1799,50 @@ mod tests {
 
     #[test]
     fn it_can_remove_an_existing_foreign_key() {
-        panic!("TODO");
+        let log = empty_logger();
+        let source_table = base_table();
+
+        // Create a database with the base table already defined.
+        let mut existing_database = Package::new();
+        let mut existing_table = base_table();
+        existing_table.constraints.push(TableConstraint::Foreign {
+                name: "fk_my_contacts_my_companies".to_owned(), 
+                columns: vec!["company_id".into()],
+                ref_table: ObjectName { schema: Some("my".into()), name: "companies".into() },
+                ref_columns: vec!["id".into()],
+                match_type: Some(ForeignConstraintMatchType::Simple),
+                events: Some(vec![
+                    ForeignConstraintEvent::Update(ForeignConstraintAction::Cascade),
+                    ForeignConstraintEvent::Delete(ForeignConstraintAction::NoAction),
+                ]),
+            });
+        existing_database.tables.push(existing_table);
+        let publish_profile = PublishProfile {
+            version: "1.0".to_owned(),
+            generation_options: GenerationOptions {
+                always_recreate_database: false,
+                allow_unsafe_operations: false,
+            },
+        };
+
+        let mut changeset = Vec::new();
+        // This changeset gets generated at the table level
+        let result = (&source_table).generate(&mut changeset, &existing_database, &publish_profile, &log);
+        assert_that!(result).is_ok();
+
+        // We should have a single instruction to remove a constraint
+        assert_that!(changeset).has_length(1);
+        match changeset[0] {
+            ChangeInstruction::RemoveConstraint(ref table, ref name) => {
+                assert_that!(table.name.to_string()).is_equal_to("my.contacts".to_owned());
+                assert_that!(*name).is_equal_to("fk_my_contacts_my_companies".to_owned());
+            }
+            ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
+        }
+
+        // Check the SQL generation
+        assert_that!(changeset[0].to_sql(&log))
+            .is_equal_to("ALTER TABLE my.contacts\nDROP CONSTRAINT fk_my_contacts_my_companies".to_owned());
     }
 
     #[test]
