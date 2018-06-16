@@ -217,11 +217,24 @@ impl<'a> Diffable<'a, Package> for LinkedTableConstraint<'a> {
     fn generate(
         &self,
         changeset: &mut Vec<ChangeInstruction<'a>>,
-        _: &Package,
+        target: &Package,
         _: &PublishProfile,
-        log: &Logger,
+        _: &Logger,
     ) -> PsqlpackResult<()> {
-        warn!(log, "TODO: Table constraints not yet implemented");
+        // We only generate items here if the table doesn't exist (for the time being)
+        // We should consider if we want to just generate empty tables and then be consistent adding
+        let table_result = target.tables.iter().find(|t| t.name == self.table.name);
+        if let Some(target_table) = table_result {
+            // Check if the constraint exists on the target - this is a basic comparison of name
+            let target_constraint = target_table.constraints.iter().find(|tgt| tgt.name().eq(self.constraint.name()));
+            if let Some(target_constraint) = target_constraint {
+                // Exists on target
+            } else {
+                // Doesn't exist, add it
+                changeset.push(ChangeInstruction::AddConstraint(self.table, &self.constraint));
+            }
+
+        }
         Ok(())
     }
 }
@@ -1303,6 +1316,13 @@ mod tests {
                     ],
                 },
                 ColumnDefinition {
+                    name: "company_id".to_owned(),
+                    sql_type: SqlType::Simple(SimpleSqlType::BigInteger),
+                    constraints: vec![
+                        ColumnConstraint::NotNull,
+                    ],
+                },
+                ColumnDefinition {
                     name: "first_name".to_owned(),
                     sql_type: SqlType::Simple(SimpleSqlType::VariableLengthString(100)),
                     constraints: vec![
@@ -1338,9 +1358,10 @@ mod tests {
         match changeset[0] {
             ChangeInstruction::AddTable(ref table) => {
                 assert_that!(table.name.to_string()).is_equal_to("my.contacts".to_owned());
-                assert_that!(table.columns).has_length(2);
+                assert_that!(table.columns).has_length(3);
                 assert_that!(table.columns[0].name).is_equal_to("id".to_owned());
-                assert_that!(table.columns[1].name).is_equal_to("first_name".to_owned());
+                assert_that!(table.columns[1].name).is_equal_to("company_id".to_owned());
+                assert_that!(table.columns[2].name).is_equal_to("first_name".to_owned());
                 assert_that!(table.constraints).is_empty();
             }
             ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
@@ -1350,6 +1371,7 @@ mod tests {
         assert_that!(changeset[0].to_sql(&log))
             .is_equal_to("CREATE TABLE my.contacts (\n\
                 \tid serial NOT NULL PRIMARY KEY,\n\
+                \tcompany_id bigint NOT NULL,\n\
                 \tfirst_name varchar(100) NOT NULL\n\
                 )".to_owned());
     }
@@ -1379,7 +1401,7 @@ mod tests {
 
         let mut changeset = Vec::new();
         // First, check that source table changes do nothing
-        let result = (&source_table).generate(&mut changeset, &existing_database, &publish_profile, &log);
+        let _ = (&source_table).generate(&mut changeset, &existing_database, &publish_profile, &log);
         assert_that!(changeset).is_empty();
 
         // Now we check with a linked column
@@ -1440,7 +1462,7 @@ mod tests {
 
         let mut changeset = Vec::new();
         // First, check that source table changes do nothing
-        let result = (&source_table).generate(&mut changeset, &existing_database, &publish_profile, &log);
+        let _ = (&source_table).generate(&mut changeset, &existing_database, &publish_profile, &log);
         assert_that!(changeset).is_empty();
 
         // Now we check with a linked column
@@ -1510,4 +1532,143 @@ mod tests {
             .is_equal_to("ALTER TABLE my.contacts DROP COLUMN last_name".to_owned());
     }
 
+    #[test]
+    fn it_can_add_a_new_primary_key() {
+        let log = empty_logger();
+        let mut source_table = base_table();
+        source_table.constraints.push(TableConstraint::Primary {
+                name: "pk_my_contacts_id".to_owned(),
+                columns: vec!["id".into()],
+                parameters: Some(vec![IndexParameter::FillFactor(80)]),
+            });
+
+        // Create a database with the base table already defined.
+        let mut existing_database = Package::new();
+        existing_database.tables.push(base_table());
+        let publish_profile = PublishProfile {
+            version: "1.0".to_owned(),
+            generation_options: GenerationOptions {
+                always_recreate_database: false,
+                allow_unsafe_operations: false,
+            },
+        };
+
+        let mut changeset = Vec::new();
+        // First, check that source table changes do nothing
+        let _ = (&source_table).generate(&mut changeset, &existing_database, &publish_profile, &log);
+        assert_that!(changeset).is_empty();
+
+        // Now we check with a linked table constraint
+        let result = LinkedTableConstraint { table: &source_table, constraint: &source_table.constraints.first().unwrap()}
+                        .generate(&mut changeset, &existing_database, &publish_profile, &log);
+        assert_that!(result).is_ok();
+
+        // We should have a single instruction to create a new table
+        assert_that!(changeset).has_length(1);
+        match changeset[0] {
+            ChangeInstruction::AddConstraint(ref table, ref constraint) => {
+                assert_that!(table.name.to_string()).is_equal_to("my.contacts".to_owned());
+                match *constraint {
+                    TableConstraint::Primary { name, columns, parameters } => {
+                        assert_that!(*name).is_equal_to("pk_my_contacts_id".to_owned());
+                        assert_that!(*columns).has_length(1);
+                        assert_that!(columns.iter()).contains("id".to_owned());
+                        assert_that!(*parameters).is_some().has_length(1);
+                    }
+                    unxpected => panic!("Unexpected constraint: {:?}", unxpected),
+                }
+            }
+            ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
+        }
+
+        // Check the SQL generation
+        assert_that!(changeset[0].to_sql(&log))
+            .is_equal_to("ALTER TABLE my.contacts\nADD CONSTRAINT pk_my_contacts_id PRIMARY KEY (id) WITH (FILLFACTOR=80)".to_owned());
+    }
+
+    #[test]
+    fn it_can_remove_an_existing_primary_key() {
+        panic!("TODO");
+    }
+
+    #[test]
+    fn it_can_modify_an_existing_primary_key() {
+        panic!("TODO");
+    }
+
+    #[test]
+    fn it_can_add_a_new_foreign_key() {
+        let log = empty_logger();
+        let mut source_table = base_table();
+        source_table.constraints.push(TableConstraint::Foreign {
+                name: "fk_my_contacts_my_companies".to_owned(), 
+                columns: vec!["company_id".into()],
+                ref_table: ObjectName { schema: Some("my".into()), name: "companies".into() },
+                ref_columns: vec!["id".into()],
+                match_type: Some(ForeignConstraintMatchType::Simple),
+                events: Some(vec![
+                    ForeignConstraintEvent::Update(ForeignConstraintAction::Cascade),
+                    ForeignConstraintEvent::Delete(ForeignConstraintAction::NoAction),
+                ]),
+            });
+
+        // Create a database with the base table already defined.
+        let mut existing_database = Package::new();
+        existing_database.tables.push(base_table());
+        let publish_profile = PublishProfile {
+            version: "1.0".to_owned(),
+            generation_options: GenerationOptions {
+                always_recreate_database: false,
+                allow_unsafe_operations: false,
+            },
+        };
+
+        let mut changeset = Vec::new();
+        // First, check that source table changes do nothing
+        let _ = (&source_table).generate(&mut changeset, &existing_database, &publish_profile, &log);
+        assert_that!(changeset).is_empty();
+
+        // Now we check with a linked table constraint
+        let result = LinkedTableConstraint { table: &source_table, constraint: &source_table.constraints.first().unwrap()}
+                        .generate(&mut changeset, &existing_database, &publish_profile, &log);
+        assert_that!(result).is_ok();
+
+        // We should have a single instruction to create a new table
+        assert_that!(changeset).has_length(1);
+        match changeset[0] {
+            ChangeInstruction::AddConstraint(ref table, ref constraint) => {
+                assert_that!(table.name.to_string()).is_equal_to("my.contacts".to_owned());
+                match *constraint {
+                    TableConstraint::Foreign { name, columns, ref_table, ref_columns, match_type, events } => {
+                        assert_that!(*name).is_equal_to("fk_my_contacts_my_companies".to_owned());
+                        assert_that!(*columns).has_length(1);
+                        assert_that!(columns.iter()).contains("company_id".to_owned());
+                        assert_that!(ref_table.to_string()).is_equal_to("my.companies".to_owned());
+                        assert_that!(*ref_columns).has_length(1);
+                        assert_that!(ref_columns.iter()).contains("id".to_owned());
+                        assert_that!(*match_type).is_some().is_equal_to(ForeignConstraintMatchType::Simple);
+                        assert_that!(*events).is_some().has_length(2); // We test this further below
+                    }
+                    unxpected => panic!("Unexpected constraint: {:?}", unxpected),
+                }
+            }
+            ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
+        }
+
+        // Check the SQL generation
+        assert_that!(changeset[0].to_sql(&log))
+            .is_equal_to("ALTER TABLE my.contacts\n\
+                          ADD CONSTRAINT fk_my_contacts_my_companies FOREIGN KEY (company_id) \
+                          REFERENCES my.companies (id) MATCH SIMPLE ON UPDATE CASCADE ON DELETE NO ACTION".to_owned());
+    }
+
+    #[test]
+    fn it_can_remove_an_existing_foreign_key() {
+        panic!("TODO");
+    }
+
+    #[test]
+    fn it_can_modify_an_existing_foreign_key() {
+        panic!("TODO");
+    }
 }
