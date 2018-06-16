@@ -276,8 +276,25 @@ impl<'row> From<Row<'row>> for TableConstraint {
                     _ => None,
                 };
 
-                let upd : i8 = row.get(8);
-                let del : i8 = row.get(9);
+                let mut events = Vec::new();
+                let update_event : i8 = row.get(8);
+                match update_event as u8 as char {
+                    'r' => events.push(ForeignConstraintEvent::Update(ForeignConstraintAction::Restrict)),
+                    'c' => events.push(ForeignConstraintEvent::Update(ForeignConstraintAction::Cascade)),
+                    'd' => events.push(ForeignConstraintEvent::Update(ForeignConstraintAction::SetDefault)),
+                    'n' => events.push(ForeignConstraintEvent::Update(ForeignConstraintAction::SetNull)),
+                    'a' => events.push(ForeignConstraintEvent::Update(ForeignConstraintAction::NoAction)),
+                    _ => {},
+                }
+                let delete_event : i8 = row.get(9);
+                match delete_event as u8 as char {
+                    'r' => events.push(ForeignConstraintEvent::Delete(ForeignConstraintAction::Restrict)),
+                    'c' => events.push(ForeignConstraintEvent::Delete(ForeignConstraintAction::Cascade)),
+                    'd' => events.push(ForeignConstraintEvent::Delete(ForeignConstraintAction::SetDefault)),
+                    'n' => events.push(ForeignConstraintEvent::Delete(ForeignConstraintAction::SetNull)),
+                    'a' => events.push(ForeignConstraintEvent::Delete(ForeignConstraintAction::NoAction)),
+                    _ => {},
+                }
 
                 TableConstraint::Foreign {
                     name: constraint_name,
@@ -288,7 +305,7 @@ impl<'row> From<Row<'row>> for TableConstraint {
                     },
                     ref_columns: foreign_column_names,
                     match_type: match_type,
-                    events: None, //TODO
+                    events: if events.is_empty() { None } else { Some(events) },
                 }
             },
             unknown => panic!("Unknown constraint type: {}", unknown),
