@@ -244,7 +244,7 @@ impl<'a> Diffable<'a, Package> for LinkedTableConstraint<'a> {
             if src.is_some() && tgt.is_some() {
                 vec_different(src.as_ref().unwrap(), tgt.as_ref().unwrap())
             } else {
-                true
+                src.is_none() ^ tgt.is_none()
             }
         }
 
@@ -292,11 +292,15 @@ impl<'a> Diffable<'a, Package> for LinkedTableConstraint<'a> {
                                     ref match_type, 
                                     ref events 
                                 } => {
-                                    vec_different(src_columns, columns) ||
+                                    let match_type_different = if src_match_type.is_some() && match_type.is_some() {
+                                        src_match_type.as_ref().unwrap().ne(match_type.as_ref().unwrap())
+                                    } else {
+                                        src_match_type.is_none() ^ match_type.is_none()
+                                    };
+                                    match_type_different ||
+                                        vec_different(src_columns, columns) ||
                                         src_ref_table.ne(ref_table) ||
                                         vec_different(src_ref_columns, ref_columns) ||
-                                        ((src_match_type.is_none() || match_type.is_none()) || 
-                                            src_match_type.as_ref().unwrap().ne(match_type.as_ref().unwrap())) ||
                                         optional_vec_different(src_events, events)
                                 }
                             }

@@ -664,9 +664,12 @@ impl Package {
                     column.constraints.remove(pk_pos);
                     
                     // Add a table constraint if it doesn't exist
-                    let name = format!("{}_pkey", table.name.name);
-                    let found = table.constraints.iter().position(|c| c.name().eq(&name));
+                    let found = table.constraints.iter().position(|c| match c {
+                        TableConstraint::Primary { .. } => true,
+                        _ => false,
+                    });
                     if found.is_none() {
+                        let name = format!("{}_pkey", table.name.name);
                         table.constraints.push(TableConstraint::Primary {
                             name: name,
                             columns: vec![column.name.to_owned()],
