@@ -150,14 +150,14 @@ fn main() {
         )
         .subcommand(
             SubCommand::with_name("publish")
-                .about("Publishes a psqlpack to target")
+                .about("Publishes a psqlpack or psqlproj to the specified target")
                 .arg(
                     Arg::with_name("SOURCE")
                         .long("source")
                         .short("s")
                         .required(true)
                         .takes_value(true)
-                        .help("The source package to use for publishing"),
+                        .help("The source package or project file to use for publishing"),
                 )
                 .arg(
                     Arg::with_name("TARGET")
@@ -165,7 +165,7 @@ fn main() {
                         .short("t")
                         .required(true)
                         .takes_value(true)
-                        .help("The target database to publish to"),
+                        .help("The database connection string for publishing to"),
                 )
                 .arg(
                     Arg::with_name("PROFILE")

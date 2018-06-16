@@ -4,12 +4,12 @@ use slog::Logger;
 
 use psqlpack::{Delta, Package, Project, PsqlpackResult, PsqlpackErrorKind, PublishProfile, template};
 
-pub fn package<L: Into<Logger>>(log: L, project_path: &Path, output_path: &Path) -> PsqlpackResult<()> {
+pub fn package<L: Into<Logger>>(log: L, project_file: &Path, output_path: &Path) -> PsqlpackResult<()> {
     let log = log.into().new(o!("operation" => "package"));
-    trace!(log, "Loading Project from path"; "source" => project_path.to_str().unwrap());
-    let project = Project::from_path(&log, project_path)?;
+    trace!(log, "Loading Project from project file"; "source" => project_file.to_str().unwrap());
+    let project = Project::from_project_file(&log, project_file)?;
     trace!(log, "Writing Project to Package"; "output" => output_path.to_str().unwrap());
-    project.to_package(&log, output_path)
+    project.write_package(&log, output_path)
 }
 
 pub fn extract<L: Into<Logger>>(log: L, source_connection_string: &str, target_package_path: &Path) -> PsqlpackResult<()> {
@@ -44,12 +44,12 @@ pub fn generate_template<L: Into<Logger>>(log: L, template: &str, output_path: &
 
 pub fn publish<L: Into<Logger>>(
     log: L,
-    source_package_path: &Path,
+    source_file: &Path,
     target_connection_string: &str,
     publish_profile: &Path,
 ) -> PsqlpackResult<()> {
     let log = log.into().new(o!("operation" => "publish"));
-    let package = Package::from_path(source_package_path)?;
+    let package = Package::from_path(&log, source_file)?;
     let publish_profile = PublishProfile::from_path(publish_profile)?;
     let connection = target_connection_string.parse()?;
 
@@ -74,7 +74,7 @@ pub fn generate_sql<L: Into<Logger>>(
     output_file: &Path,
 ) -> PsqlpackResult<()> {
     let log = log.into().new(o!("operation" => "generate_sql"));
-    let package = Package::from_path(source_package_path)?;
+    let package = Package::from_path(&log, source_package_path)?;
     let publish_profile = PublishProfile::from_path(publish_profile)?;
     let connection = target_connection_string.parse()?;
 
@@ -99,7 +99,7 @@ pub fn generate_report<L: Into<Logger>>(
     output_file: &Path,
 ) -> PsqlpackResult<()> {
     let log = log.into().new(o!("operation" => "generate_report"));
-    let package = Package::from_path(source_package_path)?;
+    let package = Package::from_path(&log, source_package_path)?;
     let publish_profile = PublishProfile::from_path(publish_profile)?;
     let connection = target_connection_string.parse()?;
 

@@ -30,7 +30,7 @@ macro_rules! dump_statement {
 #[derive(Deserialize, Serialize)]
 pub struct Project {
     // Internal only tracking for the project path
-    #[serde(skip_serializing)] path: Option<PathBuf>,
+    #[serde(skip_serializing)] project_file_path: Option<PathBuf>,
 
     /// The version of this profile file format
     pub version: String,
@@ -57,7 +57,7 @@ pub struct Project {
 impl Default for Project {
     fn default() -> Self {
         Project {
-            path: None,
+            project_file_path: None,
             version: "1.0".into(),
             default_schema: "public".into(),
             pre_deploy_scripts: Vec::new(),
@@ -70,17 +70,17 @@ impl Default for Project {
 }
 
 impl Project {
-    pub fn from_path(log: &Logger, path: &Path) -> PsqlpackResult<Project> {
-        let log = log.new(o!("project" => "from_path"));
-        trace!(log, "Attempting to open project file"; "path" => path.to_str().unwrap());
-        File::open(path)
-            .chain_err(|| ProjectReadError(path.to_path_buf()))
+    pub fn from_project_file(log: &Logger, project_file_path: &Path) -> PsqlpackResult<Project> {
+        let log = log.new(o!("project" => "from_project_file"));
+        trace!(log, "Attempting to open project file"; "project_file_path" => project_file_path.to_str().unwrap());
+        File::open(project_file_path)
+            .chain_err(|| ProjectReadError(project_file_path.to_path_buf()))
             .and_then(|file| {
                 trace!(log, "Parsing project file");
-                serde_json::from_reader(file).chain_err(|| ProjectParseError(path.to_path_buf()))
+                serde_json::from_reader(file).chain_err(|| ProjectParseError(project_file_path.to_path_buf()))
             })
             .and_then(|mut project: Project| {
-                project.path = Some(path.to_path_buf());
+                project.project_file_path = Some(project_file_path.to_path_buf());
                 if project.default_schema.is_empty() {
                     project.default_schema = "public".into();
                 }
@@ -88,11 +88,30 @@ impl Project {
             })
     }
 
-    pub fn to_package(&self, log: &Logger, output_path: &Path) -> PsqlpackResult<()> {
+    pub fn write_package(&self, log: &Logger, output_path: &Path) -> PsqlpackResult<()> {
+
+        let log = log.new(o!("project" => "write_package"));
+        let package = self.to_package(&log)?;
+        // Now write the package to disk
+        trace!(log, "Creating package directory");
+        if let Some(parent) = output_path.parent() {
+            match fs::create_dir_all(parent) {
+                Ok(_) => {}
+                Err(e) => bail!(GenerationError(
+                    format!("Failed to create package directory: {}", e)
+                )),
+            }
+        }
+
+        trace!(log, "Writing package file"; "output" => output_path.to_str().unwrap());
+        package.write_to(output_path)
+    }
+
+    pub fn to_package(&self, log: &Logger) -> PsqlpackResult<Package> {
         let log = log.new(o!("project" => "to_package"));
 
         // Turn the pre/post into paths to quickly check
-        let parent = match self.path {
+        let parent = match self.project_file_path {
             Some(ref path) => path.parent().unwrap().canonicalize().unwrap(),
             None => bail!(GenerationError("Project path not set".to_owned())),
         };
@@ -214,19 +233,7 @@ impl Project {
         trace!(log, "Validating package");
         package.validate()?;
 
-        // Now generate the package
-        trace!(log, "Creating package directory");
-        if let Some(parent) = output_path.parent() {
-            match fs::create_dir_all(parent) {
-                Ok(_) => {}
-                Err(e) => bail!(GenerationError(
-                    format!("Failed to create package directory: {}", e)
-                )),
-            }
-        }
-
-        trace!(log, "Writing package file"; "output" => output_path.to_str().unwrap());
-        package.write_to(output_path)
+        Ok(package)
     }
 
     // Walk the files according to the include and exclude globs. This could be made more efficient with an iterator
@@ -300,7 +307,7 @@ mod tests {
         // This test relies on the `simple` samples directory
         let parent = Path::new("../samples/simple");
         let project = Project {
-            path: None,
+            project_file_path: None,
             version: "1.0".into(),
             default_schema: "public".into(),
             pre_deploy_scripts: Vec::new(),
@@ -327,7 +334,7 @@ mod tests {
         // This test relies on the `simple` samples directory
         let parent = Path::new("../samples/simple");
         let project = Project {
-            path: None,
+            project_file_path: None,
             version: "1.0".into(),
             default_schema: "public".into(),
             pre_deploy_scripts: Vec::new(),
