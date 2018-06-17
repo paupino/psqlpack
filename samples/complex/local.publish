@@ -1,7 +1,11 @@
 {
-    "version": "1.0",
-    "generationOptions": {
-        "alwaysRecreateDatabase": false,
-        "allowUnsafeOperations": false
-    }
+  "version": "1.0",
+  "generationOptions": {
+    "alwaysRecreateDatabase": false,
+    "dropEnumValues": "Error",
+    "dropTables": "Error",
+    "dropColumns": "Error",
+    "dropPrimaryKeyConstraints": "Error",
+    "dropForeignKeyConstraints": "Allow"
+  }
 }

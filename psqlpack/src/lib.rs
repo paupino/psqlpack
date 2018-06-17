@@ -32,7 +32,7 @@ pub mod ast {
 }
 pub use connection::ConnectionBuilder;
 pub use errors::{PsqlpackErrorKind, PsqlpackResult};
-pub use model::{Delta, Package, Project, PublishProfile, template};
+pub use model::{Delta, GenerationOptions, Package, Project, PublishProfile, Toggle, template};
 
 /// Allows usage of no logging, std `log`, or slog.
 pub enum LogConfig {

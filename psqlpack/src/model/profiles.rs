@@ -19,9 +19,35 @@ pub struct PublishProfile {
 }
 
 #[derive(Deserialize, Serialize)]
+pub enum Toggle {
+    Allow,
+    Ignore,
+    Error,
+}
+
+#[derive(Deserialize, Serialize)]
 pub struct GenerationOptions {
+    /// If set to true, the database will always be recereated
     #[serde(rename = "alwaysRecreateDatabase")] pub always_recreate_database: bool,
-    #[serde(rename = "allowUnsafeOperations")] pub allow_unsafe_operations: bool,
+
+    /// Enum values are typically unsafe to delete. If set to Allow, psqlpack will attempt to delete.
+    /// Default: Error
+    #[serde(rename = "dropEnumValues")] pub drop_enum_values: Toggle,
+    /// Tables may have data in them which may not be intended to be deleted. If set to Allow, psqlpack will drop the table.
+    /// Default: Error
+    #[serde(rename = "dropTables")] pub drop_tables: Toggle,
+    /// Columns may have data in them which may not be intended to be deleted. If set to Allow, psqlpack will drop the column.
+    /// Default: Error
+    #[serde(rename = "dropColumns")] pub drop_columns: Toggle,
+    /// Primary Keys define how a table is looked up on disk. If set to Allow, psqlpack will drop the primary key.
+    /// Default: Error
+    #[serde(rename = "dropPrimaryKeyConstraints")] pub drop_primary_key_constraints: Toggle,
+    /// Foreign Keys define a constraint to another table. If set to Allow, psqlpack will drop the foreign key.
+    /// Default: Allow
+    #[serde(rename = "dropForeignKeyConstraints")] pub drop_foreign_key_constraints: Toggle,
+    /// Functions may not be intended to be deleted. If set to Allow, psqlpack will drop the function.
+    /// Default: Error
+    #[serde(rename = "dropFunctions")] pub drop_functions: Toggle,
 }
 
 impl Default for PublishProfile {
@@ -30,7 +56,13 @@ impl Default for PublishProfile {
             version: "1.0".to_owned(),
             generation_options: GenerationOptions {
                 always_recreate_database: false,
-                allow_unsafe_operations: false,
+
+                drop_enum_values: Toggle::Error,
+                drop_tables: Toggle::Error,
+                drop_columns: Toggle::Error,
+                drop_primary_key_constraints: Toggle::Error,
+                drop_foreign_key_constraints: Toggle::Allow,
+                drop_functions: Toggle::Error,
             },
         }
     }
