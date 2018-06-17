@@ -4,6 +4,7 @@ use std::path::Path;
 use std::fs::File;
 use std::io::{BufReader, Read, Write};
 
+use regex::Regex;
 use slog::Logger;
 use serde_json;
 use zip::{ZipArchive, ZipWriter};
@@ -186,6 +187,132 @@ impl<'row> From<Row<'row>> for ColumnDefinition {
     }
 }
 
+static Q_TABLE_CONSTRAINTS : &'static str = "SELECT  
+                                    tc.constraint_schema,
+                                    tc.table_name, 
+                                    tc.constraint_type,
+                                    tc.constraint_name, 
+                                    string_agg(DISTINCT kcu.column_name, ',') as column_names, 
+                                    ccu.table_name as foreign_table_name, 
+                                    string_agg(DISTINCT ccu.column_name, ',') as foreign_column_names,
+                                    pgcls.reloptions as pk_parameters,
+                                    confupdtype,
+                                    confdeltype,
+                                    confmatchtype::text
+                                FROM 
+                                    information_schema.table_constraints as tc  
+                                    JOIN (SELECT DISTINCT column_name, constraint_name, table_name, ordinal_position 
+                                        FROM information_schema.key_column_usage 
+                                        ORDER BY ordinal_position ASC) kcu ON kcu.constraint_name = tc.constraint_name AND kcu.table_name = tc.table_name
+                                    JOIN information_schema.constraint_column_usage as ccu on ccu.constraint_name = tc.constraint_name
+                                    JOIN pg_catalog.pg_namespace pgn ON pgn.nspname = tc.constraint_schema
+                                    LEFT JOIN pg_catalog.pg_class pgcls ON pgcls.relname=tc.constraint_name AND pgcls.relnamespace = pgn.oid
+                                    LEFT JOIN pg_catalog.pg_constraint pgcon ON pgcon.conname=tc.constraint_name AND pgcon.connamespace = pgn.oid
+                                WHERE 
+                                    constraint_type in ('PRIMARY KEY','FOREIGN KEY')
+                                GROUP BY
+                                    tc.constraint_schema,
+                                    tc.table_name, 
+                                    tc.constraint_type,
+                                    tc.constraint_name,
+                                    ccu.table_name,
+                                    pgcls.reloptions,
+                                    confupdtype,
+                                    confdeltype,
+                                    confmatchtype::text";
+lazy_static! {
+    static ref FILL_FACTOR : Regex = Regex::new("fillfactor=(\\d+)").unwrap();
+}
+
+impl<'row> From<Row<'row>> for TableConstraint {
+    fn from(row: Row) -> Self {
+        let schema : String = row.get(0);
+        let constraint_type : String = row.get(2);
+        let constraint_name : String = row.get(3);
+        
+        let raw_column_names : String = row.get(4);
+        let column_names : Vec<String> = raw_column_names
+                                            .split_terminator(',')
+                                            .map(|s| s.into())
+                                            .collect();
+
+        match &constraint_type[..] {
+            "PRIMARY KEY" => {
+                let raw_parameters: Option<Vec<String>> = row.get(7);
+                let parameters = match raw_parameters {
+                    Some(parameters) => {
+                        // We only have one type at the moment
+                        if let Some(parameters) = parameters.first() {
+                            let ff = FILL_FACTOR.captures(&parameters[..]);
+                            if let Some(ff) = ff {
+                                Some(vec![IndexParameter::FillFactor(ff[1].parse::<u32>().unwrap())])
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    }
+                    None => None,
+                };
+                TableConstraint::Primary {
+                    name: constraint_name,
+                    columns: column_names,
+                    parameters: parameters,
+                }
+            },
+            "FOREIGN KEY" => {
+                let foreign_table_name : String = row.get(5);
+                let raw_foreign_column_names : String = row.get(6);
+                let foreign_column_names : Vec<String> = raw_foreign_column_names
+                                                            .split_terminator(',')
+                                                            .map(|s| s.into())
+                                                            .collect();
+                let ev : String = row.get(10);
+                let match_type = match &ev[..] {
+                    "f" => Some(ForeignConstraintMatchType::Full),
+                    "s" => Some(ForeignConstraintMatchType::Simple),
+                    "p" => Some(ForeignConstraintMatchType::Partial),
+                    _ => None,
+                };
+
+                let mut events = Vec::new();
+                let update_event : i8 = row.get(8);
+                match update_event as u8 as char {
+                    'r' => events.push(ForeignConstraintEvent::Update(ForeignConstraintAction::Restrict)),
+                    'c' => events.push(ForeignConstraintEvent::Update(ForeignConstraintAction::Cascade)),
+                    'd' => events.push(ForeignConstraintEvent::Update(ForeignConstraintAction::SetDefault)),
+                    'n' => events.push(ForeignConstraintEvent::Update(ForeignConstraintAction::SetNull)),
+                    'a' => events.push(ForeignConstraintEvent::Update(ForeignConstraintAction::NoAction)),
+                    _ => {},
+                }
+                let delete_event : i8 = row.get(9);
+                match delete_event as u8 as char {
+                    'r' => events.push(ForeignConstraintEvent::Delete(ForeignConstraintAction::Restrict)),
+                    'c' => events.push(ForeignConstraintEvent::Delete(ForeignConstraintAction::Cascade)),
+                    'd' => events.push(ForeignConstraintEvent::Delete(ForeignConstraintAction::SetDefault)),
+                    'n' => events.push(ForeignConstraintEvent::Delete(ForeignConstraintAction::SetNull)),
+                    'a' => events.push(ForeignConstraintEvent::Delete(ForeignConstraintAction::NoAction)),
+                    _ => {},
+                }
+
+                TableConstraint::Foreign {
+                    name: constraint_name,
+                    columns: column_names,
+                    ref_table: ObjectName { 
+                        schema: Some(schema),
+                        name: foreign_table_name
+                    },
+                    ref_columns: foreign_column_names,
+                    match_type: match_type,
+                    events: if events.is_empty() { None } else { Some(events) },
+                }
+            },
+            unknown => panic!("Unknown constraint type: {}", unknown),
+        }
+    }
+}
+
 impl From<String> for SqlType {
     fn from(s: String) -> Self {
         // TODO: Error handling for this
@@ -279,14 +406,16 @@ impl Package {
             }
         }
 
-        Ok(Package {
+        let mut package = Package {
             extensions: extensions,
             functions: functions,
             schemas: schemas,
             scripts: scripts,
             tables: tables,
             types: types,
-        })
+        };
+        package.promote_primary_keys_to_table_constraints();
+        Ok(package)
     }
 
     pub fn from_connection(log: &Logger, connection: &Connection) -> PsqlpackResult<Option<Package>> {
@@ -403,17 +532,35 @@ impl Package {
             }
         }
 
+        // Get a list of table constraints
+        for row in &db_conn.query(Q_TABLE_CONSTRAINTS, &[])
+                            .chain_err(|| PackageQueryTableConstraintsError)? {
+            // Get the table name and find it in our collection
+            let schema : String = row.get(0);
+            let table : String = row.get(1);
+            let key = format!("{}.{}", schema, table);
+
+            // Now look up the mutable key
+            if let Some(definition) = tables.get_mut(&key) {
+                definition.constraints.push(row.into());
+            }            
+        }
+
         // Close the connection
         dbtry!(db_conn.finish());
 
-        Ok(Some(Package {
+        // Get the package
+        let mut package = Package {
             extensions: map!(extensions),
             functions: functions,   // functions,
             schemas: map!(schemas), // schemas,
             scripts: Vec::new(),    // Scripts can't be known from a connection
             tables: tables.into_iter().map(|(_,b)| b).collect(),   // tables,
             types: map!(types),     // types,
-        }))
+        };
+        package.promote_primary_keys_to_table_constraints();
+
+        Ok(Some(package))
     }
 
     pub fn write_to(&self, destination: &Path) -> PsqlpackResult<()> {
@@ -526,11 +673,43 @@ impl Package {
                 }
             }
 
-            // Primary keys may also be specified against the column directly
+            // Primary keys may also be specified against the column directly. We promote these to table constraints.`
             for column in table.columns.iter_mut() {
                 let pk = column.constraints.iter().position(|c| c.eq(&ColumnConstraint::PrimaryKey));
                 if pk.is_some() {
+                    // Make sure it is not null
                     ensure_not_null_column(column);
+                }
+            }
+        }
+
+        // We also do the promotion here
+        self.promote_primary_keys_to_table_constraints();
+    }
+
+    fn promote_primary_keys_to_table_constraints(&mut self) {
+        // Set default schema's as well as marking primary key columns as not null
+        for table in &mut self.tables {
+            // Primary keys may also be specified against the column directly. We promote these to table constraints.`
+            for column in table.columns.iter_mut() {
+                let pk_pos = column.constraints.iter().position(|c| c.eq(&ColumnConstraint::PrimaryKey));
+                if let Some(pk_pos) = pk_pos {
+                    // Remove the PK constraint
+                    column.constraints.remove(pk_pos);
+                    
+                    // Add a table constraint if it doesn't exist
+                    let found = table.constraints.iter().position(|c| match c {
+                        TableConstraint::Primary { .. } => true,
+                        _ => false,
+                    });
+                    if found.is_none() {
+                        let name = format!("{}_pkey", table.name.name);
+                        table.constraints.push(TableConstraint::Primary {
+                            name: name,
+                            columns: vec![column.name.to_owned()],
+                            parameters: None,
+                        });
+                    }
                 }
             }
         }

@@ -244,7 +244,7 @@ impl<'a> Diffable<'a, Package> for LinkedTableConstraint<'a> {
             if src.is_some() && tgt.is_some() {
                 vec_different(src.as_ref().unwrap(), tgt.as_ref().unwrap())
             } else {
-                true
+                src.is_none() ^ tgt.is_none()
             }
         }
 
@@ -292,11 +292,15 @@ impl<'a> Diffable<'a, Package> for LinkedTableConstraint<'a> {
                                     ref match_type, 
                                     ref events 
                                 } => {
-                                    vec_different(src_columns, columns) ||
+                                    let match_type_different = if src_match_type.is_some() && match_type.is_some() {
+                                        src_match_type.as_ref().unwrap().ne(match_type.as_ref().unwrap())
+                                    } else {
+                                        src_match_type.is_none() ^ match_type.is_none()
+                                    };
+                                    match_type_different ||
+                                        vec_different(src_columns, columns) ||
                                         src_ref_table.ne(ref_table) ||
                                         vec_different(src_ref_columns, ref_columns) ||
-                                        ((src_match_type.is_none() || match_type.is_none()) || 
-                                            src_match_type.as_ref().unwrap().ne(match_type.as_ref().unwrap())) ||
                                         optional_vec_different(src_events, events)
                                 }
                             }
@@ -858,6 +862,63 @@ impl<'input> ChangeInstruction<'input> {
                             ColumnConstraint::Null => instr.push_str(" NULL"),
                             ColumnConstraint::Unique => instr.push_str(" UNIQUE"),
                             ColumnConstraint::PrimaryKey => instr.push_str(" PRIMARY KEY"),
+                        }
+                    }
+                }
+                // Add table constraints
+                for constraint in def.constraints.iter() {
+                    instr.push_str(",\n\t");
+                    match *constraint {
+                        TableConstraint::Primary {
+                            ref name,
+                            ref columns,
+                            ref parameters,
+                        } => {
+                            instr.push_str(&format!(
+                                "CONSTRAINT {} PRIMARY KEY ({})",
+                                name,
+                                columns.join(", ")
+                            ));
+
+                            // Do the WITH options too
+                            if let Some(ref unwrapped) = *parameters {
+                                instr.push_str(" WITH (");
+                                for (position, value) in unwrapped.iter().enumerate() {
+                                    if position > 0 {
+                                        instr.push_str(", ");
+                                    }
+                                    match *value {
+                                        IndexParameter::FillFactor(i) => instr.push_str(&format!("FILLFACTOR={}", i)[..]),
+                                    }
+                                }
+                                instr.push_str(")");
+                            }
+                        }
+                        TableConstraint::Foreign {
+                            ref name,
+                            ref columns,
+                            ref ref_table,
+                            ref ref_columns,
+                            ref match_type,
+                            ref events,
+                        } => {
+                            instr.push_str(&format!("CONSTRAINT {} FOREIGN KEY ({})", name, columns.join(", "))[..]);
+                            instr.push_str(&format!(" REFERENCES {} ({})", ref_table, ref_columns.join(", "))[..]);
+                            if let Some(ref m) = *match_type {
+                                instr.push_str(&format!(" {}", m));
+                            }
+                            if let Some(ref events) = *events {
+                                for e in events {
+                                    match *e {
+                                        ForeignConstraintEvent::Delete(ref action) => {
+                                            instr.push_str(&format!(" ON DELETE {}", action))
+                                        }
+                                        ForeignConstraintEvent::Update(ref action) => {
+                                            instr.push_str(&format!(" ON UPDATE {}", action))
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }

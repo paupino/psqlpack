@@ -185,7 +185,7 @@ fn main() {
                         .short("s")
                         .required(true)
                         .takes_value(true)
-                        .help("The source package to use for the deploy report"),
+                        .help("The source package or project file to use for the deploy report"),
                 )
                 .arg(
                     Arg::with_name("TARGET")
@@ -221,7 +221,7 @@ fn main() {
                         .short("s")
                         .required(false)
                         .takes_value(true)
-                        .help("The source package to use for the deploy report"),
+                        .help("The source package or project file to use for the deploy report"),
                 )
                 .arg(
                     Arg::with_name("TARGET")
