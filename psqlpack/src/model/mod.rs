@@ -13,7 +13,7 @@ mod package;
 mod delta;
 pub mod template;
 
-pub use self::profiles::{GenerationOptions, PublishProfile};
+pub use self::profiles::{GenerationOptions, PublishProfile, Toggle};
 pub use self::project::Project;
 pub use self::package::{Node, Package, ValidationKind};
 pub use self::delta::Delta;

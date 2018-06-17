@@ -9,7 +9,7 @@ use serde_json;
 
 use sql::ast::*;
 use connection::Connection;
-use model::{Node, Package, PublishProfile};
+use model::{Node, Package, PublishProfile, Toggle};
 use errors::{PsqlpackResult, PsqlpackResultExt};
 use errors::PsqlpackErrorKind::*;
 
@@ -263,19 +263,19 @@ impl<'a> Diffable<'a, Package> for LinkedTableConstraint<'a> {
                             let src_parameters = parameters;
                             match target_constraint {
                                 TableConstraint::Primary { name: _, ref columns, ref parameters } => {
-                                    vec_different(src_columns, columns) || 
+                                    vec_different(src_columns, columns) ||
                                         optional_vec_different(src_parameters, parameters)
                                 },
                                 TableConstraint::Foreign { .. } => true,
                             }
                         }
-                        TableConstraint::Foreign { 
-                            name: _, 
-                            ref columns, 
-                            ref ref_table, 
-                            ref ref_columns, 
-                            ref match_type, 
-                            ref events 
+                        TableConstraint::Foreign {
+                            name: _,
+                            ref columns,
+                            ref ref_table,
+                            ref ref_columns,
+                            ref match_type,
+                            ref events
                         } => {
                             let src_columns = columns;
                             let src_ref_table = ref_table;
@@ -285,12 +285,12 @@ impl<'a> Diffable<'a, Package> for LinkedTableConstraint<'a> {
                             match target_constraint {
                                 TableConstraint::Primary { .. } => true,
                                 TableConstraint::Foreign {
-                                    name: _, 
-                                    ref columns, 
-                                    ref ref_table, 
-                                    ref ref_columns, 
-                                    ref match_type, 
-                                    ref events 
+                                    name: _,
+                                    ref columns,
+                                    ref ref_table,
+                                    ref ref_columns,
+                                    ref match_type,
+                                    ref events
                                 } => {
                                     let match_type_different = if src_match_type.is_some() && match_type.is_some() {
                                         src_match_type.as_ref().unwrap().ne(match_type.as_ref().unwrap())
@@ -369,17 +369,21 @@ impl<'a> Diffable<'a, TypeDefinition> for &'a TypeDefinition {
                             })
                             .collect::<Vec<_>>();
                         if !to_delete.is_empty() {
-                            if publish_profile.generation_options.allow_unsafe_operations {
-                                changeset.extend(
-                                    to_delete
-                                        .drain(..)
-                                        .map(|d| ChangeInstruction::ModifyType(self, d)),
-                                );
-                            } else {
-                                bail!(PublishUnsafeOperationError(format!(
-                                    "Unable to remove enum value(s) as unsafe operations are disabled: {:?}",
-                                    to_delete
-                                )))
+                            match publish_profile.generation_options.drop_enum_values {
+                                Toggle::Allow => {
+                                    changeset.extend(
+                                        to_delete
+                                            .drain(..)
+                                            .map(|d| ChangeInstruction::ModifyType(self, d)),
+                                    );
+                                }
+                                Toggle::Error => {
+                                    bail!(PublishUnsafeOperationError(format!(
+                                        "Unable to remove enum value(s) as unsafe operations are disabled: {:?}",
+                                        to_delete
+                                    )));
+                                }
+                                _ => {}
                             }
                         }
 
@@ -1309,13 +1313,8 @@ mod tests {
         // Create a package with the type already defined
         let mut existing_database = Package::new();
         existing_database.types.push(base_type());
-        let publish_profile = PublishProfile {
-            version: "1.0".to_owned(),
-            generation_options: GenerationOptions {
-                always_recreate_database: false,
-                allow_unsafe_operations: true,
-            },
-        };
+        let mut publish_profile = PublishProfile::default();
+        publish_profile.generation_options.drop_enum_values = Toggle::Allow;
 
         let mut changeset = Vec::new();
         let result = (&source_type).generate(&mut changeset, &existing_database, &publish_profile, &log);
@@ -1410,13 +1409,8 @@ mod tests {
         // Create a package with the type already defined
         let mut existing_database = Package::new();
         existing_database.types.push(base_type());
-        let publish_profile = PublishProfile {
-            version: "1.0".to_owned(),
-            generation_options: GenerationOptions {
-                always_recreate_database: false,
-                allow_unsafe_operations: true,
-            },
-        };
+        let mut publish_profile = PublishProfile::default();
+        publish_profile.generation_options.drop_enum_values = Toggle::Allow;
 
         let mut changeset = Vec::new();
         let result = (&source_type).generate(&mut changeset, &existing_database, &publish_profile, &log);
@@ -1490,13 +1484,7 @@ mod tests {
 
         // Create an empty database
         let existing_database = Package::new();
-        let publish_profile = PublishProfile {
-            version: "1.0".to_owned(),
-            generation_options: GenerationOptions {
-                always_recreate_database: false,
-                allow_unsafe_operations: false,
-            },
-        };
+        let publish_profile = PublishProfile::default();
 
         let mut changeset = Vec::new();
         let result = (&source_table).generate(&mut changeset, &existing_database, &publish_profile, &log);
@@ -1540,13 +1528,7 @@ mod tests {
         // Create a database with the base table already defined.
         let mut existing_database = Package::new();
         existing_database.tables.push(base_table());
-        let publish_profile = PublishProfile {
-            version: "1.0".to_owned(),
-            generation_options: GenerationOptions {
-                always_recreate_database: false,
-                allow_unsafe_operations: false,
-            },
-        };
+        let publish_profile = PublishProfile::default();
 
         let mut changeset = Vec::new();
         // First, check that source table changes do nothing
@@ -1601,13 +1583,7 @@ mod tests {
             });
 
         existing_database.tables.push(existing_table);
-        let publish_profile = PublishProfile {
-            version: "1.0".to_owned(),
-            generation_options: GenerationOptions {
-                always_recreate_database: false,
-                allow_unsafe_operations: false,
-            },
-        };
+        let publish_profile = PublishProfile::default();
 
         let mut changeset = Vec::new();
         // First, check that source table changes do nothing
@@ -1654,13 +1630,7 @@ mod tests {
             });
 
         existing_database.tables.push(existing_table);
-        let publish_profile = PublishProfile {
-            version: "1.0".to_owned(),
-            generation_options: GenerationOptions {
-                always_recreate_database: false,
-                allow_unsafe_operations: false,
-            },
-        };
+        let publish_profile = PublishProfile::default();
 
         let mut changeset = Vec::new();
         let result = (&source_table).generate(&mut changeset, &existing_database, &publish_profile, &log);
@@ -1694,13 +1664,7 @@ mod tests {
         // Create a database with the base table already defined.
         let mut existing_database = Package::new();
         existing_database.tables.push(base_table());
-        let publish_profile = PublishProfile {
-            version: "1.0".to_owned(),
-            generation_options: GenerationOptions {
-                always_recreate_database: false,
-                allow_unsafe_operations: false,
-            },
-        };
+        let publish_profile = PublishProfile::default();
 
         let mut changeset = Vec::new();
         // First, check that source table changes do nothing
@@ -1749,13 +1713,7 @@ mod tests {
             parameters: Some(vec![IndexParameter::FillFactor(80)]),
         });
         existing_database.tables.push(existing_table);
-        let publish_profile = PublishProfile {
-            version: "1.0".to_owned(),
-            generation_options: GenerationOptions {
-                always_recreate_database: false,
-                allow_unsafe_operations: false,
-            },
-        };
+        let publish_profile = PublishProfile::default();
 
         let mut changeset = Vec::new();
         // This changeset gets generated at the table level
@@ -1796,13 +1754,7 @@ mod tests {
                 parameters: Some(vec![IndexParameter::FillFactor(80)]),
             });
         existing_database.tables.push(existing_table);
-        let publish_profile = PublishProfile {
-            version: "1.0".to_owned(),
-            generation_options: GenerationOptions {
-                always_recreate_database: false,
-                allow_unsafe_operations: false,
-            },
-        };
+        let publish_profile = PublishProfile::default();
 
         let mut changeset = Vec::new();
         // First, check that source table changes do nothing
@@ -1851,7 +1803,7 @@ mod tests {
         let log = empty_logger();
         let mut source_table = base_table();
         source_table.constraints.push(TableConstraint::Foreign {
-                name: "fk_my_contacts_my_companies".to_owned(), 
+                name: "fk_my_contacts_my_companies".to_owned(),
                 columns: vec!["company_id".into()],
                 ref_table: ObjectName { schema: Some("my".into()), name: "companies".into() },
                 ref_columns: vec!["id".into()],
@@ -1865,13 +1817,7 @@ mod tests {
         // Create a database with the base table already defined.
         let mut existing_database = Package::new();
         existing_database.tables.push(base_table());
-        let publish_profile = PublishProfile {
-            version: "1.0".to_owned(),
-            generation_options: GenerationOptions {
-                always_recreate_database: false,
-                allow_unsafe_operations: false,
-            },
-        };
+        let publish_profile = PublishProfile::default();
 
         let mut changeset = Vec::new();
         // First, check that source table changes do nothing
@@ -1921,7 +1867,7 @@ mod tests {
         let mut existing_database = Package::new();
         let mut existing_table = base_table();
         existing_table.constraints.push(TableConstraint::Foreign {
-                name: "fk_my_contacts_my_companies".to_owned(), 
+                name: "fk_my_contacts_my_companies".to_owned(),
                 columns: vec!["company_id".into()],
                 ref_table: ObjectName { schema: Some("my".into()), name: "companies".into() },
                 ref_columns: vec!["id".into()],
@@ -1932,13 +1878,7 @@ mod tests {
                 ]),
             });
         existing_database.tables.push(existing_table);
-        let publish_profile = PublishProfile {
-            version: "1.0".to_owned(),
-            generation_options: GenerationOptions {
-                always_recreate_database: false,
-                allow_unsafe_operations: false,
-            },
-        };
+        let publish_profile = PublishProfile::default();
 
         let mut changeset = Vec::new();
         // This changeset gets generated at the table level
@@ -1965,7 +1905,7 @@ mod tests {
         let log = empty_logger();
         let mut source_table = base_table();
         source_table.constraints.push(TableConstraint::Foreign {
-                name: "fk_my_contacts_my_companies".to_owned(), 
+                name: "fk_my_contacts_my_companies".to_owned(),
                 columns: vec!["company_id".into()],
                 ref_table: ObjectName { schema: Some("my".into()), name: "companies".into() },
                 ref_columns: vec!["id".into()],
@@ -1980,7 +1920,7 @@ mod tests {
         let mut existing_database = Package::new();
         let mut existing_table = base_table();
         existing_table.constraints.push(TableConstraint::Foreign {
-                name: "fk_my_contacts_my_companies".to_owned(), 
+                name: "fk_my_contacts_my_companies".to_owned(),
                 columns: vec!["company_id".into()],
                 ref_table: ObjectName { schema: Some("my".into()), name: "companies".into() },
                 ref_columns: vec!["id".into()],
@@ -1991,13 +1931,7 @@ mod tests {
                 ]),
             });
         existing_database.tables.push(existing_table);
-        let publish_profile = PublishProfile {
-            version: "1.0".to_owned(),
-            generation_options: GenerationOptions {
-                always_recreate_database: false,
-                allow_unsafe_operations: false,
-            },
-        };
+        let publish_profile = PublishProfile::default();
 
         let mut changeset = Vec::new();
         // First, check that source table changes do nothing
