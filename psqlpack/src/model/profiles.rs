@@ -45,6 +45,9 @@ pub struct GenerationOptions {
     /// Foreign Keys define a constraint to another table. If set to Allow, psqlpack will drop the foreign key.
     /// Default: Allow
     #[serde(rename = "dropForeignKeyConstraints")] pub drop_foreign_key_constraints: Toggle,
+    /// Functions may not be intended to be deleted. If set to Allow, psqlpack will drop the function.
+    /// Default: Error
+    #[serde(rename = "dropFunctions")] pub drop_functions: Toggle,
 }
 
 impl Default for PublishProfile {
@@ -59,6 +62,7 @@ impl Default for PublishProfile {
                 drop_columns: Toggle::Error,
                 drop_primary_key_constraints: Toggle::Error,
                 drop_foreign_key_constraints: Toggle::Allow,
+                drop_functions: Toggle::Error,
             },
         }
     }

@@ -139,8 +139,8 @@ impl<'a> Diffable<'a, Package> for &'a TableDefinition {
         &self,
         changeset: &mut Vec<ChangeInstruction<'a>>,
         target: &Package,
-        _: &PublishProfile,
-        _: &Logger,
+        publish_profile: &PublishProfile,
+        _log: &Logger,
     ) -> PsqlpackResult<()> {
         let table_result = target.tables.iter().find(|t| t.name == self.name);
         if let Some(target_table) = table_result {
@@ -148,14 +148,47 @@ impl<'a> Diffable<'a, Package> for &'a TableDefinition {
             for tgt in target_table.columns.iter() {
                 if !self.columns.iter().any(|src| tgt.name.eq(&src.name)) {
                     // Column in target but not in source
-                    changeset.push(ChangeInstruction::RemoveColumn(self, tgt.name.to_owned()));
+                    match publish_profile.generation_options.drop_columns {
+                        Toggle::Allow => changeset.push(ChangeInstruction::RemoveColumn(self, tgt.name.to_owned())),
+                        Toggle::Error => {
+                            bail!(PublishUnsafeOperationError(format!(
+                                "Unable to drop column as dropping columns is currently disabled: {}",
+                                tgt.name
+                            )));
+                        }
+                        _ => {}
+                    }
                 }
             }
 
             // We also check for table constraint removals here
             for tgt in target_table.constraints.iter() {
                 if !self.constraints.iter().any(|src| tgt.name().eq(src.name())) {
-                    changeset.push(ChangeInstruction::RemoveConstraint(self, tgt.name().to_owned()));
+                    let remove_ok = match tgt {
+                        TableConstraint::Primary { .. } => {
+                            match publish_profile.generation_options.drop_primary_key_constraints {
+                                Toggle::Allow => true,
+                                Toggle::Ignore => false,
+                                Toggle::Error => bail!(PublishUnsafeOperationError(format!(
+                                    "Unable to drop constraint as dropping PKs is currently disabled: {}",
+                                    tgt.name()
+                                )))
+                            }
+                        }
+                        TableConstraint::Foreign { .. } => {
+                            match publish_profile.generation_options.drop_foreign_key_constraints {
+                                Toggle::Allow => true,
+                                Toggle::Ignore => false,
+                                Toggle::Error => bail!(PublishUnsafeOperationError(format!(
+                                    "Unable to drop constraint as dropping FKs is currently disabled: {}",
+                                    tgt.name()
+                                )))
+                            }
+                        }
+                    };
+                    if remove_ok {
+                        changeset.push(ChangeInstruction::RemoveConstraint(self, tgt.name().to_owned()));
+                    }
                 }
             }
         } else {
@@ -226,7 +259,7 @@ impl<'a> Diffable<'a, Package> for LinkedTableConstraint<'a> {
         &self,
         changeset: &mut Vec<ChangeInstruction<'a>>,
         target: &Package,
-        _publish_profile: &PublishProfile,
+        publish_profile: &PublishProfile,
         _log: &Logger,
     ) -> PsqlpackResult<()> {
         fn vec_different<T: PartialEq>(src: &Vec<T>, tgt: &Vec<T>) -> bool {
@@ -307,8 +340,32 @@ impl<'a> Diffable<'a, Package> for LinkedTableConstraint<'a> {
                         }
                     };
                 if has_changed {
-                    changeset.push(ChangeInstruction::RemoveConstraint(self.table, self.constraint.name().to_owned()));
-                    changeset.push(ChangeInstruction::AddConstraint(self.table, self.constraint));
+                    let remove_ok = match self.constraint {
+                        TableConstraint::Primary { .. } => {
+                            match publish_profile.generation_options.drop_primary_key_constraints {
+                                Toggle::Allow => true,
+                                Toggle::Ignore => false,
+                                Toggle::Error => bail!(PublishUnsafeOperationError(format!(
+                                    "Unable to modify constraint as dropping PKs is currently disabled: {}",
+                                    self.constraint.name()
+                                )))
+                            }
+                        }
+                        TableConstraint::Foreign { .. } => {
+                            match publish_profile.generation_options.drop_foreign_key_constraints {
+                                Toggle::Allow => true,
+                                Toggle::Ignore => false,
+                                Toggle::Error => bail!(PublishUnsafeOperationError(format!(
+                                    "Unable to modify constraint as dropping FKs is currently disabled: {}",
+                                    self.constraint.name()
+                                )))
+                            }
+                        }
+                    };
+                    if remove_ok {
+                        changeset.push(ChangeInstruction::RemoveConstraint(self.table, self.constraint.name().to_owned()));
+                        changeset.push(ChangeInstruction::AddConstraint(self.table, self.constraint));
+                    }
                 }
             } else {
                 // Doesn't exist, add it
@@ -443,6 +500,31 @@ impl<'package> Delta<'package> {
         // Start the changeset
         let mut changeset = Vec::new();
 
+        // If we always recreate then add a drop and set to false
+        let mut target = target;
+        if target.is_some() && publish_profile.generation_options.always_recreate_database {
+            changeset.push(ChangeInstruction::DropDatabase(
+                target_database_name.to_owned(),
+            ));
+            target = None;
+        }
+
+        // For an empty database use an empty package, but also push a CREATE DB instruction
+        let target_package = match target {
+            Some(target_package) => target_package,
+            None => {
+                changeset.push(ChangeInstruction::CreateDatabase(
+                    target_database_name.to_owned(),
+                ));
+                Package::new()
+            }
+        };
+
+        // Set the connection instruction
+        changeset.push(ChangeInstruction::UseDatabase(
+            target_database_name.to_owned(),
+        ));
+
         // Create the build order - including all document types outside the topological sort.
         let mut build_order = Vec::new();
 
@@ -466,6 +548,36 @@ impl<'package> Delta<'package> {
         // Types
         for t in &package.types {
             build_order.push(DbObject::Type(t));
+        }
+
+        // Drop tables first - first figure out if there are any to drop
+        for table in &target_package.tables {
+            if !package.tables.iter().any(|t| t.name.eq(&table.name)) {
+                match publish_profile.generation_options.drop_tables {
+                    Toggle::Allow => changeset.push(ChangeInstruction::RemoveTable(table.name.to_string())),
+                    Toggle::Error => bail!(
+                                        PublishUnsafeOperationError(
+                                            format!("Attempted to remove table {} however dropping tables is currently disabled", table.name)
+                                        )
+                                    ),
+                    _ => {}
+                }
+            }
+        }
+
+        // Drop functions next - first figure out if there are any to drop
+        for function in &target_package.functions {
+            if !package.functions.iter().any(|t| t.name.eq(&function.name)) {
+                match publish_profile.generation_options.drop_functions {
+                    Toggle::Allow => changeset.push(ChangeInstruction::DropFunction(function.name.to_string())),
+                    Toggle::Error => bail!(
+                                        PublishUnsafeOperationError(
+                                            format!("Attempted to remove function {} however dropping functions is currently disabled", function.name)
+                                        )
+                                    ),
+                    _ => {}
+                }
+            }
         }
 
         // Now add everything else per the topological sort
@@ -496,31 +608,6 @@ impl<'package> Delta<'package> {
                 build_order.push(DbObject::Script(script));
             }
         }
-
-        // If we always recreate then add a drop and set to false
-        let mut target = target;
-        if target.is_some() && publish_profile.generation_options.always_recreate_database {
-            changeset.push(ChangeInstruction::DropDatabase(
-                target_database_name.to_owned(),
-            ));
-            target = None;
-        }
-
-        // For an empty database use an empty package, but also push a CREATE DB instruction
-        let target_package = match target {
-            Some(target_package) => target_package,
-            None => {
-                changeset.push(ChangeInstruction::CreateDatabase(
-                    target_database_name.to_owned(),
-                ));
-                Package::new()
-            }
-        };
-
-        // Set the connection instruction
-        changeset.push(ChangeInstruction::UseDatabase(
-            target_database_name.to_owned(),
-        ));
 
         // Go through each item in order and figure out what to do with it
         for item in &build_order {
@@ -1630,7 +1717,8 @@ mod tests {
             });
 
         existing_database.tables.push(existing_table);
-        let publish_profile = PublishProfile::default();
+        let mut publish_profile = PublishProfile::default();
+        publish_profile.generation_options.drop_columns = Toggle::Allow;
 
         let mut changeset = Vec::new();
         let result = (&source_table).generate(&mut changeset, &existing_database, &publish_profile, &log);
@@ -1713,7 +1801,8 @@ mod tests {
             parameters: Some(vec![IndexParameter::FillFactor(80)]),
         });
         existing_database.tables.push(existing_table);
-        let publish_profile = PublishProfile::default();
+        let mut publish_profile = PublishProfile::default();
+        publish_profile.generation_options.drop_primary_key_constraints = Toggle::Allow;
 
         let mut changeset = Vec::new();
         // This changeset gets generated at the table level
@@ -1754,7 +1843,8 @@ mod tests {
                 parameters: Some(vec![IndexParameter::FillFactor(80)]),
             });
         existing_database.tables.push(existing_table);
-        let publish_profile = PublishProfile::default();
+        let mut publish_profile = PublishProfile::default();
+        publish_profile.generation_options.drop_primary_key_constraints = Toggle::Allow;
 
         let mut changeset = Vec::new();
         // First, check that source table changes do nothing
@@ -1878,7 +1968,8 @@ mod tests {
                 ]),
             });
         existing_database.tables.push(existing_table);
-        let publish_profile = PublishProfile::default();
+        let mut publish_profile = PublishProfile::default();
+        publish_profile.generation_options.drop_foreign_key_constraints = Toggle::Allow;
 
         let mut changeset = Vec::new();
         // This changeset gets generated at the table level
@@ -1931,7 +2022,8 @@ mod tests {
                 ]),
             });
         existing_database.tables.push(existing_table);
-        let publish_profile = PublishProfile::default();
+        let mut publish_profile = PublishProfile::default();
+        publish_profile.generation_options.drop_foreign_key_constraints = Toggle::Allow;
 
         let mut changeset = Vec::new();
         // First, check that source table changes do nothing
