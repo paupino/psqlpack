@@ -187,32 +187,32 @@ impl<'row> From<Row<'row>> for ColumnDefinition {
     }
 }
 
-static Q_TABLE_CONSTRAINTS : &'static str = "SELECT  
+static Q_TABLE_CONSTRAINTS : &'static str = "SELECT
                                     tc.constraint_schema,
-                                    tc.table_name, 
+                                    tc.table_name,
                                     tc.constraint_type,
-                                    tc.constraint_name, 
-                                    string_agg(DISTINCT kcu.column_name, ',') as column_names, 
-                                    ccu.table_name as foreign_table_name, 
+                                    tc.constraint_name,
+                                    string_agg(DISTINCT kcu.column_name, ',') as column_names,
+                                    ccu.table_name as foreign_table_name,
                                     string_agg(DISTINCT ccu.column_name, ',') as foreign_column_names,
                                     pgcls.reloptions as pk_parameters,
                                     confupdtype,
                                     confdeltype,
                                     confmatchtype::text
-                                FROM 
-                                    information_schema.table_constraints as tc  
-                                    JOIN (SELECT DISTINCT column_name, constraint_name, table_name, ordinal_position 
-                                        FROM information_schema.key_column_usage 
+                                FROM
+                                    information_schema.table_constraints as tc
+                                    JOIN (SELECT DISTINCT column_name, constraint_name, table_name, ordinal_position
+                                        FROM information_schema.key_column_usage
                                         ORDER BY ordinal_position ASC) kcu ON kcu.constraint_name = tc.constraint_name AND kcu.table_name = tc.table_name
                                     JOIN information_schema.constraint_column_usage as ccu on ccu.constraint_name = tc.constraint_name
                                     JOIN pg_catalog.pg_namespace pgn ON pgn.nspname = tc.constraint_schema
                                     LEFT JOIN pg_catalog.pg_class pgcls ON pgcls.relname=tc.constraint_name AND pgcls.relnamespace = pgn.oid
                                     LEFT JOIN pg_catalog.pg_constraint pgcon ON pgcon.conname=tc.constraint_name AND pgcon.connamespace = pgn.oid
-                                WHERE 
+                                WHERE
                                     constraint_type in ('PRIMARY KEY','FOREIGN KEY')
                                 GROUP BY
                                     tc.constraint_schema,
-                                    tc.table_name, 
+                                    tc.table_name,
                                     tc.constraint_type,
                                     tc.constraint_name,
                                     ccu.table_name,
@@ -229,7 +229,7 @@ impl<'row> From<Row<'row>> for TableConstraint {
         let schema : String = row.get(0);
         let constraint_type : String = row.get(2);
         let constraint_name : String = row.get(3);
-        
+
         let raw_column_names : String = row.get(4);
         let column_names : Vec<String> = raw_column_names
                                             .split_terminator(',')
@@ -299,7 +299,7 @@ impl<'row> From<Row<'row>> for TableConstraint {
                 TableConstraint::Foreign {
                     name: constraint_name,
                     columns: column_names,
-                    ref_table: ObjectName { 
+                    ref_table: ObjectName {
                         schema: Some(schema),
                         name: foreign_table_name
                     },
@@ -345,7 +345,7 @@ impl Package {
                 }
 
                 Ok(
-                    buffer[0] == 0x50 && 
+                    buffer[0] == 0x50 &&
                     buffer[1] == 0x4B
                 )
             })
@@ -543,7 +543,7 @@ impl Package {
             // Now look up the mutable key
             if let Some(definition) = tables.get_mut(&key) {
                 definition.constraints.push(row.into());
-            }            
+            }
         }
 
         // Close the connection
@@ -654,7 +654,7 @@ impl Package {
             if table.name.schema.is_none() {
                 table.name.schema = Some(project.default_schema.clone());
             }
-            
+
             for constraint in table.constraints.iter_mut() {
                 match *constraint {
                     TableConstraint::Primary { ref columns, .. } => {
@@ -696,7 +696,7 @@ impl Package {
                 if let Some(pk_pos) = pk_pos {
                     // Remove the PK constraint
                     column.constraints.remove(pk_pos);
-                    
+
                     // Add a table constraint if it doesn't exist
                     let found = table.constraints.iter().position(|c| match c {
                         TableConstraint::Primary { .. } => true,
@@ -1187,6 +1187,23 @@ mod tests {
         };
     }
 
+    macro_rules! assert_pk_constraint {
+        ($graph:ident,$index:expr,$table_name:expr,$constraint_name:expr) => {
+            match $graph[$index] {
+                Node::Constraint(table, constraint) => {
+                    assert_that!(table.name.to_string()).is_equal_to($table_name.to_owned());
+                    match *constraint {
+                        ast::TableConstraint::Primary { ref name, .. } => {
+                            assert_that!(name.to_string()).is_equal_to($constraint_name.to_owned());
+                        },
+                        _ => panic!("Expected a primary key constraint at index {}", $index)
+                    }
+                },
+                _ => panic!("Expected a constraint at index {}", $index)
+            }
+        };
+    }
+
     macro_rules! assert_fk_constraint {
         ($graph:ident,$index:expr,$table_name:expr,$constraint_name:expr) => {
             match $graph[$index] {
@@ -1249,7 +1266,7 @@ mod tests {
     }
 
     #[test]
-    fn it_generates_a_complex_ordering() {
+    fn it_generates_a_complex_ordering_1() {
         let package = package_sql(
             "CREATE TABLE my.child(id int, parent_id int,
                CONSTRAINT fk_parent_child FOREIGN KEY (parent_id)
@@ -1269,6 +1286,37 @@ mod tests {
         assert_column!(graph, 3, "my.child", "id");
         assert_column!(graph, 4, "my.child", "parent_id");
         assert_fk_constraint!(graph, 5, "my.child", "fk_parent_child");
+    }
+
+    #[test]
+    fn it_generates_a_complex_ordering_2() {
+        let package = package_sql(
+            "CREATE TABLE public.allocation (
+                id              serial                NOT NULL,
+                CONSTRAINT pk_public_allocation PRIMARY KEY (id)
+            );
+            CREATE TABLE public.transaction (
+                id                serial                NOT NULL,
+                allocation_id     int                   NOT NULL,
+                CONSTRAINT pk_public_transaction PRIMARY KEY (id),
+                CONSTRAINT fk_public_transaction__allocation_id FOREIGN KEY (allocation_id)
+                REFERENCES public.allocation (id) MATCH SIMPLE
+                ON UPDATE NO ACTION ON DELETE NO ACTION
+            );");
+        let logger = empty_logger();
+        let graph = package.generate_dependency_graph(&logger);
+
+        // Make sure we generated enough nodes (two tables + three columns + three constraints).
+        assert_that!(graph).is_ok().has_length(8);
+        let graph = graph.unwrap();
+        assert_table!(graph, 0, "public.allocation");
+        assert_column!(graph, 1, "public.allocation", "id");
+        assert_pk_constraint!(graph, 2, "public.allocation", "pk_public_allocation");
+        assert_table!(graph, 3, "public.transaction");
+        assert_column!(graph, 4, "public.transaction", "id");
+        assert_column!(graph, 5, "public.transaction", "allocation_id");
+        assert_pk_constraint!(graph, 6, "public.transaction", "pk_public_transaction");
+        assert_fk_constraint!(graph, 7, "public.transaction", "fk_public_transaction__allocation_id");
     }
 
     #[test]
