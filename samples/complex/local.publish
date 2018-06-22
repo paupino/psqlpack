@@ -3,6 +3,7 @@
   "generationOptions": {
     "alwaysRecreateDatabase": false,
     "dropEnumValues": "Error",
+    "dropFunctions": "Error",
     "dropTables": "Error",
     "dropColumns": "Error",
     "dropPrimaryKeyConstraints": "Error",
