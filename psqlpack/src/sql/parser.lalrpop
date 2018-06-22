@@ -312,7 +312,9 @@ SimpleType: SimpleSqlType = {
     SERIAL4 => SimpleSqlType::Serial,
     SERIAL8 => SimpleSqlType::BigSerial,
 
-    NUMERIC "(" <m:Digit> "," <d:Digit> ")" => SimpleSqlType::Numeric(m as u32, d as u32),
+    NUMERIC => SimpleSqlType::Numeric(None),
+    NUMERIC "(" <m:Digit> ")" => SimpleSqlType::Numeric(Some((m as u32, 0))),
+    NUMERIC "(" <m:Digit> "," <d:Digit> ")" => SimpleSqlType::Numeric(Some((m as u32, d as u32))),
     DOUBLE PRECISION => SimpleSqlType::Double,
     REAL => SimpleSqlType::Single,
     MONEY => SimpleSqlType::Money,

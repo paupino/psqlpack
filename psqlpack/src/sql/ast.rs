@@ -34,7 +34,7 @@ pub enum SimpleSqlType {
     Serial,      // serial
     BigSerial,   // bigserial
 
-    Numeric(u32, u32), // numeric(m,d)
+    Numeric(Option<(u32, u32)>), // numeric(m,d)
     Double,            // double precision
     Single,            // real
     Money,             // money
@@ -281,7 +281,8 @@ impl fmt::Display for SimpleSqlType {
             SimpleSqlType::Serial => write!(f, "serial"),
             SimpleSqlType::BigSerial => write!(f, "bigserial"),
 
-            SimpleSqlType::Numeric(m, d) => write!(f, "numeric({},{})", m, d),
+            SimpleSqlType::Numeric(Some((m, d))) => write!(f, "numeric({},{})", m, d),
+            SimpleSqlType::Numeric(None) => write!(f, "numeric"),
             SimpleSqlType::Double => write!(f, "double precision"),
             SimpleSqlType::Single => write!(f, "real"),
             SimpleSqlType::Money => write!(f, "money"),
