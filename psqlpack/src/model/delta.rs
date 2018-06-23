@@ -958,64 +958,6 @@ impl<'input> ChangeInstruction<'input> {
                     }
                 }
                 // Table constraints are added later
-                /*
-                for constraint in def.constraints.iter() {
-                    instr.push_str(",\n\t");
-                    match *constraint {
-                        TableConstraint::Primary {
-                            ref name,
-                            ref columns,
-                            ref parameters,
-                        } => {
-                            instr.push_str(&format!(
-                                "CONSTRAINT {} PRIMARY KEY ({})",
-                                name,
-                                columns.join(", ")
-                            ));
-
-                            // Do the WITH options too
-                            if let Some(ref unwrapped) = *parameters {
-                                instr.push_str(" WITH (");
-                                for (position, value) in unwrapped.iter().enumerate() {
-                                    if position > 0 {
-                                        instr.push_str(", ");
-                                    }
-                                    match *value {
-                                        IndexParameter::FillFactor(i) => instr.push_str(&format!("FILLFACTOR={}", i)[..]),
-                                    }
-                                }
-                                instr.push_str(")");
-                            }
-                        }
-                        TableConstraint::Foreign {
-                            ref name,
-                            ref columns,
-                            ref ref_table,
-                            ref ref_columns,
-                            ref match_type,
-                            ref events,
-                        } => {
-                            instr.push_str(&format!("CONSTRAINT {} FOREIGN KEY ({})", name, columns.join(", "))[..]);
-                            instr.push_str(&format!(" REFERENCES {} ({})", ref_table, ref_columns.join(", "))[..]);
-                            if let Some(ref m) = *match_type {
-                                instr.push_str(&format!(" {}", m));
-                            }
-                            if let Some(ref events) = *events {
-                                for e in events {
-                                    match *e {
-                                        ForeignConstraintEvent::Delete(ref action) => {
-                                            instr.push_str(&format!(" ON DELETE {}", action))
-                                        }
-                                        ForeignConstraintEvent::Update(ref action) => {
-                                            instr.push_str(&format!(" ON UPDATE {}", action))
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                */
                 instr.push_str("\n)");
                 instr
             }
