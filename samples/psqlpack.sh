@@ -28,19 +28,19 @@ case $1 in
         ;;        
     publish)
         action="Publishing '$db'"
-        cargo run -p psqlpack-cli -- publish --source out/$db.psqlpack --target "host=$db.db;database=$db;userid=$username;tlsmode=none;" --profile samples/$db/local.publish --trace
+        cargo run -p psqlpack-cli -- publish --source out/$db.psqlpack --target "host=localhost;database=$db;userid=$username;tlsmode=none;" --profile samples/$db/local.publish --trace
         ;;
     script)
         action="Generating SQL for '$db'"
-        cargo run -p psqlpack-cli -- script --source out/$db.psqlpack --target "host=$db.db;database=$db;userid=$username;tlsmode=none;" --profile samples/$db/local.publish --output out/$db.sql --trace
+        cargo run -p psqlpack-cli -- script --source out/$db.psqlpack --target "host=localhost;database=$db;userid=$username;tlsmode=none;" --profile samples/$db/local.publish --output out/$db.sql --trace
         ;;
     report)
         action="Generating Report for '$db'"
-        cargo run -p psqlpack-cli -- report --source out/$db.psqlpack --target "host=$db.db;database=$db;userid=$username;tlsmode=none;" --profile samples/$db/local.publish --output out/$db.json --trace
+        cargo run -p psqlpack-cli -- report --source out/$db.psqlpack --target "host=localhost;database=$db;userid=$username;tlsmode=none;" --profile samples/$db/local.publish --output out/$db.json --trace
         ;;
     extract)
         action="Extracting psqlpack for '$db'"
-        cargo run -p psqlpack-cli -- extract --source "host=$db.db;database=$db;userid=$username;tlsmode=none;" --output out/${db}db.psqlpack --trace
+        cargo run -p psqlpack-cli -- extract --source "host=localhost;database=$db;userid=$username;tlsmode=none;" --output out/${db}db.psqlpack --trace
         ;;        
     unpack)
         action="Unpacking psqlpack for '$db'"
