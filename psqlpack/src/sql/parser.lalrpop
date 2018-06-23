@@ -136,7 +136,7 @@ Statement: Statement = {
         body: body,
         language: lang,
     }),
-    CREATE <unique:UNIQUE?> INDEX <name:Ident> ON <table:ObjectName> <index_type:IndexType?> "(" <columns:IndexColumnList> ")" <storage_parameters:WithIndexParameters?> => Statement::Index(IndexDefinition {
+    CREATE <unique:UNIQUE?> INDEX <name:Ident> ON <table:ObjectName> <index_type:IndexType?> "(" <columns:IndexColumnList> ")" <storage_parameters:WithIndexParameters?> ";"? => Statement::Index(IndexDefinition {
         name: name,
         table: table,
         columns: columns,
