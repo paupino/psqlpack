@@ -733,8 +733,7 @@ impl Package {
             let table_node = Node::Table(table);
             trace!(log, "Scanning constraints");
             for constraint in &table.constraints {
-                let constraint_node = constraint.graph(&log, &mut graph, Some(&table_node));
-                graph.add_edge(table_node, constraint_node, ());
+                constraint.graph(&log, &mut graph, Some(&table_node));
             }
         }
 
@@ -1044,7 +1043,8 @@ impl Graphable for TableConstraint {
         // Primary is easy with a direct dependency to the column
         // Foreign requires a weighted dependency
         // This does have a parent - namely the table
-        let table = match *parent.unwrap() {
+        let table_node = *parent.unwrap();
+        let table = match table_node {
             Node::Table(table) => table,
             _ => panic!("Non table parent for column."),
         };
@@ -1067,6 +1067,7 @@ impl Graphable for TableConstraint {
                         .unwrap();
                     graph.add_edge(Node::Column(table, column), constraint, ());
                 }
+                graph.add_edge(table_node, constraint, ());
                 constraint
             }
             TableConstraint::Foreign {
@@ -1099,6 +1100,7 @@ impl Graphable for TableConstraint {
                     Some(Node::Table(table_def)) => table_def,
                     _ => panic!("Non table node found"),
                 };
+
                 // Add edges to the referenced columns.
                 for ref_column_name in ref_columns {
                     trace!(log, "Adding edge to refrenced column";
@@ -1121,6 +1123,7 @@ impl Graphable for TableConstraint {
                         }
                     }
                 }
+                graph.add_edge(table_node, constraint, ());
                 constraint
             }
         }
@@ -1309,13 +1312,14 @@ mod tests {
         // Make sure we generated enough nodes (two tables + three columns + three constraints).
         assert_that!(graph).is_ok().has_length(8);
         let graph = graph.unwrap();
-        assert_table!(graph, 0, "public.allocation");
-        assert_column!(graph, 1, "public.allocation", "id");
-        assert_pk_constraint!(graph, 2, "public.allocation", "pk_public_allocation");
-        assert_table!(graph, 3, "public.transaction");
-        assert_column!(graph, 4, "public.transaction", "id");
-        assert_column!(graph, 5, "public.transaction", "allocation_id");
-        assert_pk_constraint!(graph, 6, "public.transaction", "pk_public_transaction");
+        assert_table!(graph, 0, "public.transaction");
+        assert_column!(graph, 1, "public.transaction", "id");
+        assert_column!(graph, 2, "public.transaction", "allocation_id");
+        assert_pk_constraint!(graph, 3, "public.transaction", "pk_public_transaction");
+        assert_table!(graph, 4, "public.allocation");
+        assert_column!(graph, 5, "public.allocation", "id");
+        assert_pk_constraint!(graph, 6, "public.allocation", "pk_public_allocation");
+        // FK is last
         assert_fk_constraint!(graph, 7, "public.transaction", "fk_public_transaction__allocation_id");
     }
 

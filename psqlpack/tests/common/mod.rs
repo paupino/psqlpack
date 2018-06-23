@@ -77,14 +77,14 @@ macro_rules! assert_simple_package {
         assert_that!(table).is_some();
         let table = table.unwrap();
         assert_that!(table.name.to_string()).is_equal_to(format!("{}.contacts", $namespace));
-        assert_that!(table.columns).has_length(2);
-        assert_that!(table.constraints).has_length(1);
+        assert_that!(table.columns).named(&"table.columns").has_length(2);
+        assert_that!(table.constraints).named(&"table.constraints").has_length(1);
 
         // Validate the id column
         let col_id = &table.columns[0];
         assert_that!(col_id.name).is_equal_to("id".to_string());
         assert_that!(col_id.sql_type).is_equal_to(SqlType::Simple(SimpleSqlType::Serial));
-        assert_that!(col_id.constraints).has_length(1);
+        assert_that!(col_id.constraints).named(&"col_id.constraints").has_length(1);
         let constraints = col_id.constraints.iter();
         assert_that!(constraints).contains(ColumnConstraint::NotNull);
 
@@ -92,7 +92,7 @@ macro_rules! assert_simple_package {
         let col_name = &table.columns[1];
         assert_that!(col_name.name).is_equal_to("name".to_string());
         assert_that!(col_name.sql_type).is_equal_to(SqlType::Simple(SimpleSqlType::VariableLengthString(50)));
-        assert_that!(col_name.constraints).has_length(1);
+        assert_that!(col_name.constraints).named(&"col_name.constraints").has_length(1);
         assert_that!(col_name.constraints[0]).is_equal_to(ColumnConstraint::NotNull);
     }};
 }

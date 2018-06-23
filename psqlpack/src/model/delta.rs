@@ -281,8 +281,7 @@ impl<'a> Diffable<'a, Package> for LinkedTableConstraint<'a> {
             }
         }
 
-        // We only generate items here if the table doesn't exist (for the time being)
-        // We should consider if we want to just generate empty tables and then be consistent adding
+        // If the table doesn't exist in the target we assume it will, so we just add
         let table_result = target.tables.iter().find(|t| t.name == self.table.name);
         if let Some(target_table) = table_result {
             // Check if the constraint exists on the target - this is a basic comparison of name
@@ -372,6 +371,8 @@ impl<'a> Diffable<'a, Package> for LinkedTableConstraint<'a> {
                 changeset.push(ChangeInstruction::AddConstraint(self.table, &self.constraint));
             }
 
+        } else {
+            changeset.push(ChangeInstruction::AddConstraint(self.table, &self.constraint));
         }
         Ok(())
     }
@@ -956,7 +957,8 @@ impl<'input> ChangeInstruction<'input> {
                         }
                     }
                 }
-                // Add table constraints
+                // Table constraints are added later
+                /*
                 for constraint in def.constraints.iter() {
                     instr.push_str(",\n\t");
                     match *constraint {
@@ -1013,6 +1015,7 @@ impl<'input> ChangeInstruction<'input> {
                         }
                     }
                 }
+                */
                 instr.push_str("\n)");
                 instr
             }
