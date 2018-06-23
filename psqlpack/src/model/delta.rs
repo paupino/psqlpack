@@ -281,8 +281,7 @@ impl<'a> Diffable<'a, Package> for LinkedTableConstraint<'a> {
             }
         }
 
-        // We only generate items here if the table doesn't exist (for the time being)
-        // We should consider if we want to just generate empty tables and then be consistent adding
+        // If the table doesn't exist in the target we assume it will, so we just add
         let table_result = target.tables.iter().find(|t| t.name == self.table.name);
         if let Some(target_table) = table_result {
             // Check if the constraint exists on the target - this is a basic comparison of name
@@ -372,6 +371,8 @@ impl<'a> Diffable<'a, Package> for LinkedTableConstraint<'a> {
                 changeset.push(ChangeInstruction::AddConstraint(self.table, &self.constraint));
             }
 
+        } else {
+            changeset.push(ChangeInstruction::AddConstraint(self.table, &self.constraint));
         }
         Ok(())
     }
@@ -956,63 +957,7 @@ impl<'input> ChangeInstruction<'input> {
                         }
                     }
                 }
-                // Add table constraints
-                for constraint in def.constraints.iter() {
-                    instr.push_str(",\n\t");
-                    match *constraint {
-                        TableConstraint::Primary {
-                            ref name,
-                            ref columns,
-                            ref parameters,
-                        } => {
-                            instr.push_str(&format!(
-                                "CONSTRAINT {} PRIMARY KEY ({})",
-                                name,
-                                columns.join(", ")
-                            ));
-
-                            // Do the WITH options too
-                            if let Some(ref unwrapped) = *parameters {
-                                instr.push_str(" WITH (");
-                                for (position, value) in unwrapped.iter().enumerate() {
-                                    if position > 0 {
-                                        instr.push_str(", ");
-                                    }
-                                    match *value {
-                                        IndexParameter::FillFactor(i) => instr.push_str(&format!("FILLFACTOR={}", i)[..]),
-                                    }
-                                }
-                                instr.push_str(")");
-                            }
-                        }
-                        TableConstraint::Foreign {
-                            ref name,
-                            ref columns,
-                            ref ref_table,
-                            ref ref_columns,
-                            ref match_type,
-                            ref events,
-                        } => {
-                            instr.push_str(&format!("CONSTRAINT {} FOREIGN KEY ({})", name, columns.join(", "))[..]);
-                            instr.push_str(&format!(" REFERENCES {} ({})", ref_table, ref_columns.join(", "))[..]);
-                            if let Some(ref m) = *match_type {
-                                instr.push_str(&format!(" {}", m));
-                            }
-                            if let Some(ref events) = *events {
-                                for e in events {
-                                    match *e {
-                                        ForeignConstraintEvent::Delete(ref action) => {
-                                            instr.push_str(&format!(" ON DELETE {}", action))
-                                        }
-                                        ForeignConstraintEvent::Update(ref action) => {
-                                            instr.push_str(&format!(" ON UPDATE {}", action))
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+                // Table constraints are added later
                 instr.push_str("\n)");
                 instr
             }
