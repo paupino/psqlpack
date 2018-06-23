@@ -18,6 +18,7 @@ use sql::lexer;
 use sql::ast::*;
 use sql::parser::{SqlTypeParser, FunctionArgumentListParser, FunctionReturnTypeParser};
 use model::Project;
+use semver::{Semver, ServerVersion};
 use errors::{PsqlpackError, PsqlpackResult, PsqlpackResultExt};
 use errors::PsqlpackErrorKind::*;
 
@@ -315,24 +316,62 @@ impl<'row> From<Row<'row>> for TableConstraint {
     }
 }
 
+static Q_INDEXES_PRE96: &'static str = "SELECT
+  ns.nspname               AS schema_name,
+  idx.indrelid :: REGCLASS AS table_name,
+  i.relname                AS index_name,
+  idx.indisunique          AS is_unique,
+  am.amname                AS index_type,
+  ARRAY(
+       SELECT row(
+           pg_get_indexdef(idx.indexrelid, k + 1, TRUE),
+           am.amcanorder,
+           CASE WHEN idx.indoption[k] & 1 = 0 THEN true ELSE false END, --asc
+           CASE WHEN idx.indoption[k] & 1 = 1 THEN true ELSE false END, --desc
+           CASE WHEN idx.indoption[k] & 2 = 2 THEN true ELSE false END, --nulls_first
+           CASE WHEN idx.indoption[k] & 2 = 0 THEN true ELSE false END  --nulls_last
+       )
+       FROM
+           generate_subscripts(idx.indkey, 1) AS k
+       ORDER BY k
+  ) AS index_keys,
+  i.reloptions            AS storage_parameters
+FROM pg_index AS idx
+  JOIN pg_class AS i
+    ON i.oid = idx.indexrelid
+  JOIN pg_am AS am
+    ON i.relam = am.oid
+  JOIN pg_namespace AS NS ON i.relnamespace = NS.OID
+WHERE NOT nspname LIKE 'pg%' AND idx.indisprimary = false;";
+
+// Index query >= 9.6
 static Q_INDEXES : &'static str = "SELECT
-                                    ns.nspname               AS schema_name,
-                                    idx.indrelid :: REGCLASS AS table_name,
-                                    i.relname                AS index_name,
-                                    idx.indisunique          AS is_unique,
-                                    am.amname                AS index_type,
-                                    ARRAY(
-                                        SELECT pg_get_indexdef(idx.indexrelid, k + 1, TRUE)
-                                        FROM
-                                            generate_subscripts(idx.indkey, 1) AS k
-                                        ORDER BY k
-                                    ) AS index_keys,
-                                    i.reloptions            AS storage_parameters
-                                FROM pg_index AS idx
-                                JOIN pg_class AS i ON i.oid = idx.indexrelid
-                                JOIN pg_am AS am ON i.relam = am.oid
-                                JOIN pg_namespace AS NS ON i.relnamespace = NS.OID
-                                WHERE NOT nspname LIKE 'pg%' AND idx.indisprimary = false";
+  ns.nspname               AS schema_name,
+  idx.indrelid :: REGCLASS AS table_name,
+  i.relname                AS index_name,
+  idx.indisunique          AS is_unique,
+  am.amname                AS index_type,
+  ARRAY(
+       SELECT row(
+           pg_get_indexdef(idx.indexrelid, k + 1, TRUE),
+           pg_index_column_has_property(idx.indexrelid, k + 1, 'orderable'),
+           pg_index_column_has_property(idx.indexrelid, k + 1, 'asc'),
+           pg_index_column_has_property(idx.indexrelid, k + 1, 'desc'),
+           pg_index_column_has_property(idx.indexrelid, k + 1, 'nulls_first'),
+           pg_index_column_has_property(idx.indexrelid, k + 1, 'nulls_last')
+       )
+       FROM
+           generate_subscripts(idx.indkey, 1) AS k
+       ORDER BY k
+  ) AS index_keys,
+  i.reloptions            AS storage_parameters
+FROM pg_index AS idx
+  JOIN pg_class AS i
+    ON i.oid = idx.indexrelid
+  JOIN pg_am AS am
+    ON i.relam = am.oid
+  JOIN pg_namespace AS NS ON i.relnamespace = NS.OID
+WHERE NOT nspname LIKE 'pg%' AND idx.indisprimary = false;";
 
 impl<'row> From<Row<'row>> for IndexDefinition {
     fn from(row: Row) -> Self {
@@ -499,8 +538,11 @@ impl Package {
         }
         dbtry!(db_conn.finish());
 
-        // We do five SQL queries to get the package details
+        // We do a few SQL queries to get the package details
         let db_conn = connection.connect_database()?;
+
+        // Get the server version
+        let version = db_conn.server_version()?;
 
         let extensions = db_conn
             .query(Q_EXTENSIONS, &[])
@@ -613,7 +655,11 @@ impl Package {
 
         // Get a list of indexes
         let mut indexes = Vec::new();
-        for row in &db_conn.query(Q_INDEXES, &[]).chain_err(|| PackageQueryIndexesError)? {
+        let index_query = match version.cmp(&Semver::new(9, 6, 0)) {
+            ::std::cmp::Ordering::Less => Q_INDEXES_PRE96,
+            _ => Q_INDEXES,
+        };
+        for row in &db_conn.query(index_query, &[]).chain_err(|| PackageQueryIndexesError)? {
             let index: IndexDefinition = row.into();
             indexes.push(index);
         }
@@ -1232,6 +1278,7 @@ mod tests {
                 match statement {
                     ast::Statement::Extension(_) => panic!("Extension statement found"),
                     ast::Statement::Function(function_definition) => package.push_function(function_definition),
+                    ast::Statement::Index(index_definition) => package.push_index(index_definition),
                     ast::Statement::Schema(schema_definition) => package.push_schema(schema_definition),
                     ast::Statement::Table(table_definition) => package.push_table(table_definition),
                     ast::Statement::Type(type_definition) => package.push_type(type_definition),

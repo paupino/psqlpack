@@ -26,6 +26,7 @@ pub use errors::*;
 mod connection;
 mod sql;
 mod model;
+mod semver;
 
 pub mod ast {
     pub use sql::ast::*;
@@ -33,6 +34,7 @@ pub mod ast {
 pub use connection::ConnectionBuilder;
 pub use errors::{PsqlpackErrorKind, PsqlpackResult};
 pub use model::{Delta, GenerationOptions, Package, Project, PublishProfile, Toggle, template};
+pub use semver::{Semver, ServerVersion};
 
 /// Allows usage of no logging, std `log`, or slog.
 pub enum LogConfig {
