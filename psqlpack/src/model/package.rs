@@ -224,6 +224,25 @@ lazy_static! {
     static ref FILL_FACTOR : Regex = Regex::new("fillfactor=(\\d+)").unwrap();
 }
 
+fn parse_index_parameters(raw_parameters: Option<Vec<String>>) -> Option<Vec<IndexParameter>> {
+    match raw_parameters {
+        Some(parameters) => {
+            // We only have one type at the moment
+            if let Some(parameters) = parameters.first() {
+                let ff = FILL_FACTOR.captures(&parameters[..]);
+                if let Some(ff) = ff {
+                    Some(vec![IndexParameter::FillFactor(ff[1].parse::<u32>().unwrap())])
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        }
+        None => None,
+    }
+}
+
 impl<'row> From<Row<'row>> for TableConstraint {
     fn from(row: Row) -> Self {
         let schema : String = row.get(0);
@@ -238,27 +257,10 @@ impl<'row> From<Row<'row>> for TableConstraint {
 
         match &constraint_type[..] {
             "PRIMARY KEY" => {
-                let raw_parameters: Option<Vec<String>> = row.get(7);
-                let parameters = match raw_parameters {
-                    Some(parameters) => {
-                        // We only have one type at the moment
-                        if let Some(parameters) = parameters.first() {
-                            let ff = FILL_FACTOR.captures(&parameters[..]);
-                            if let Some(ff) = ff {
-                                Some(vec![IndexParameter::FillFactor(ff[1].parse::<u32>().unwrap())])
-                            } else {
-                                None
-                            }
-                        } else {
-                            None
-                        }
-                    }
-                    None => None,
-                };
                 TableConstraint::Primary {
                     name: constraint_name,
                     columns: column_names,
-                    parameters: parameters,
+                    parameters: parse_index_parameters(row.get(7)),
                 }
             },
             "FOREIGN KEY" => {
@@ -313,6 +315,63 @@ impl<'row> From<Row<'row>> for TableConstraint {
     }
 }
 
+static Q_INDEXES : &'static str = "SELECT
+                                    ns.nspname               AS schema_name,
+                                    idx.indrelid :: REGCLASS AS table_name,
+                                    i.relname                AS index_name,
+                                    idx.indisunique          AS is_unique,
+                                    am.amname                AS index_type,
+                                    ARRAY(
+                                        SELECT pg_get_indexdef(idx.indexrelid, k + 1, TRUE)
+                                        FROM
+                                            generate_subscripts(idx.indkey, 1) AS k
+                                        ORDER BY k
+                                    ) AS index_keys,
+                                    i.reloptions            AS storage_parameters
+                                FROM pg_index AS idx
+                                JOIN pg_class AS i ON i.oid = idx.indexrelid
+                                JOIN pg_am AS am ON i.relam = am.oid
+                                JOIN pg_namespace AS NS ON i.relnamespace = NS.OID
+                                WHERE NOT nspname LIKE 'pg%' AND idx.indisprimary = false";
+
+impl<'row> From<Row<'row>> for IndexDefinition {
+    fn from(row: Row) -> Self {
+        let schema: String = row.get(0);
+        let table: String = row.get(1);
+        let name: String = row.get(2);
+        let unique: bool = row.get(3);
+        let index_type: String = row.get(4);
+        let index_type = match &index_type[..] {
+            "btree" => Some(IndexType::BTree),
+            "gin" => Some(IndexType::Gin),
+            "gist" => Some(IndexType::Gist),
+            "hash" => Some(IndexType::Hash),
+            _ => None,
+        };
+        let columns: Vec<String> = row.get(5);
+        let columns = columns.iter().map(|c| IndexColumn {
+            name: c.to_string(),
+            order: None, // TODO
+            null_position: None, // TODO
+        }).collect();
+        let parameters = parse_index_parameters(row.get(6));
+
+        IndexDefinition {
+            name: name,
+            table: ObjectName {
+                schema: Some(schema),
+                name: table,
+            },
+            columns: columns,
+
+            unique: unique,
+            index_type: index_type,
+
+            storage_parameters: parameters,
+        }
+    }
+}
+
 impl From<String> for SqlType {
     fn from(s: String) -> Self {
         // TODO: Error handling for this
@@ -325,6 +384,7 @@ impl From<String> for SqlType {
 pub struct Package {
     pub extensions: Vec<ExtensionDefinition>,
     pub functions: Vec<FunctionDefinition>,
+    pub indexes: Vec<IndexDefinition>,
     pub schemas: Vec<SchemaDefinition>,
     pub scripts: Vec<ScriptDefinition>,
     pub tables: Vec<TableDefinition>,
@@ -374,6 +434,7 @@ impl Package {
 
         let mut extensions = Vec::new();
         let mut functions = Vec::new();
+        let mut indexes = Vec::new();
         let mut schemas = Vec::new();
         let mut scripts = Vec::new();
         let mut tables = Vec::new();
@@ -390,6 +451,9 @@ impl Package {
                     .chain_err(|| PackageInternalReadError(name))?);
             } else if name.starts_with("functions/") {
                 functions.push(serde_json::from_reader(file)
+                    .chain_err(|| PackageInternalReadError(name))?);
+            } else if name.starts_with("indexes") {
+                indexes.push(serde_json::from_reader(file)
                     .chain_err(|| PackageInternalReadError(name))?);
             } else if name.starts_with("schemas/") {
                 schemas.push(serde_json::from_reader(file)
@@ -409,6 +473,7 @@ impl Package {
         let mut package = Package {
             extensions: extensions,
             functions: functions,
+            indexes: indexes,
             schemas: schemas,
             scripts: scripts,
             tables: tables,
@@ -546,17 +611,25 @@ impl Package {
             }
         }
 
+        // Get a list of indexes
+        let mut indexes = Vec::new();
+        for row in &db_conn.query(Q_INDEXES, &[]).chain_err(|| PackageQueryIndexesError)? {
+            let index: IndexDefinition = row.into();
+            indexes.push(index);
+        }
+
         // Close the connection
         dbtry!(db_conn.finish());
 
         // Get the package
         let mut package = Package {
             extensions: map!(extensions),
-            functions: functions,   // functions,
-            schemas: map!(schemas), // schemas,
-            scripts: Vec::new(),    // Scripts can't be known from a connection
-            tables: tables.into_iter().map(|(_,b)| b).collect(),   // tables,
-            types: map!(types),     // types,
+            functions: functions,
+            indexes: indexes,
+            schemas: map!(schemas),
+            scripts: Vec::new(), // Scripts can't be known from a connection
+            tables: tables.into_iter().map(|(_,b)| b).collect(),
+            types: map!(types),
         };
         package.promote_primary_keys_to_table_constraints();
 
@@ -571,6 +644,7 @@ impl Package {
 
                 zip_collection!(zip, self, extensions);
                 zip_collection!(zip, self, functions);
+                zip_collection!(zip, self, indexes);
                 zip_collection!(zip, self, schemas);
                 zip_collection!(zip, self, scripts);
                 zip_collection!(zip, self, tables);
@@ -586,6 +660,7 @@ impl Package {
         Package {
             extensions: Vec::new(),
             functions: Vec::new(),
+            indexes: Vec::new(),
             schemas: Vec::new(),
             scripts: Vec::new(),
             tables: Vec::new(),
@@ -599,6 +674,10 @@ impl Package {
 
     pub fn push_function(&mut self, function: FunctionDefinition) {
         self.functions.push(function);
+    }
+
+    pub fn push_index(&mut self, index: IndexDefinition) {
+        self.indexes.push(index);
     }
 
     pub fn push_script(&mut self, script: ScriptDefinition) {

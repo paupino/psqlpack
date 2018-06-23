@@ -48,6 +48,10 @@ pub struct GenerationOptions {
     /// Functions may not be intended to be deleted. If set to Allow, psqlpack will drop the function.
     /// Default: Error
     #[serde(rename = "dropFunctions")] pub drop_functions: Toggle,
+
+    /// Forces index changes to be made concurrently to avoid locking on table writes.
+    /// Default: false
+    #[serde(rename = "forceConcurrentIndexes")] pub force_concurrent_indexes: bool,
 }
 
 impl Default for PublishProfile {
@@ -63,6 +67,8 @@ impl Default for PublishProfile {
                 drop_primary_key_constraints: Toggle::Error,
                 drop_foreign_key_constraints: Toggle::Allow,
                 drop_functions: Toggle::Error,
+
+                force_concurrent_indexes: false,
             },
         }
     }

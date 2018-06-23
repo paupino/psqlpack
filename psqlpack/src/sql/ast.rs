@@ -4,6 +4,7 @@ use std::fmt;
 pub enum Statement {
     Extension(ExtensionDefinition),
     Function(FunctionDefinition),
+    Index(IndexDefinition),
     Schema(SchemaDefinition),
     Table(TableDefinition),
     Type(TypeDefinition),
@@ -200,6 +201,44 @@ pub enum FunctionLanguage {
     Internal,
     PostgreSQL,
     SQL,
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub struct IndexDefinition {
+    pub name: String,
+    pub table: ObjectName,
+    pub columns: Vec<IndexColumn>,
+
+    pub unique: bool,
+    pub index_type: Option<IndexType>,
+    pub storage_parameters: Option<Vec<IndexParameter>>,
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub enum IndexType {
+    BTree,
+    Hash,
+    Gist,
+    Gin,
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub struct IndexColumn {
+    pub name: String,
+    pub order: Option<IndexOrder>,
+    pub null_position: Option<IndexPosition>,
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub enum IndexOrder {
+    Ascending,
+    Descending,
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub enum IndexPosition {
+    First,
+    Last,
 }
 
 impl fmt::Display for AnyValue {

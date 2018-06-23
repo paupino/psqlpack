@@ -50,7 +50,7 @@ pub struct Project {
     /// An array of globs representing files/folders to be included within your project. Defaults to `["**/*.sql"]`.
     #[serde(rename = "fileIncludeGlobs", skip_serializing_if = "Option::is_none")] pub include_globs: Option<Vec<String>>,
 
-    /// An array of globs representing files/folders to be excluded within your project. 
+    /// An array of globs representing files/folders to be excluded within your project.
     #[serde(rename = "fileExcludeGlobs", skip_serializing_if = "Option::is_none")] pub exclude_globs: Option<Vec<String>>,
 }
 
@@ -209,6 +209,7 @@ impl Project {
                             match statement {
                                 Statement::Extension(_) => warn!(log, "Extension statement found, ignoring"),
                                 Statement::Function(function_definition) => package.push_function(function_definition),
+                                Statement::Index(index_definition) => package.push_index(index_definition),
                                 Statement::Schema(schema_definition) => package.push_schema(schema_definition),
                                 Statement::Table(table_definition) => package.push_table(table_definition),
                                 Statement::Type(type_definition) => package.push_type(type_definition),
