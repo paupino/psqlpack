@@ -2140,4 +2140,185 @@ mod tests {
                           ADD CONSTRAINT fk_my_contacts_my_companies FOREIGN KEY (company_id) \
                           REFERENCES my.companies (id) MATCH SIMPLE ON UPDATE NO ACTION ON DELETE NO ACTION".to_owned());
     }
+
+    #[test]
+    fn it_can_add_a_new_index() {
+        let log = empty_logger();
+        let source_index = IndexDefinition {
+            name: "idx_contacts_first_name".to_owned(),
+            table: ObjectName {
+                schema: Some("public".to_owned()),
+                name: "contacts".to_owned(),
+            },
+            columns: vec![
+                IndexColumn {
+                    name: "first_name".to_owned(),
+                    order: Some(IndexOrder::Ascending),
+                    null_position: Some(IndexPosition::Last),
+                },
+            ],
+            unique: true,
+            index_type: Some(IndexType::BTree),
+            storage_parameters: None,
+        };
+
+        // Create a database with no indexes defined.
+        let existing_database = Package::new();
+        let publish_profile = PublishProfile::default();
+
+        let mut changeset = Vec::new();
+        let result = (&source_index).generate(&mut changeset, &existing_database, &publish_profile, &log);
+        assert_that!(result).is_ok();
+
+        // We should have a single instruction to create a new index
+        assert_that!(changeset).has_length(1);
+        match changeset[0] {
+            ChangeInstruction::AddIndex(ref index, concurrently) => {
+                assert_that!(index.name).is_equal_to("idx_contacts_first_name".to_owned());
+                assert_that!(index.table.to_string()).is_equal_to("public.contacts".to_owned());
+                assert_that!(concurrently).is_true();
+            }
+            ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
+        }
+
+        // Check the SQL generation
+        assert_that!(changeset[0].to_sql(&log))
+            .is_equal_to("CREATE UNIQUE INDEX CONCURRENTLY idx_contacts_first_name \
+                          ON public.contacts USING btree (first_name ASC NULLS LAST)".to_owned());
+    }
+
+    #[test]
+    fn it_can_remove_an_existing_index() {
+        let log = empty_logger();
+        let source_package = Package::new();
+
+        // Create a database with the index already defined.
+        fn existing_db() -> Option<Package> {
+            let mut existing_database = Package::new();
+            existing_database.indexes.push(IndexDefinition {
+                name: "idx_contacts_first_name".to_owned(),
+                table: ObjectName {
+                    schema: Some("public".to_owned()),
+                    name: "contacts".to_owned(),
+                },
+                columns: vec![
+                    IndexColumn {
+                        name: "first_name".to_owned(),
+                        order: Some(IndexOrder::Ascending),
+                        null_position: Some(IndexPosition::Last),
+                    },
+                ],
+                unique: true,
+                index_type: Some(IndexType::BTree),
+                storage_parameters: None,
+            });
+            Some(existing_database)
+        }
+
+        let mut publish_profile = PublishProfile::default();
+        publish_profile.generation_options.drop_indexes = Toggle::Error;
+
+        // First of all, make sure an error is generated
+        let result = Delta::generate(&log, &source_package, existing_db(), "dbname".to_owned(), publish_profile);
+        assert_that!(result).is_err();
+        // Now run it again - it should be ok now
+        let mut publish_profile = PublishProfile::default();
+        publish_profile.generation_options.drop_indexes = Toggle::Allow;
+        let result = Delta::generate(&log, &source_package, existing_db(), "dbname".to_owned(), publish_profile);
+        assert_that!(result).is_ok();
+        let changeset = match result.unwrap() {
+            Delta(c) => c,
+        };
+
+        // We should have a single instruction to remove an index (first will be use database)
+        assert_that!(changeset).has_length(2);
+        match changeset[1] {
+            ChangeInstruction::DropIndex(ref index, concurrently) => {
+                assert_that!(*index).is_equal_to("idx_contacts_first_name".to_owned());
+                assert_that!(concurrently).is_true();
+            }
+            ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
+        }
+
+        // Check the SQL generation
+        assert_that!(changeset[1].to_sql(&log))
+            .is_equal_to("DROP INDEX CONCURRENTLY IF EXISTS idx_contacts_first_name".to_owned());
+    }
+
+    #[test]
+    fn it_can_modify_an_existing_index() {
+        let log = empty_logger();
+        let source_index = IndexDefinition {
+            name: "idx_contacts_name".to_owned(),
+            table: ObjectName {
+                schema: Some("public".to_owned()),
+                name: "contacts".to_owned(),
+            },
+            columns: vec![
+                IndexColumn {
+                    name: "first_name".to_owned(),
+                    order: Some(IndexOrder::Ascending),
+                    null_position: Some(IndexPosition::Last),
+                },
+                IndexColumn {
+                    name: "last_name".to_owned(),
+                    order: Some(IndexOrder::Descending),
+                    null_position: Some(IndexPosition::First),
+                },
+            ],
+            unique: false,
+            index_type: Some(IndexType::BTree),
+            storage_parameters: None,
+        };
+
+        // Create a database with a single index defined.
+        let mut existing_database = Package::new();
+        existing_database.indexes.push(IndexDefinition {
+            name: "idx_contacts_name".to_owned(),
+            table: ObjectName {
+                schema: Some("public".to_owned()),
+                name: "contacts".to_owned(),
+            },
+            columns: vec![
+                IndexColumn {
+                    name: "first_name".to_owned(),
+                    order: Some(IndexOrder::Ascending),
+                    null_position: Some(IndexPosition::Last),
+                },
+            ],
+            unique: true,
+            index_type: Some(IndexType::BTree),
+            storage_parameters: None,
+        });
+        let publish_profile = PublishProfile::default();
+
+        let mut changeset = Vec::new();
+        let result = (&source_index).generate(&mut changeset, &existing_database, &publish_profile, &log);
+        assert_that!(result).is_ok();
+
+        // We should have two instructions to drop/create a new index
+        assert_that!(changeset).has_length(2);
+        match changeset[0] {
+            ChangeInstruction::DropIndex(ref index_name, concurrently) => {
+                assert_that!(*index_name).is_equal_to("idx_contacts_name".to_owned());
+                assert_that!(concurrently).is_true();
+            }
+            ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
+        }
+        match changeset[1] {
+            ChangeInstruction::AddIndex(ref index, concurrently) => {
+                assert_that!(index.name).is_equal_to("idx_contacts_name".to_owned());
+                assert_that!(index.table.to_string()).is_equal_to("public.contacts".to_owned());
+                assert_that!(concurrently).is_true();
+            }
+            ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
+        }
+
+        // Check the SQL generation
+        assert_that!(changeset[0].to_sql(&log))
+            .is_equal_to("DROP INDEX CONCURRENTLY IF EXISTS idx_contacts_name".to_owned());
+        assert_that!(changeset[1].to_sql(&log))
+            .is_equal_to("CREATE INDEX CONCURRENTLY idx_contacts_name \
+                          ON public.contacts USING btree (first_name ASC NULLS LAST, last_name DESC NULLS FIRST)".to_owned());
+    }
 }
