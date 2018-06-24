@@ -125,6 +125,16 @@ pub struct ObjectName {
     pub name: String,
 }
 
+impl ObjectName {
+    pub fn schema(&self) -> &str {
+        if let Some(ref schema) = self.schema {
+            schema
+        } else {
+            ""
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
 pub struct TableDefinition {
     pub name: ObjectName,
@@ -212,6 +222,20 @@ pub struct IndexDefinition {
     pub unique: bool,
     pub index_type: Option<IndexType>,
     pub storage_parameters: Option<Vec<IndexParameter>>,
+}
+
+impl IndexDefinition {
+    pub fn fully_qualified_name(&self) -> String {
+        format!("{}.{}", self.schema(), self.name)
+    }
+
+    pub fn is_same_index(&self, other: &IndexDefinition) -> bool {
+        self.name.eq(&other.name) && self.schema().eq(other.schema())
+    }
+
+    pub fn schema(&self) -> &str {
+        self.table.schema()
+    }
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]

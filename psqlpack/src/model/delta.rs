@@ -389,12 +389,13 @@ impl<'a> Diffable<'a, Package> for &'a IndexDefinition {
         publish_profile: &PublishProfile,
         _log: &Logger,
     ) -> PsqlpackResult<()> {
-        let index = target.indexes.iter().find(|idx| idx.name == self.name);
+        // Indexes are unique across schema (implied by table)
+        let index = target.indexes.iter().find(|idx| idx.is_same_index(self));
         let concurrently = publish_profile.generation_options.force_concurrent_indexes;
         if let Some(index) = index {
             // We should be able to just use an eq for this since column ordering is significant
             if index.ne(self) {
-                changeset.push(ChangeInstruction::DropIndex(self.name.to_owned(), concurrently));
+                changeset.push(ChangeInstruction::DropIndex(self.fully_qualified_name(), concurrently));
                 changeset.push(ChangeInstruction::AddIndex(self, concurrently));
             }
         } else {
@@ -579,9 +580,9 @@ impl<'package> Delta<'package> {
 
         // Drop indexes first
         for index in &target_package.indexes {
-            if !package.indexes.iter().any(|idx| idx.name.eq(&index.name)) {
+            if !package.indexes.iter().any(|idx| idx.is_same_index(&index)) {
                 match publish_profile.generation_options.drop_indexes {
-                    Toggle::Allow => changeset.push(ChangeInstruction::DropIndex(index.name.to_string(), publish_profile.generation_options.force_concurrent_indexes)),
+                    Toggle::Allow => changeset.push(ChangeInstruction::DropIndex(index.fully_qualified_name(), publish_profile.generation_options.force_concurrent_indexes)),
                     Toggle::Error => bail!(
                                         PublishUnsafeOperationError(
                                             format!("Attempted to drop index {} however dropping indexes is currently disabled", index.name)
@@ -858,7 +859,7 @@ impl<'input> fmt::Display for ChangeInstruction<'input> {
             ),
 
             // Indexes
-            AddIndex(index, concurrently) => write!(f, "Add index{}: {}", if concurrently { " concurrently" } else { "" }, index.name),
+            AddIndex(index, concurrently) => write!(f, "Add index{}: {}", if concurrently { " concurrently" } else { "" }, index.fully_qualified_name()),
             DropIndex(ref index_name, concurrently) => write!(f, "Drop index{}: {}", if concurrently { " concurrently" } else { "" }, index_name),
 
             // Functions
@@ -2234,7 +2235,7 @@ mod tests {
         assert_that!(changeset).has_length(2);
         match changeset[1] {
             ChangeInstruction::DropIndex(ref index, concurrently) => {
-                assert_that!(*index).is_equal_to("idx_contacts_first_name".to_owned());
+                assert_that!(*index).is_equal_to("public.idx_contacts_first_name".to_owned());
                 assert_that!(concurrently).is_true();
             }
             ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
@@ -2242,7 +2243,7 @@ mod tests {
 
         // Check the SQL generation
         assert_that!(changeset[1].to_sql(&log))
-            .is_equal_to("DROP INDEX CONCURRENTLY IF EXISTS idx_contacts_first_name".to_owned());
+            .is_equal_to("DROP INDEX CONCURRENTLY IF EXISTS public.idx_contacts_first_name".to_owned());
     }
 
     #[test]
@@ -2300,7 +2301,7 @@ mod tests {
         assert_that!(changeset).has_length(2);
         match changeset[0] {
             ChangeInstruction::DropIndex(ref index_name, concurrently) => {
-                assert_that!(*index_name).is_equal_to("idx_contacts_name".to_owned());
+                assert_that!(*index_name).is_equal_to("public.idx_contacts_name".to_owned());
                 assert_that!(concurrently).is_true();
             }
             ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
@@ -2316,7 +2317,7 @@ mod tests {
 
         // Check the SQL generation
         assert_that!(changeset[0].to_sql(&log))
-            .is_equal_to("DROP INDEX CONCURRENTLY IF EXISTS idx_contacts_name".to_owned());
+            .is_equal_to("DROP INDEX CONCURRENTLY IF EXISTS public.idx_contacts_name".to_owned());
         assert_that!(changeset[1].to_sql(&log))
             .is_equal_to("CREATE INDEX CONCURRENTLY idx_contacts_name \
                           ON public.contacts USING btree (first_name ASC NULLS LAST, last_name DESC NULLS FIRST)".to_owned());
