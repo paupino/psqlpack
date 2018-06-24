@@ -316,62 +316,64 @@ impl<'row> From<Row<'row>> for TableConstraint {
     }
 }
 
-static Q_INDEXES_PRE96: &'static str = "SELECT
-  ns.nspname               AS schema_name,
-  idx.indrelid :: REGCLASS AS table_name,
-  i.relname                AS index_name,
-  idx.indisunique          AS is_unique,
-  am.amname                AS index_type,
-  ARRAY(
-       SELECT row(
-           pg_get_indexdef(idx.indexrelid, k + 1, TRUE),
-           am.amcanorder,
-           CASE WHEN idx.indoption[k] & 1 = 0 THEN true ELSE false END, --asc
-           CASE WHEN idx.indoption[k] & 1 = 1 THEN true ELSE false END, --desc
-           CASE WHEN idx.indoption[k] & 2 = 2 THEN true ELSE false END, --nulls_first
-           CASE WHEN idx.indoption[k] & 2 = 0 THEN true ELSE false END  --nulls_last
-       )
-       FROM
-           generate_subscripts(idx.indkey, 1) AS k
-       ORDER BY k
-  ) AS index_keys,
-  i.reloptions            AS storage_parameters
+static Q_INDEXES_94_THRU_96: &'static str = "
+SELECT
+ns.nspname AS schema_name,
+tc.relname AS table_name,
+ic.relname AS index_name,
+idx.indisunique AS is_unique,
+am.amname AS index_type,
+ARRAY(
+    SELECT json_build_object(
+        'colname', pg_get_indexdef(idx.indexrelid, k + 1, TRUE),
+        'orderable', am.amcanorder,
+        'asc', CASE WHEN idx.indoption[k] & 1 = 0 THEN true ELSE false END,
+        'desc', CASE WHEN idx.indoption[k] & 1 = 1 THEN true ELSE false END,
+        'nulls_first', CASE WHEN idx.indoption[k] & 2 = 2 THEN true ELSE false END,
+        'nulls_last', CASE WHEN idx.indoption[k] & 2 = 0 THEN true ELSE false END
+    )
+    FROM
+        generate_subscripts(idx.indkey, 1) AS k
+    ORDER BY k
+) AS index_keys,
+ic.reloptions AS storage_parameters
 FROM pg_index AS idx
-  JOIN pg_class AS i
-    ON i.oid = idx.indexrelid
-  JOIN pg_am AS am
-    ON i.relam = am.oid
-  JOIN pg_namespace AS NS ON i.relnamespace = NS.OID
-WHERE NOT nspname LIKE 'pg%' AND idx.indisprimary = false;";
+JOIN pg_class AS ic ON ic.oid = idx.indexrelid
+JOIN pg_am AS am ON ic.relam = am.oid
+JOIN pg_namespace AS ns ON ic.relnamespace = ns.OID
+JOIN pg_class AS tc ON tc.oid = idx.indrelid
+WHERE NOT nspname LIKE 'pg%' AND idx.indisprimary = false;
+";
 
 // Index query >= 9.6
-static Q_INDEXES : &'static str = "SELECT
-  ns.nspname               AS schema_name,
-  idx.indrelid :: REGCLASS AS table_name,
-  i.relname                AS index_name,
-  idx.indisunique          AS is_unique,
-  am.amname                AS index_type,
-  ARRAY(
-       SELECT row(
-           pg_get_indexdef(idx.indexrelid, k + 1, TRUE),
-           pg_index_column_has_property(idx.indexrelid, k + 1, 'orderable'),
-           pg_index_column_has_property(idx.indexrelid, k + 1, 'asc'),
-           pg_index_column_has_property(idx.indexrelid, k + 1, 'desc'),
-           pg_index_column_has_property(idx.indexrelid, k + 1, 'nulls_first'),
-           pg_index_column_has_property(idx.indexrelid, k + 1, 'nulls_last')
-       )
-       FROM
-           generate_subscripts(idx.indkey, 1) AS k
-       ORDER BY k
-  ) AS index_keys,
-  i.reloptions            AS storage_parameters
+static Q_INDEXES : &'static str = "
+SELECT
+ns.nspname AS schema_name,
+tc.relname AS table_name,
+ic.relname AS index_name,
+idx.indisunique AS is_unique,
+am.amname AS index_type,
+ARRAY(
+    SELECT json_build_object(
+        'colname', pg_get_indexdef(idx.indexrelid, k + 1, TRUE),
+        'orderable', pg_index_column_has_property(idx.indexrelid, k + 1, 'orderable'),
+        'asc', pg_index_column_has_property(idx.indexrelid, k + 1, 'asc'),
+        'desc', pg_index_column_has_property(idx.indexrelid, k + 1, 'desc'),
+        'nulls_first', pg_index_column_has_property(idx.indexrelid, k + 1, 'nulls_first'),
+        'nulls_last', pg_index_column_has_property(idx.indexrelid, k + 1, 'nulls_last')
+    )
+    FROM
+        generate_subscripts(idx.indkey, 1) AS k
+    ORDER BY k
+) AS index_keys,
+ic.reloptions AS storage_parameters
 FROM pg_index AS idx
-  JOIN pg_class AS i
-    ON i.oid = idx.indexrelid
-  JOIN pg_am AS am
-    ON i.relam = am.oid
-  JOIN pg_namespace AS NS ON i.relnamespace = NS.OID
-WHERE NOT nspname LIKE 'pg%' AND idx.indisprimary = false;";
+JOIN pg_class AS ic ON ic.oid = idx.indexrelid
+JOIN pg_am AS am ON ic.relam = am.oid
+JOIN pg_namespace AS ns ON ic.relnamespace = ns.OID
+JOIN pg_class AS tc ON tc.oid = idx.indrelid
+WHERE NOT nspname LIKE 'pg%' AND idx.indisprimary = false;
+";
 
 impl<'row> From<Row<'row>> for IndexDefinition {
     fn from(row: Row) -> Self {
@@ -387,12 +389,34 @@ impl<'row> From<Row<'row>> for IndexDefinition {
             "hash" => Some(IndexType::Hash),
             _ => None,
         };
-        let columns: Vec<String> = row.get(5);
-        let columns = columns.iter().map(|c| IndexColumn {
-            name: c.to_string(),
-            order: None, // TODO
-            null_position: None, // TODO
-        }).collect();
+        let columns: Vec<serde_json::Value> = row.get(5);
+        let columns = columns.iter()
+            .map(|c| c.as_object().unwrap())
+            .map(|map| IndexColumn {
+                name: map["colname"].as_str().unwrap().to_owned(),
+                order: if map["orderable"].as_bool().unwrap_or(false) {
+                    if map["asc"].as_bool().unwrap_or(false) {
+                        Some(IndexOrder::Ascending)
+                    } else if map["desc"].as_bool().unwrap_or(false) {
+                        Some(IndexOrder::Descending)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                },
+                null_position: if map["orderable"].as_bool().unwrap_or(false) {
+                    if map["nulls_first"].as_bool().unwrap_or(false) {
+                        Some(IndexPosition::First)
+                    } else if map["nulls_last"].as_bool().unwrap_or(false) {
+                        Some(IndexPosition::Last)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                },
+            }).collect();
         let parameters = parse_index_parameters(row.get(6));
 
         IndexDefinition {
@@ -655,8 +679,9 @@ impl Package {
 
         // Get a list of indexes
         let mut indexes = Vec::new();
+        // TODO: Find a better way to store queries against semvers. Mod's?
         let index_query = match version.cmp(&Semver::new(9, 6, 0)) {
-            ::std::cmp::Ordering::Less => Q_INDEXES_PRE96,
+            ::std::cmp::Ordering::Less => Q_INDEXES_94_THRU_96,
             _ => Q_INDEXES,
         };
         for row in &db_conn.query(index_query, &[]).chain_err(|| PackageQueryIndexesError)? {
