@@ -1459,7 +1459,7 @@ mod tests {
     }
 
     #[test]
-    fn it_sets_defaults() {
+    fn it_sets_table_defaults() {
         let mut package = package_sql("CREATE TABLE hello_world(id int);");
         let project = Project::default();
 
@@ -1483,6 +1483,43 @@ mod tests {
             .is_some()
             .is_equal_to("public".to_owned());
         assert_that!(table.name.name).is_equal_to("hello_world".to_owned());
+    }
+
+    #[test]
+    fn it_sets_index_defaults() {
+        let mut package = package_sql("CREATE INDEX idx_person_name ON person(name);");
+        let project = Project::default();
+
+        // Pre-condition checks
+        {
+            assert_that!(package.schemas).is_empty();
+            assert_that!(package.indexes).has_length(1);
+            let index = &package.indexes[0];
+            assert_that!(index.table.schema).is_none();
+            assert_that!(index.table.name).is_equal_to("person".to_owned());
+            assert_that!(index.columns).has_length(1);
+            let col = &index.columns[0];
+            assert_that!(col.name).is_equal_to("name".to_owned());
+            assert_that!(col.order).is_none();
+            assert_that!(col.null_position).is_none();
+        }
+
+        // Set the defaults and assert again
+        package.set_defaults(&project);
+        assert_that!(package.schemas).has_length(1);
+        assert_that!(package.indexes).has_length(1);
+        let schema = &package.schemas[0];
+        assert_that!(schema.name).is_equal_to("public".to_owned());
+        let index = &package.indexes[0];
+        assert_that!(index.table.schema)
+            .is_some()
+            .is_equal_to("public".to_owned());
+        assert_that!(index.table.name).is_equal_to("person".to_owned());
+        assert_that!(index.columns).has_length(1);
+        let col = &index.columns[0];
+        assert_that!(col.name).is_equal_to("name".to_owned());
+        assert_that!(col.order).is_some().is_equal_to(ast::IndexOrder::Ascending);
+        assert_that!(col.null_position).is_some().is_equal_to(ast::IndexPosition::Last);
     }
 
     #[test]
@@ -1760,4 +1797,102 @@ mod tests {
         }
         assert_that!(package.validate()).is_ok();
     }
+
+
+    #[test]
+    fn it_validates_missing_reference_table_in_index() {
+        let mut package = package_sql(
+            "CREATE SCHEMA my;
+             CREATE TABLE my.person(id int, name varchar(50));
+             CREATE UNIQUE INDEX idx_company_name ON my.company (name);"
+        );
+        let result = package.validate();
+
+        // `my.company` does not exist
+        assert_that!(result).is_err();
+        let validation_errors = match result.err().unwrap() {
+            PsqlpackError(ValidationError(errors), _) => errors,
+            unexpected => panic!("Expected validation error however saw {:?}", unexpected),
+        };
+        assert_that!(validation_errors).has_length(1);
+        match validation_errors[0] {
+            ValidationKind::IndexInvalidReferenceTable {
+                ref index,
+                ref table,
+            } => {
+                assert_that!(*index).is_equal_to("idx_company_name".to_owned());
+                assert_that!(*table).is_equal_to("my.company".to_owned());
+            }
+            ref unexpected => panic!("Unexpected validation type: {:?}", unexpected),
+        }
+
+        // Add the table and try again
+        package.tables.push(ast::TableDefinition {
+            name: ast::ObjectName {
+                schema: Some("my".to_owned()),
+                name: "company".to_owned(),
+            },
+            columns: vec![
+                ast::ColumnDefinition {
+                    name: "id".to_owned(),
+                    sql_type: ast::SqlType::Simple(ast::SimpleSqlType::Serial),
+                    constraints: Vec::new(),
+                },
+                ast::ColumnDefinition {
+                    name: "name".to_owned(),
+                    sql_type: ast::SqlType::Simple(ast::SimpleSqlType::VariableLengthString(50)),
+                    constraints: Vec::new(),
+                },
+            ],
+            constraints: Vec::new(),
+        });
+        assert_that!(package.validate()).is_ok();
+    }
+
+    #[test]
+    fn it_validates_missing_reference_column_in_index() {
+        let mut package = package_sql(
+            "CREATE SCHEMA my;
+             CREATE TABLE my.person(id int, name varchar(50));
+             CREATE UNIQUE INDEX idx_person_number ON my.person (number);",
+        );
+        let result = package.validate();
+
+        // Column `person.number` is invalid
+        assert_that!(result).is_err();
+        let validation_errors = match result.err().unwrap() {
+            PsqlpackError(ValidationError(errors), _) => errors,
+            unexpected => panic!("Expected validation error however saw {:?}", unexpected),
+        };
+        assert_that!(validation_errors).has_length(1);
+        match validation_errors[0] {
+            ValidationKind::IndexInvalidReferenceColumns {
+                ref index,
+                ref table,
+                ref columns,
+            } => {
+                assert_that!(*index).is_equal_to("idx_person_number".to_owned());
+                assert_that!(*table).is_equal_to("my.person".to_owned());
+                assert_that!(*columns).has_length(1);
+                assert_that!(columns[0]).is_equal_to("number".to_owned());
+            }
+            ref unexpected => panic!("Unexpected validation type: {:?}", unexpected),
+        }
+
+        // Add the column and try again
+        {
+            let person = package
+                .tables
+                .iter_mut()
+                .find(|t| t.name.name.eq("person"))
+                .unwrap();
+            person.columns.push(ast::ColumnDefinition {
+                name: "number".to_owned(),
+                sql_type: ast::SqlType::Simple(ast::SimpleSqlType::Integer),
+                constraints: Vec::new(),
+            });
+        }
+        assert_that!(package.validate()).is_ok();
+    }
+
 }
