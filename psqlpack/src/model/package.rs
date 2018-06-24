@@ -833,6 +833,34 @@ impl Package {
             }
         }
 
+        // Set missing schema's and default values in indexes
+        for index in &mut self.indexes {
+            // Set default schema
+            if index.table.schema.is_none() {
+                index.table.schema = Some(project.default_schema.clone());
+            }
+
+            // Set default storage type
+            if index.index_type.is_none() {
+                index.index_type = Some(IndexType::BTree);
+            }
+
+            // Set default column sorts
+            for col in &mut index.columns {
+                if col.order.is_none() {
+                    col.order = Some(IndexOrder::Ascending);
+                }
+                if col.null_position.is_none() {
+                    if let Some(ref order) = col.order {
+                        col.null_position = Some(match order {
+                            IndexOrder::Ascending => IndexPosition::Last,
+                            IndexOrder::Descending => IndexPosition::First,
+                        });
+                    }
+                }
+            }
+        }
+
         // We also do the promotion here
         self.promote_primary_keys_to_table_constraints();
     }
@@ -1028,6 +1056,43 @@ impl Package {
         );
         // iv. (Future) Source column match type is not compatible with reference column type
 
+        // 4. Validate indexes map to known tables
+        // i. reference table missing
+        errors.extend(
+            self.indexes
+                .iter()
+                .filter(|&index| {
+                    !self.tables.iter().any(|t| t.name.eq(&index.table))
+                })
+                .map(|ref index| {
+                    ValidationKind::IndexInvalidReferenceTable {
+                        index: index.name.to_string(),
+                        table: index.table.to_string(),
+                    }
+                }),
+        );
+        // ii. reference table exists but columns missing
+        errors.extend(
+            self.indexes
+                .iter()
+                .filter(|&index| {
+                    let table = self.tables.iter().find(|t| t.name.eq(&index.table));
+                    match table {
+                        Some(t) => !index.columns
+                            .iter()
+                            .all(|rc| t.columns.iter().any(|c| c.name.eq(&rc.name))),
+                        None => false,
+                    }
+                })
+                .map(|ref index| {
+                    ValidationKind::IndexInvalidReferenceColumns {
+                        index: index.name.to_string(),
+                        table: index.table.to_string(),
+                        columns: index.columns.iter().map(|c| c.name.to_string()).collect(),
+                    }
+                }),
+        );
+
         // If there are no errors then we're "ok"
         if errors.is_empty() {
             Ok(())
@@ -1039,6 +1104,8 @@ impl Package {
 
 #[derive(Debug)]
 pub enum ValidationKind {
+    IndexInvalidReferenceTable { index: String, table: String },
+    IndexInvalidReferenceColumns { index: String, table: String, columns: Vec<String> },
     TableConstraintInvalidReferenceTable { constraint: String, table: String },
     TableConstraintInvalidReferenceColumns {
         constraint: String,
@@ -1056,6 +1123,22 @@ pub enum ValidationKind {
 impl fmt::Display for ValidationKind {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
+            ValidationKind::IndexInvalidReferenceTable {
+                ref index,
+                ref table,
+            } => write!(f, "Index `{}` uses unknown reference table `{}`",
+                index,
+                table
+            ),
+            ValidationKind::IndexInvalidReferenceColumns {
+                ref index,
+                ref table,
+                ref columns,
+            } => write!(f, "Index `{}` uses unknown reference column(s) on table `{}` (`{}`)",
+                index,
+                table,
+                columns.join("`, `")
+            ),
             ValidationKind::TableConstraintInvalidReferenceTable {
                 ref constraint,
                 ref table,
