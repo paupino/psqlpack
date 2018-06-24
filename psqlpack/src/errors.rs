@@ -73,6 +73,9 @@ error_chain! {
         PackageQueryTableConstraintsError {
             description("Couldn't query table constraints")
         }
+        PackageQueryIndexesError {
+            description("Couldn't query indexes")
+        }
         PackageFunctionArgsInspectError(args: String) {
             description("Couldn't inspect function args")
             display("Couldn't inspect function args: {}", args)

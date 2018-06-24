@@ -24,5 +24,8 @@ endif
 build:
 	cargo build -p psqlpack-cli
 
+test:
+	cargo test -- --test-threads=1
+
 clean:
 	$(RM_BK)

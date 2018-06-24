@@ -4,6 +4,7 @@ use std::fmt;
 pub enum Statement {
     Extension(ExtensionDefinition),
     Function(FunctionDefinition),
+    Index(IndexDefinition),
     Schema(SchemaDefinition),
     Table(TableDefinition),
     Type(TypeDefinition),
@@ -124,6 +125,16 @@ pub struct ObjectName {
     pub name: String,
 }
 
+impl ObjectName {
+    pub fn schema(&self) -> &str {
+        if let Some(ref schema) = self.schema {
+            schema
+        } else {
+            ""
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
 pub struct TableDefinition {
     pub name: ObjectName,
@@ -200,6 +211,58 @@ pub enum FunctionLanguage {
     Internal,
     PostgreSQL,
     SQL,
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub struct IndexDefinition {
+    pub name: String,
+    pub table: ObjectName,
+    pub columns: Vec<IndexColumn>,
+
+    pub unique: bool,
+    pub index_type: Option<IndexType>,
+    pub storage_parameters: Option<Vec<IndexParameter>>,
+}
+
+impl IndexDefinition {
+    pub fn fully_qualified_name(&self) -> String {
+        format!("{}.{}", self.schema(), self.name)
+    }
+
+    pub fn is_same_index(&self, other: &IndexDefinition) -> bool {
+        self.name.eq(&other.name) && self.schema().eq(other.schema())
+    }
+
+    pub fn schema(&self) -> &str {
+        self.table.schema()
+    }
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub enum IndexType {
+    BTree,
+    Hash,
+    Gist,
+    Gin,
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub struct IndexColumn {
+    pub name: String,
+    pub order: Option<IndexOrder>,
+    pub null_position: Option<IndexPosition>,
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub enum IndexOrder {
+    Ascending,
+    Descending,
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub enum IndexPosition {
+    First,
+    Last,
 }
 
 impl fmt::Display for AnyValue {

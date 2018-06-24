@@ -12,15 +12,13 @@ use psqlpack::ast::*;
 use slog::{Discard, Drain, Logger};
 use spectral::prelude::*;
 
-macro_rules! publish_simple_package {
-    ($namespace:ident, $db_name:ident, $connection:ident) => {{
-        // Create a package
-        let package = generate_simple_package!($namespace);
-
+macro_rules! publish_package {
+    ($namespace:ident, $db_name:ident, $connection:ident, $package:ident) => {{
         // Use the default publish profile
         let mut publish_profile = PublishProfile::default();
         publish_profile.generation_options.drop_tables = Toggle::Ignore; // We reuse the same database
         publish_profile.generation_options.drop_columns = Toggle::Allow; // We allow this in some tests
+        publish_profile.generation_options.drop_indexes = Toggle::Allow; // We allow this in some tests
 
         // Create a target package from connection string
         let log = Logger::root(Discard.fuse(), o!());
@@ -29,7 +27,7 @@ macro_rules! publish_simple_package {
         // Generate delta and apply
         let delta = Delta::generate(
             &log,
-            &package,
+            &$package,
             target_package,
             $db_name.into(),
             publish_profile,
@@ -37,10 +35,7 @@ macro_rules! publish_simple_package {
         delta.apply(&log, &$connection).unwrap();
 
         // Confirm db exists with data
-        let final_package = Package::from_connection(&log, &$connection).unwrap().unwrap();
-        // TODO: Would be nice to be able to do this, however we'd need to implement PartialEq manually
-        //assert_that!(final_package).is_equal_to(&package);
-        assert_simple_package!(final_package, $namespace);
+        Package::from_connection(&log, &$connection).unwrap().unwrap()
     }};
 }
 
@@ -56,7 +51,9 @@ fn it_can_create_a_database_that_doesnt_exist() {
     conn.finish().unwrap();
 
     // Publish with basic assert
-    publish_simple_package!(NAMESPACE, DB_NAME, connection);
+    let package = generate_simple_package!(NAMESPACE);
+    let final_package = publish_package!(NAMESPACE, DB_NAME, connection, package);
+    assert_simple_package!(final_package, NAMESPACE);
 }
 
 #[test]
@@ -71,7 +68,9 @@ fn it_can_add_a_new_table_to_an_existing_database() {
     conn.finish().unwrap();
 
     // Publish with basic assert
-    publish_simple_package!(NAMESPACE, DB_NAME, connection);
+    let package = generate_simple_package!(NAMESPACE);
+    let final_package = publish_package!(NAMESPACE, DB_NAME, connection, package);
+    assert_simple_package!(final_package, NAMESPACE);
 }
 
 #[test]
@@ -88,7 +87,9 @@ fn it_can_add_a_new_column_to_an_existing_table() {
     conn.finish().unwrap();
 
     // Publish with basic assert
-    publish_simple_package!(NAMESPACE, DB_NAME, connection);
+    let package = generate_simple_package!(NAMESPACE);
+    let final_package = publish_package!(NAMESPACE, DB_NAME, connection, package);
+    assert_simple_package!(final_package, NAMESPACE);
 }
 
 #[test]
@@ -105,9 +106,9 @@ fn it_can_modify_an_existing_column_on_a_table() {
     conn.finish().unwrap();
 
     // Publish with basic assert
-    publish_simple_package!(NAMESPACE, DB_NAME, connection);
-
-    // SHOULD FAIL AT THE MOMENT
+    let package = generate_simple_package!(NAMESPACE);
+    let final_package = publish_package!(NAMESPACE, DB_NAME, connection, package);
+    assert_simple_package!(final_package, NAMESPACE);
 }
 
 #[test]
@@ -124,5 +125,67 @@ fn it_can_drop_an_existing_column_on_a_table() {
     conn.finish().unwrap();
 
     // Publish with basic assert
-    publish_simple_package!(NAMESPACE, DB_NAME, connection);
+    let package = generate_simple_package!(NAMESPACE);
+    let final_package = publish_package!(NAMESPACE, DB_NAME, connection, package);
+    assert_simple_package!(final_package, NAMESPACE);
+}
+
+#[test]
+fn it_can_add_a_new_index_to_an_existing_table() {
+    const DB_NAME : &str = "psqlpack_existing_db";
+    const NAMESPACE : &str = "it_can_add_a_new_index_to_an_existing_table";
+
+    // Preliminary: create a database with a table but no indexes
+    let connection = ConnectionBuilder::new(DB_NAME, "localhost", "postgres").build().unwrap();
+    let conn = create_db!(connection);
+    drop_table!(conn, format!("{}.contacts", NAMESPACE));
+    conn.batch_execute(&format!("CREATE SCHEMA IF NOT EXISTS {}", NAMESPACE)).unwrap();
+    conn.batch_execute(&format!("CREATE TABLE {}.contacts (id serial PRIMARY KEY NOT NULL, name character varying(50) NULL)", NAMESPACE)).unwrap();
+    conn.finish().unwrap();
+
+    // Publish with basic assert
+    let package = generate_simple_package!(NAMESPACE);
+    let final_package = publish_package!(NAMESPACE, DB_NAME, connection, package);
+    assert_simple_package!(final_package, NAMESPACE);
+}
+
+#[test]
+fn it_can_modify_an_index_on_a_table() {
+    const DB_NAME : &str = "psqlpack_existing_db";
+    const NAMESPACE : &str = "it_can_modify_an_index_on_a_table";
+
+    // Preliminary: create a database with a table but a broad index
+    let connection = ConnectionBuilder::new(DB_NAME, "localhost", "postgres").build().unwrap();
+    let conn = create_db!(connection);
+    drop_table!(conn, format!("{}.contacts", NAMESPACE));
+    conn.batch_execute(&format!("CREATE SCHEMA IF NOT EXISTS {}", NAMESPACE)).unwrap();
+    conn.batch_execute(&format!("CREATE TABLE {}.contacts (id serial PRIMARY KEY NOT NULL, name character varying(50) NULL, name2 character varying(50) NULL)", NAMESPACE)).unwrap();
+    conn.batch_execute(&format!("CREATE INDEX idx_contacts_name ON {}.contacts (name, name2)", NAMESPACE)).unwrap();
+    conn.finish().unwrap();
+
+    // Publish with basic assert
+    let package = generate_simple_package!(NAMESPACE);
+    let final_package = publish_package!(NAMESPACE, DB_NAME, connection, package);
+    assert_simple_package!(final_package, NAMESPACE);
+}
+
+#[test]
+fn it_can_drop_an_index_on_a_table() {
+    const DB_NAME : &str = "psqlpack_existing_db";
+    const NAMESPACE : &str = "it_can_drop_an_index_on_a_table";
+
+    // Preliminary: create a database with a table and extra index
+    let connection = ConnectionBuilder::new(DB_NAME, "localhost", "postgres").build().unwrap();
+    let conn = create_db!(connection);
+    drop_table!(conn, format!("{}.contacts", NAMESPACE));
+    conn.batch_execute(&format!("CREATE SCHEMA IF NOT EXISTS {}", NAMESPACE)).unwrap();
+    conn.batch_execute(&format!("CREATE TABLE {}.contacts (id serial PRIMARY KEY NOT NULL, name character varying(50) NOT NULL, name2 character varying(50) NULL)", NAMESPACE)).unwrap();
+    conn.batch_execute(&format!("CREATE INDEX idx_contacts_name ON {}.contacts (name)", NAMESPACE)).unwrap();
+    conn.batch_execute(&format!("CREATE INDEX idx_contacts_name_2 ON {}.contacts (name2)", NAMESPACE)).unwrap();
+    conn.finish().unwrap();
+
+    // Publish with basic assert
+    let package = generate_simple_package!(NAMESPACE);
+    let final_package = publish_package!(NAMESPACE, DB_NAME, connection, package);
+    assert_simple_package!(final_package, NAMESPACE);
 }

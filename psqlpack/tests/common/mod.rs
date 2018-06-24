@@ -33,11 +33,12 @@ macro_rules! generate_simple_package {
             package.push_schema(SchemaDefinition {
                 name: $namespace.to_string(),
             });
+            let table_name = ObjectName {
+                schema: Some($namespace.to_string()),
+                name: "contacts".to_string(),
+            };
             package.push_table(TableDefinition {
-                name: ObjectName {
-                    schema: Some($namespace.to_string()),
-                    name: "contacts".into()
-                },
+                name: table_name.clone(),
                 columns: vec![
                     ColumnDefinition {
                         name: "id".into(),
@@ -54,6 +55,20 @@ macro_rules! generate_simple_package {
                     },
                 ],
                 constraints: Vec::new(),
+            });
+            package.push_index(IndexDefinition {
+                name: "idx_contacts_name".to_owned(),
+                table: table_name,
+                columns: vec![
+                    IndexColumn {
+                        name: "name".to_owned(),
+                        order: None,
+                        null_position: None,
+                    },
+                ],
+                unique: false,
+                index_type: None,
+                storage_parameters: None,
             });
             package.set_defaults(&Project::default());
             package.validate().unwrap();
@@ -94,5 +109,30 @@ macro_rules! assert_simple_package {
         assert_that!(col_name.sql_type).is_equal_to(SqlType::Simple(SimpleSqlType::VariableLengthString(50)));
         assert_that!(col_name.constraints).named(&"col_name.constraints").has_length(1);
         assert_that!(col_name.constraints[0]).is_equal_to(ColumnConstraint::NotNull);
+
+        // We can't assert indexes since we share a database but separate by schema.
+        // To get around this we'll filter by schema first.
+        let schema_indexes : Vec<&IndexDefinition> = $package.indexes
+                .iter()
+                .filter(|ref i|
+                    if let Some(ref schema) = i.table.schema {
+                        schema.eq($namespace)
+                    } else {
+                        false
+                    }
+                )
+                .collect();
+        assert_that!(schema_indexes).named("package.indexes").has_length(1);
+        let index = &schema_indexes[0];
+        assert_that!(index.name).is_equal_to("idx_contacts_name".to_string());
+        assert_that!(index.table.to_string()).is_equal_to(format!("{}.contacts", $namespace));
+        assert_that!(index.unique).is_false();
+        assert_that!(index.index_type).is_some().is_equal_to(IndexType::BTree);
+        assert_that!(index.storage_parameters).is_none();
+        assert_that!(index.columns).named("index.columns").has_length(1);
+        let index_col = &index.columns[0];
+        assert_that!(index_col.name).is_equal_to("name".to_string());
+        assert_that!(index_col.order).is_some().is_equal_to(IndexOrder::Ascending);
+        assert_that!(index_col.null_position).is_some().is_equal_to(IndexPosition::Last);
     }};
 }

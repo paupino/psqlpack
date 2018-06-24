@@ -18,6 +18,7 @@ use sql::lexer;
 use sql::ast::*;
 use sql::parser::{SqlTypeParser, FunctionArgumentListParser, FunctionReturnTypeParser};
 use model::Project;
+use semver::{Semver, ServerVersion};
 use errors::{PsqlpackError, PsqlpackResult, PsqlpackResultExt};
 use errors::PsqlpackErrorKind::*;
 
@@ -224,6 +225,25 @@ lazy_static! {
     static ref FILL_FACTOR : Regex = Regex::new("fillfactor=(\\d+)").unwrap();
 }
 
+fn parse_index_parameters(raw_parameters: Option<Vec<String>>) -> Option<Vec<IndexParameter>> {
+    match raw_parameters {
+        Some(parameters) => {
+            // We only have one type at the moment
+            if let Some(parameters) = parameters.first() {
+                let ff = FILL_FACTOR.captures(&parameters[..]);
+                if let Some(ff) = ff {
+                    Some(vec![IndexParameter::FillFactor(ff[1].parse::<u32>().unwrap())])
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        }
+        None => None,
+    }
+}
+
 impl<'row> From<Row<'row>> for TableConstraint {
     fn from(row: Row) -> Self {
         let schema : String = row.get(0);
@@ -238,27 +258,10 @@ impl<'row> From<Row<'row>> for TableConstraint {
 
         match &constraint_type[..] {
             "PRIMARY KEY" => {
-                let raw_parameters: Option<Vec<String>> = row.get(7);
-                let parameters = match raw_parameters {
-                    Some(parameters) => {
-                        // We only have one type at the moment
-                        if let Some(parameters) = parameters.first() {
-                            let ff = FILL_FACTOR.captures(&parameters[..]);
-                            if let Some(ff) = ff {
-                                Some(vec![IndexParameter::FillFactor(ff[1].parse::<u32>().unwrap())])
-                            } else {
-                                None
-                            }
-                        } else {
-                            None
-                        }
-                    }
-                    None => None,
-                };
                 TableConstraint::Primary {
                     name: constraint_name,
                     columns: column_names,
-                    parameters: parameters,
+                    parameters: parse_index_parameters(row.get(7)),
                 }
             },
             "FOREIGN KEY" => {
@@ -313,6 +316,125 @@ impl<'row> From<Row<'row>> for TableConstraint {
     }
 }
 
+static Q_INDEXES_94_THRU_96: &'static str = "
+SELECT
+ns.nspname AS schema_name,
+tc.relname AS table_name,
+ic.relname AS index_name,
+idx.indisunique AS is_unique,
+am.amname AS index_type,
+ARRAY(
+    SELECT json_build_object(
+        'colname', pg_get_indexdef(idx.indexrelid, k + 1, TRUE),
+        'orderable', am.amcanorder,
+        'asc', CASE WHEN idx.indoption[k] & 1 = 0 THEN true ELSE false END,
+        'desc', CASE WHEN idx.indoption[k] & 1 = 1 THEN true ELSE false END,
+        'nulls_first', CASE WHEN idx.indoption[k] & 2 = 2 THEN true ELSE false END,
+        'nulls_last', CASE WHEN idx.indoption[k] & 2 = 0 THEN true ELSE false END
+    )
+    FROM
+        generate_subscripts(idx.indkey, 1) AS k
+    ORDER BY k
+) AS index_keys,
+ic.reloptions AS storage_parameters
+FROM pg_index AS idx
+JOIN pg_class AS ic ON ic.oid = idx.indexrelid
+JOIN pg_am AS am ON ic.relam = am.oid
+JOIN pg_namespace AS ns ON ic.relnamespace = ns.OID
+JOIN pg_class AS tc ON tc.oid = idx.indrelid
+WHERE NOT nspname LIKE 'pg%' AND idx.indisprimary = false;
+";
+
+// Index query >= 9.6
+static Q_INDEXES : &'static str = "
+SELECT
+ns.nspname AS schema_name,
+tc.relname AS table_name,
+ic.relname AS index_name,
+idx.indisunique AS is_unique,
+am.amname AS index_type,
+ARRAY(
+    SELECT json_build_object(
+        'colname', pg_get_indexdef(idx.indexrelid, k + 1, TRUE),
+        'orderable', pg_index_column_has_property(idx.indexrelid, k + 1, 'orderable'),
+        'asc', pg_index_column_has_property(idx.indexrelid, k + 1, 'asc'),
+        'desc', pg_index_column_has_property(idx.indexrelid, k + 1, 'desc'),
+        'nulls_first', pg_index_column_has_property(idx.indexrelid, k + 1, 'nulls_first'),
+        'nulls_last', pg_index_column_has_property(idx.indexrelid, k + 1, 'nulls_last')
+    )
+    FROM
+        generate_subscripts(idx.indkey, 1) AS k
+    ORDER BY k
+) AS index_keys,
+ic.reloptions AS storage_parameters
+FROM pg_index AS idx
+JOIN pg_class AS ic ON ic.oid = idx.indexrelid
+JOIN pg_am AS am ON ic.relam = am.oid
+JOIN pg_namespace AS ns ON ic.relnamespace = ns.OID
+JOIN pg_class AS tc ON tc.oid = idx.indrelid
+WHERE NOT nspname LIKE 'pg%' AND idx.indisprimary = false;
+";
+
+impl<'row> From<Row<'row>> for IndexDefinition {
+    fn from(row: Row) -> Self {
+        let schema: String = row.get(0);
+        let table: String = row.get(1);
+        let name: String = row.get(2);
+        let unique: bool = row.get(3);
+        let index_type: String = row.get(4);
+        let index_type = match &index_type[..] {
+            "btree" => Some(IndexType::BTree),
+            "gin" => Some(IndexType::Gin),
+            "gist" => Some(IndexType::Gist),
+            "hash" => Some(IndexType::Hash),
+            _ => None,
+        };
+        let columns: Vec<serde_json::Value> = row.get(5);
+        let columns = columns.iter()
+            .map(|c| c.as_object().unwrap())
+            .map(|map| IndexColumn {
+                name: map["colname"].as_str().unwrap().to_owned(),
+                order: if map["orderable"].as_bool().unwrap_or(false) {
+                    if map["asc"].as_bool().unwrap_or(false) {
+                        Some(IndexOrder::Ascending)
+                    } else if map["desc"].as_bool().unwrap_or(false) {
+                        Some(IndexOrder::Descending)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                },
+                null_position: if map["orderable"].as_bool().unwrap_or(false) {
+                    if map["nulls_first"].as_bool().unwrap_or(false) {
+                        Some(IndexPosition::First)
+                    } else if map["nulls_last"].as_bool().unwrap_or(false) {
+                        Some(IndexPosition::Last)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                },
+            }).collect();
+        let parameters = parse_index_parameters(row.get(6));
+
+        IndexDefinition {
+            name: name,
+            table: ObjectName {
+                schema: Some(schema),
+                name: table,
+            },
+            columns: columns,
+
+            unique: unique,
+            index_type: index_type,
+
+            storage_parameters: parameters,
+        }
+    }
+}
+
 impl From<String> for SqlType {
     fn from(s: String) -> Self {
         // TODO: Error handling for this
@@ -325,6 +447,7 @@ impl From<String> for SqlType {
 pub struct Package {
     pub extensions: Vec<ExtensionDefinition>,
     pub functions: Vec<FunctionDefinition>,
+    pub indexes: Vec<IndexDefinition>,
     pub schemas: Vec<SchemaDefinition>,
     pub scripts: Vec<ScriptDefinition>,
     pub tables: Vec<TableDefinition>,
@@ -374,6 +497,7 @@ impl Package {
 
         let mut extensions = Vec::new();
         let mut functions = Vec::new();
+        let mut indexes = Vec::new();
         let mut schemas = Vec::new();
         let mut scripts = Vec::new();
         let mut tables = Vec::new();
@@ -390,6 +514,9 @@ impl Package {
                     .chain_err(|| PackageInternalReadError(name))?);
             } else if name.starts_with("functions/") {
                 functions.push(serde_json::from_reader(file)
+                    .chain_err(|| PackageInternalReadError(name))?);
+            } else if name.starts_with("indexes") {
+                indexes.push(serde_json::from_reader(file)
                     .chain_err(|| PackageInternalReadError(name))?);
             } else if name.starts_with("schemas/") {
                 schemas.push(serde_json::from_reader(file)
@@ -409,6 +536,7 @@ impl Package {
         let mut package = Package {
             extensions: extensions,
             functions: functions,
+            indexes: indexes,
             schemas: schemas,
             scripts: scripts,
             tables: tables,
@@ -434,8 +562,11 @@ impl Package {
         }
         dbtry!(db_conn.finish());
 
-        // We do five SQL queries to get the package details
+        // We do a few SQL queries to get the package details
         let db_conn = connection.connect_database()?;
+
+        // Get the server version
+        let version = db_conn.server_version()?;
 
         let extensions = db_conn
             .query(Q_EXTENSIONS, &[])
@@ -546,17 +677,30 @@ impl Package {
             }
         }
 
+        // Get a list of indexes
+        let mut indexes = Vec::new();
+        // TODO: Find a better way to store queries against semvers. Mod's?
+        let index_query = match version.cmp(&Semver::new(9, 6, 0)) {
+            ::std::cmp::Ordering::Less => Q_INDEXES_94_THRU_96,
+            _ => Q_INDEXES,
+        };
+        for row in &db_conn.query(index_query, &[]).chain_err(|| PackageQueryIndexesError)? {
+            let index: IndexDefinition = row.into();
+            indexes.push(index);
+        }
+
         // Close the connection
         dbtry!(db_conn.finish());
 
         // Get the package
         let mut package = Package {
             extensions: map!(extensions),
-            functions: functions,   // functions,
-            schemas: map!(schemas), // schemas,
-            scripts: Vec::new(),    // Scripts can't be known from a connection
-            tables: tables.into_iter().map(|(_,b)| b).collect(),   // tables,
-            types: map!(types),     // types,
+            functions: functions,
+            indexes: indexes,
+            schemas: map!(schemas),
+            scripts: Vec::new(), // Scripts can't be known from a connection
+            tables: tables.into_iter().map(|(_,b)| b).collect(),
+            types: map!(types),
         };
         package.promote_primary_keys_to_table_constraints();
 
@@ -571,6 +715,7 @@ impl Package {
 
                 zip_collection!(zip, self, extensions);
                 zip_collection!(zip, self, functions);
+                zip_collection!(zip, self, indexes);
                 zip_collection!(zip, self, schemas);
                 zip_collection!(zip, self, scripts);
                 zip_collection!(zip, self, tables);
@@ -586,6 +731,7 @@ impl Package {
         Package {
             extensions: Vec::new(),
             functions: Vec::new(),
+            indexes: Vec::new(),
             schemas: Vec::new(),
             scripts: Vec::new(),
             tables: Vec::new(),
@@ -599,6 +745,10 @@ impl Package {
 
     pub fn push_function(&mut self, function: FunctionDefinition) {
         self.functions.push(function);
+    }
+
+    pub fn push_index(&mut self, index: IndexDefinition) {
+        self.indexes.push(index);
     }
 
     pub fn push_script(&mut self, script: ScriptDefinition) {
@@ -679,6 +829,34 @@ impl Package {
                 if pk.is_some() {
                     // Make sure it is not null
                     ensure_not_null_column(column);
+                }
+            }
+        }
+
+        // Set missing schema's and default values in indexes
+        for index in &mut self.indexes {
+            // Set default schema
+            if index.table.schema.is_none() {
+                index.table.schema = Some(project.default_schema.clone());
+            }
+
+            // Set default storage type
+            if index.index_type.is_none() {
+                index.index_type = Some(IndexType::BTree);
+            }
+
+            // Set default column sorts
+            for col in &mut index.columns {
+                if col.order.is_none() {
+                    col.order = Some(IndexOrder::Ascending);
+                }
+                if col.null_position.is_none() {
+                    if let Some(ref order) = col.order {
+                        col.null_position = Some(match order {
+                            IndexOrder::Ascending => IndexPosition::Last,
+                            IndexOrder::Descending => IndexPosition::First,
+                        });
+                    }
                 }
             }
         }
@@ -878,6 +1056,43 @@ impl Package {
         );
         // iv. (Future) Source column match type is not compatible with reference column type
 
+        // 4. Validate indexes map to known tables
+        // i. reference table missing
+        errors.extend(
+            self.indexes
+                .iter()
+                .filter(|&index| {
+                    !self.tables.iter().any(|t| t.name.eq(&index.table))
+                })
+                .map(|ref index| {
+                    ValidationKind::IndexInvalidReferenceTable {
+                        index: index.name.to_string(),
+                        table: index.table.to_string(),
+                    }
+                }),
+        );
+        // ii. reference table exists but columns missing
+        errors.extend(
+            self.indexes
+                .iter()
+                .filter(|&index| {
+                    let table = self.tables.iter().find(|t| t.name.eq(&index.table));
+                    match table {
+                        Some(t) => !index.columns
+                            .iter()
+                            .all(|rc| t.columns.iter().any(|c| c.name.eq(&rc.name))),
+                        None => false,
+                    }
+                })
+                .map(|ref index| {
+                    ValidationKind::IndexInvalidReferenceColumns {
+                        index: index.name.to_string(),
+                        table: index.table.to_string(),
+                        columns: index.columns.iter().map(|c| c.name.to_string()).collect(),
+                    }
+                }),
+        );
+
         // If there are no errors then we're "ok"
         if errors.is_empty() {
             Ok(())
@@ -889,6 +1104,8 @@ impl Package {
 
 #[derive(Debug)]
 pub enum ValidationKind {
+    IndexInvalidReferenceTable { index: String, table: String },
+    IndexInvalidReferenceColumns { index: String, table: String, columns: Vec<String> },
     TableConstraintInvalidReferenceTable { constraint: String, table: String },
     TableConstraintInvalidReferenceColumns {
         constraint: String,
@@ -906,6 +1123,22 @@ pub enum ValidationKind {
 impl fmt::Display for ValidationKind {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
+            ValidationKind::IndexInvalidReferenceTable {
+                ref index,
+                ref table,
+            } => write!(f, "Index `{}` uses unknown reference table `{}`",
+                index,
+                table
+            ),
+            ValidationKind::IndexInvalidReferenceColumns {
+                ref index,
+                ref table,
+                ref columns,
+            } => write!(f, "Index `{}` uses unknown reference column(s) on table `{}` (`{}`)",
+                index,
+                table,
+                columns.join("`, `")
+            ),
             ValidationKind::TableConstraintInvalidReferenceTable {
                 ref constraint,
                 ref table,
@@ -1153,6 +1386,7 @@ mod tests {
                 match statement {
                     ast::Statement::Extension(_) => panic!("Extension statement found"),
                     ast::Statement::Function(function_definition) => package.push_function(function_definition),
+                    ast::Statement::Index(index_definition) => package.push_index(index_definition),
                     ast::Statement::Schema(schema_definition) => package.push_schema(schema_definition),
                     ast::Statement::Table(table_definition) => package.push_table(table_definition),
                     ast::Statement::Type(type_definition) => package.push_type(type_definition),
@@ -1225,7 +1459,7 @@ mod tests {
     }
 
     #[test]
-    fn it_sets_defaults() {
+    fn it_sets_table_defaults() {
         let mut package = package_sql("CREATE TABLE hello_world(id int);");
         let project = Project::default();
 
@@ -1249,6 +1483,43 @@ mod tests {
             .is_some()
             .is_equal_to("public".to_owned());
         assert_that!(table.name.name).is_equal_to("hello_world".to_owned());
+    }
+
+    #[test]
+    fn it_sets_index_defaults() {
+        let mut package = package_sql("CREATE INDEX idx_person_name ON person(name);");
+        let project = Project::default();
+
+        // Pre-condition checks
+        {
+            assert_that!(package.schemas).is_empty();
+            assert_that!(package.indexes).has_length(1);
+            let index = &package.indexes[0];
+            assert_that!(index.table.schema).is_none();
+            assert_that!(index.table.name).is_equal_to("person".to_owned());
+            assert_that!(index.columns).has_length(1);
+            let col = &index.columns[0];
+            assert_that!(col.name).is_equal_to("name".to_owned());
+            assert_that!(col.order).is_none();
+            assert_that!(col.null_position).is_none();
+        }
+
+        // Set the defaults and assert again
+        package.set_defaults(&project);
+        assert_that!(package.schemas).has_length(1);
+        assert_that!(package.indexes).has_length(1);
+        let schema = &package.schemas[0];
+        assert_that!(schema.name).is_equal_to("public".to_owned());
+        let index = &package.indexes[0];
+        assert_that!(index.table.schema)
+            .is_some()
+            .is_equal_to("public".to_owned());
+        assert_that!(index.table.name).is_equal_to("person".to_owned());
+        assert_that!(index.columns).has_length(1);
+        let col = &index.columns[0];
+        assert_that!(col.name).is_equal_to("name".to_owned());
+        assert_that!(col.order).is_some().is_equal_to(ast::IndexOrder::Ascending);
+        assert_that!(col.null_position).is_some().is_equal_to(ast::IndexPosition::Last);
     }
 
     #[test]
@@ -1526,4 +1797,102 @@ mod tests {
         }
         assert_that!(package.validate()).is_ok();
     }
+
+
+    #[test]
+    fn it_validates_missing_reference_table_in_index() {
+        let mut package = package_sql(
+            "CREATE SCHEMA my;
+             CREATE TABLE my.person(id int, name varchar(50));
+             CREATE UNIQUE INDEX idx_company_name ON my.company (name);"
+        );
+        let result = package.validate();
+
+        // `my.company` does not exist
+        assert_that!(result).is_err();
+        let validation_errors = match result.err().unwrap() {
+            PsqlpackError(ValidationError(errors), _) => errors,
+            unexpected => panic!("Expected validation error however saw {:?}", unexpected),
+        };
+        assert_that!(validation_errors).has_length(1);
+        match validation_errors[0] {
+            ValidationKind::IndexInvalidReferenceTable {
+                ref index,
+                ref table,
+            } => {
+                assert_that!(*index).is_equal_to("idx_company_name".to_owned());
+                assert_that!(*table).is_equal_to("my.company".to_owned());
+            }
+            ref unexpected => panic!("Unexpected validation type: {:?}", unexpected),
+        }
+
+        // Add the table and try again
+        package.tables.push(ast::TableDefinition {
+            name: ast::ObjectName {
+                schema: Some("my".to_owned()),
+                name: "company".to_owned(),
+            },
+            columns: vec![
+                ast::ColumnDefinition {
+                    name: "id".to_owned(),
+                    sql_type: ast::SqlType::Simple(ast::SimpleSqlType::Serial),
+                    constraints: Vec::new(),
+                },
+                ast::ColumnDefinition {
+                    name: "name".to_owned(),
+                    sql_type: ast::SqlType::Simple(ast::SimpleSqlType::VariableLengthString(50)),
+                    constraints: Vec::new(),
+                },
+            ],
+            constraints: Vec::new(),
+        });
+        assert_that!(package.validate()).is_ok();
+    }
+
+    #[test]
+    fn it_validates_missing_reference_column_in_index() {
+        let mut package = package_sql(
+            "CREATE SCHEMA my;
+             CREATE TABLE my.person(id int, name varchar(50));
+             CREATE UNIQUE INDEX idx_person_number ON my.person (number);",
+        );
+        let result = package.validate();
+
+        // Column `person.number` is invalid
+        assert_that!(result).is_err();
+        let validation_errors = match result.err().unwrap() {
+            PsqlpackError(ValidationError(errors), _) => errors,
+            unexpected => panic!("Expected validation error however saw {:?}", unexpected),
+        };
+        assert_that!(validation_errors).has_length(1);
+        match validation_errors[0] {
+            ValidationKind::IndexInvalidReferenceColumns {
+                ref index,
+                ref table,
+                ref columns,
+            } => {
+                assert_that!(*index).is_equal_to("idx_person_number".to_owned());
+                assert_that!(*table).is_equal_to("my.person".to_owned());
+                assert_that!(*columns).has_length(1);
+                assert_that!(columns[0]).is_equal_to("number".to_owned());
+            }
+            ref unexpected => panic!("Unexpected validation type: {:?}", unexpected),
+        }
+
+        // Add the column and try again
+        {
+            let person = package
+                .tables
+                .iter_mut()
+                .find(|t| t.name.name.eq("person"))
+                .unwrap();
+            person.columns.push(ast::ColumnDefinition {
+                name: "number".to_owned(),
+                sql_type: ast::SqlType::Simple(ast::SimpleSqlType::Integer),
+                constraints: Vec::new(),
+            });
+        }
+        assert_that!(package.validate()).is_ok();
+    }
+
 }

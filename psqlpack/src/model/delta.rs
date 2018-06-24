@@ -14,24 +14,20 @@ use errors::{PsqlpackResult, PsqlpackResultExt};
 use errors::PsqlpackErrorKind::*;
 
 enum DbObject<'a> {
-    Extension(&'a ExtensionDefinition), // 2
-    Function(&'a FunctionDefinition),   // 6 (ordered)
-    Schema(&'a SchemaDefinition),       // 3
-    Script(&'a ScriptDefinition),       // 1, 7
-    Table(&'a TableDefinition),         // 5 (ordered)
     Column(&'a TableDefinition, &'a ColumnDefinition),
     Constraint(&'a TableDefinition, &'a TableConstraint),
-    Type(&'a TypeDefinition), // 4
+    Extension(&'a ExtensionDefinition), // 2
+    Function(&'a FunctionDefinition),   // 6 (ordered)
+    Index(&'a IndexDefinition),         // 7
+    Schema(&'a SchemaDefinition),       // 3
+    Script(&'a ScriptDefinition),       // 1, 8
+    Table(&'a TableDefinition),         // 5 (ordered)
+    Type(&'a TypeDefinition),           // 4
 }
 
 impl<'a> fmt::Display for DbObject<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            DbObject::Extension(extension) => write!(f, "Extension: {}", extension.name), // 2
-            DbObject::Function(function) => write!(f, "Function: {}", function.name),     // 6 (ordered)
-            DbObject::Schema(schema) => write!(f, "Schema: {}", schema.name),             // 3
-            DbObject::Script(script) => write!(f, "Script: {}", script.name),             // 1, 7
-            DbObject::Table(table) => write!(f, "Table: {}", table.name),                 // 5 (ordered)
             DbObject::Column(table, column) => write!(f, "Table: {}, Column: {}", table.name, column.name),
             DbObject::Constraint(table, constraint) => write!(
                 f,
@@ -39,7 +35,13 @@ impl<'a> fmt::Display for DbObject<'a> {
                 table.name,
                 constraint.name()
             ),
-            DbObject::Type(tipe) => write!(f, "Type: {}", tipe.name), // 4
+            DbObject::Extension(extension) => write!(f, "Extension: {}", extension.name),
+            DbObject::Function(function) => write!(f, "Function: {}", function.name),
+            DbObject::Index(index) => write!(f, "Index: {}", index.name),
+            DbObject::Schema(schema) => write!(f, "Schema: {}", schema.name),
+            DbObject::Script(script) => write!(f, "Script: {}", script.name),
+            DbObject::Table(table) => write!(f, "Table: {}", table.name),
+            DbObject::Type(tipe) => write!(f, "Type: {}", tipe.name),
         }
     }
 }
@@ -67,6 +69,7 @@ impl<'a> Diffable<'a, Package> for DbObject<'a> {
             DbObject::Constraint(table, constraint) => LinkedTableConstraint { table: &table, constraint: &constraint }.generate(changeset, target, publish_profile, log),
             DbObject::Extension(extension) => extension.generate(changeset, target, publish_profile, log),
             DbObject::Function(function) => function.generate(changeset, target, publish_profile, log),
+            DbObject::Index(index) => index.generate(changeset, target, publish_profile, log),
             DbObject::Schema(schema) => schema.generate(changeset, target, publish_profile, log),
             DbObject::Script(script) => script.generate(changeset, target, publish_profile, log),
             DbObject::Table(table) => table.generate(changeset, target, publish_profile, log),
@@ -149,7 +152,7 @@ impl<'a> Diffable<'a, Package> for &'a TableDefinition {
                 if !self.columns.iter().any(|src| tgt.name.eq(&src.name)) {
                     // Column in target but not in source
                     match publish_profile.generation_options.drop_columns {
-                        Toggle::Allow => changeset.push(ChangeInstruction::RemoveColumn(self, tgt.name.to_owned())),
+                        Toggle::Allow => changeset.push(ChangeInstruction::DropColumn(self, tgt.name.to_owned())),
                         Toggle::Error => {
                             bail!(PublishUnsafeOperationError(format!(
                                 "Unable to drop column as dropping columns is currently disabled: {}",
@@ -187,7 +190,7 @@ impl<'a> Diffable<'a, Package> for &'a TableDefinition {
                         }
                     };
                     if remove_ok {
-                        changeset.push(ChangeInstruction::RemoveConstraint(self, tgt.name().to_owned()));
+                        changeset.push(ChangeInstruction::DropConstraint(self, tgt.name().to_owned()));
                     }
                 }
             }
@@ -362,7 +365,7 @@ impl<'a> Diffable<'a, Package> for LinkedTableConstraint<'a> {
                         }
                     };
                     if remove_ok {
-                        changeset.push(ChangeInstruction::RemoveConstraint(self.table, self.constraint.name().to_owned()));
+                        changeset.push(ChangeInstruction::DropConstraint(self.table, self.constraint.name().to_owned()));
                         changeset.push(ChangeInstruction::AddConstraint(self.table, self.constraint));
                     }
                 }
@@ -373,6 +376,30 @@ impl<'a> Diffable<'a, Package> for LinkedTableConstraint<'a> {
 
         } else {
             changeset.push(ChangeInstruction::AddConstraint(self.table, &self.constraint));
+        }
+        Ok(())
+    }
+}
+
+impl<'a> Diffable<'a, Package> for &'a IndexDefinition {
+    fn generate(
+        &self,
+        changeset: &mut Vec<ChangeInstruction<'a>>,
+        target: &Package,
+        publish_profile: &PublishProfile,
+        _log: &Logger,
+    ) -> PsqlpackResult<()> {
+        // Indexes are unique across schema (implied by table)
+        let index = target.indexes.iter().find(|idx| idx.is_same_index(self));
+        let concurrently = publish_profile.generation_options.force_concurrent_indexes;
+        if let Some(index) = index {
+            // We should be able to just use an eq for this since column ordering is significant
+            if index.ne(self) {
+                changeset.push(ChangeInstruction::DropIndex(self.fully_qualified_name(), concurrently));
+                changeset.push(ChangeInstruction::AddIndex(self, concurrently));
+            }
+        } else {
+            changeset.push(ChangeInstruction::AddIndex(self, concurrently));
         }
         Ok(())
     }
@@ -551,14 +578,14 @@ impl<'package> Delta<'package> {
             build_order.push(DbObject::Type(t));
         }
 
-        // Drop tables first - first figure out if there are any to drop
-        for table in &target_package.tables {
-            if !package.tables.iter().any(|t| t.name.eq(&table.name)) {
-                match publish_profile.generation_options.drop_tables {
-                    Toggle::Allow => changeset.push(ChangeInstruction::RemoveTable(table.name.to_string())),
+        // Drop indexes first
+        for index in &target_package.indexes {
+            if !package.indexes.iter().any(|idx| idx.is_same_index(&index)) {
+                match publish_profile.generation_options.drop_indexes {
+                    Toggle::Allow => changeset.push(ChangeInstruction::DropIndex(index.fully_qualified_name(), publish_profile.generation_options.force_concurrent_indexes)),
                     Toggle::Error => bail!(
                                         PublishUnsafeOperationError(
-                                            format!("Attempted to remove table {} however dropping tables is currently disabled", table.name)
+                                            format!("Attempted to drop index {} however dropping indexes is currently disabled", index.name)
                                         )
                                     ),
                     _ => {}
@@ -573,7 +600,22 @@ impl<'package> Delta<'package> {
                     Toggle::Allow => changeset.push(ChangeInstruction::DropFunction(function.name.to_string())),
                     Toggle::Error => bail!(
                                         PublishUnsafeOperationError(
-                                            format!("Attempted to remove function {} however dropping functions is currently disabled", function.name)
+                                            format!("Attempted to drop function {} however dropping functions is currently disabled", function.name)
+                                        )
+                                    ),
+                    _ => {}
+                }
+            }
+        }
+
+        // Drop tables next - first figure out if there are any to drop
+        for table in &target_package.tables {
+            if !package.tables.iter().any(|t| t.name.eq(&table.name)) {
+                match publish_profile.generation_options.drop_tables {
+                    Toggle::Allow => changeset.push(ChangeInstruction::DropTable(table.name.to_string())),
+                    Toggle::Error => bail!(
+                                        PublishUnsafeOperationError(
+                                            format!("Attempted to drop table {} however dropping tables is currently disabled", table.name)
                                         )
                                     ),
                     _ => {}
@@ -601,6 +643,11 @@ impl<'package> Delta<'package> {
 
         for function in &package.functions {
             build_order.push(DbObject::Function(function));
+        }
+
+        // Indexes come into play now (all objects and constraints are created)
+        for index in &package.indexes {
+            build_order.push(DbObject::Index(index));
         }
 
         // Add in post deployment scripts
@@ -705,7 +752,7 @@ pub enum ChangeInstruction<'input> {
 
     // Schema
     AddSchema(&'input SchemaDefinition),
-    //RemoveSchema(String),
+    //DropSchema(String),
 
     // Scripts
     RunScript(&'input ScriptDefinition),
@@ -713,11 +760,11 @@ pub enum ChangeInstruction<'input> {
     // Types
     AddType(&'input TypeDefinition),
     ModifyType(&'input TypeDefinition, TypeModificationAction),
-    RemoveType(String),
+    DropType(String),
 
     // Tables
     AddTable(&'input TableDefinition),
-    RemoveTable(String),
+    DropTable(String),
 
     // Columns
     AddColumn(&'input TableDefinition, &'input ColumnDefinition),
@@ -726,11 +773,15 @@ pub enum ChangeInstruction<'input> {
     ModifyColumnDefault(&'input TableDefinition, &'input ColumnDefinition),
     ModifyColumnUniqueConstraint(&'input TableDefinition, &'input ColumnDefinition),
     ModifyColumnPrimaryKeyConstraint(&'input TableDefinition, &'input ColumnDefinition),
-    RemoveColumn(&'input TableDefinition, String),
+    DropColumn(&'input TableDefinition, String),
 
     // Constraints
     AddConstraint(&'input TableDefinition, &'input TableConstraint),
-    RemoveConstraint(&'input TableDefinition, String),
+    DropConstraint(&'input TableDefinition, String),
+
+    // Index
+    AddIndex(&'input IndexDefinition, bool),
+    DropIndex(String, bool),
 
     // Functions
     AddFunction(&'input FunctionDefinition),
@@ -761,7 +812,7 @@ impl<'input> fmt::Display for ChangeInstruction<'input> {
 
             // Schema
             AddSchema(schema) => write!(f, "Add schema: {}", schema.name),
-            //RemoveSchema(String),
+            //DropSchema(String),
 
             // Scripts
             RunScript(script) => write!(f, "Run script: {}", script.name),
@@ -778,11 +829,11 @@ impl<'input> fmt::Display for ChangeInstruction<'input> {
                 },
                 ty.name
             ),
-            RemoveType(ref type_name) => write!(f, "Remove type: {}", type_name),
+            DropType(ref type_name) => write!(f, "Drop type: {}", type_name),
 
             // Tables
             AddTable(table) => write!(f, "Add table: {}", table.name),
-            RemoveTable(ref table_name) => write!(f, "Remove table: {}", table_name),
+            DropTable(ref table_name) => write!(f, "Drop table: {}", table_name),
 
             // Columns
             AddColumn(table, column) => write!(f, "Add column: {} to table: {}", column.name, table.name),
@@ -791,7 +842,7 @@ impl<'input> fmt::Display for ChangeInstruction<'input> {
             ModifyColumnDefault(table, column) => write!(f, "Modify default for column: {} on table: {}", column.name, table.name),
             ModifyColumnUniqueConstraint(table, column) => write!(f, "Modify unique constraint for column: {} on table: {}", column.name, table.name),
             ModifyColumnPrimaryKeyConstraint(table, column) => write!(f, "Modify primary key constraint for column: {} on table: {}", column.name, table.name),
-            RemoveColumn(table, ref column_name) => write!(f, "Remove column: {} on table: {}", column_name, table.name),
+            DropColumn(table, ref column_name) => write!(f, "Drop column: {} on table: {}", column_name, table.name),
 
             // Constraints
             AddConstraint(table, constraint) => write!(
@@ -800,12 +851,16 @@ impl<'input> fmt::Display for ChangeInstruction<'input> {
                 constraint.name(),
                 table.name
             ),
-            RemoveConstraint(table, ref name) => write!(
+            DropConstraint(table, ref name) => write!(
                 f,
-                "Remove constraint: {} to table: {}",
+                "Drop constraint: {} to table: {}",
                 name,
                 table.name
             ),
+
+            // Indexes
+            AddIndex(index, concurrently) => write!(f, "Add index{}: {}", if concurrently { " concurrently" } else { "" }, index.fully_qualified_name()),
+            DropIndex(ref index_name, concurrently) => write!(f, "Drop index{}: {}", if concurrently { " concurrently" } else { "" }, index_name),
 
             // Functions
             AddFunction(function) => write!(f, "Add function: {}", function.name),
@@ -888,7 +943,10 @@ impl<'input> ChangeInstruction<'input> {
                     value,
                     ty.name
                 ),
-            },
+            }
+            ChangeInstruction::DropType(ref type_name) => {
+                format!("DROP TYPE IF EXISTS {}", type_name)
+            }
 
             // Function level
             ChangeInstruction::AddFunction(function) | ChangeInstruction::ModifyFunction(function) => {
@@ -936,6 +994,9 @@ impl<'input> ChangeInstruction<'input> {
                 }
                 func
             }
+            ChangeInstruction::DropFunction(ref function_name) => {
+                format!("DROP FUNCTION IF EXISTS {}", function_name)
+            }
 
             // Table level
             ChangeInstruction::AddTable(def) => {
@@ -960,6 +1021,9 @@ impl<'input> ChangeInstruction<'input> {
                 // Table constraints are added later
                 instr.push_str("\n)");
                 instr
+            }
+            ChangeInstruction::DropTable(ref table_name) => {
+                format!("DROP TABLE IF EXISTS {}", table_name)
             }
 
             // Column level
@@ -1031,7 +1095,7 @@ impl<'input> ChangeInstruction<'input> {
                 }
                 "".to_owned()
             }
-            ChangeInstruction::RemoveColumn(table, ref column_name) => {
+            ChangeInstruction::DropColumn(table, ref column_name) => {
                 format!("ALTER TABLE {} DROP COLUMN {}", table.name, column_name)
             }
 
@@ -1094,7 +1158,7 @@ impl<'input> ChangeInstruction<'input> {
                 instr
             }
 
-            ChangeInstruction::RemoveConstraint(table, ref name) => {
+            ChangeInstruction::DropConstraint(table, ref name) => {
                 format!("ALTER TABLE {}\nDROP CONSTRAINT {}", table.name, name)
             }
 
@@ -1107,9 +1171,69 @@ impl<'input> ChangeInstruction<'input> {
                 instr
             }
 
-            ref unimplemented => {
-                warn!(log, "TODO - not creating SQL for {}", unimplemented);
-                "".to_owned()
+            // Indexes
+            ChangeInstruction::AddIndex(index, concurrently) => {
+                let mut instr = String::new();
+                instr.push_str("CREATE ");
+                if index.unique {
+                    instr.push_str("UNIQUE ");
+                }
+                instr.push_str("INDEX ");
+                if concurrently {
+                    instr.push_str("CONCURRENTLY ");
+                }
+                instr.push_str(&format!("{} ON {}", index.name, index.table));
+                if let Some(ref method) = index.index_type {
+                    instr.push_str(" USING ");
+                    instr.push_str(match method {
+                        IndexType::BTree => "btree",
+                        IndexType::Gin => "gin",
+                        IndexType::Gist => "gist",
+                        IndexType::Hash => "hash",
+                    });
+                }
+                instr.push_str(" (");
+                for (position, col) in index.columns.iter().enumerate() {
+                    if position > 0 {
+                        instr.push_str(", ");
+                    }
+                    instr.push_str(&col.name);
+                    if let Some(ref order) = col.order {
+                        instr.push_str(match order {
+                            IndexOrder::Ascending => " ASC",
+                            IndexOrder::Descending => " DESC",
+                        });
+                    }
+                    if let Some(ref pos) = col.null_position {
+                        instr.push_str(match pos {
+                            IndexPosition::First => " NULLS FIRST",
+                            IndexPosition::Last => " NULLS LAST",
+                        });
+                    }
+                }
+                instr.push_str(")");
+                if let Some(ref storage_parameters) = index.storage_parameters {
+                    instr.push_str(" WITH (");
+                    for (position, value) in storage_parameters.iter().enumerate() {
+                        if position > 0 {
+                            instr.push_str(", ");
+                        }
+                        match *value {
+                            IndexParameter::FillFactor(i) => instr.push_str(&format!("FILLFACTOR={}", i)),
+                        }
+                    }
+                    instr.push_str(")");
+                }
+                instr
+            }
+            ChangeInstruction::DropIndex(ref index_name, concurrently) => {
+                let mut instr = String::new();
+                instr.push_str("DROP INDEX ");
+                if concurrently {
+                    instr.push_str("CONCURRENTLY ");
+                }
+                instr.push_str(&format!("IF EXISTS {}", index_name));
+                instr
             }
         }
     }
@@ -1672,7 +1796,7 @@ mod tests {
         // We should have a single instruction to create a new table
         assert_that!(changeset).has_length(1);
         match changeset[0] {
-            ChangeInstruction::RemoveColumn(ref table, ref column_name) => {
+            ChangeInstruction::DropColumn(ref table, ref column_name) => {
                 assert_that!(table.name.to_string()).is_equal_to("my.contacts".to_owned());
                 assert_that!(*column_name).is_equal_to("last_name".to_owned());
             }
@@ -1757,7 +1881,7 @@ mod tests {
         // We should have a single instruction to remove the constraint
         assert_that!(changeset).has_length(1);
         match changeset[0] {
-            ChangeInstruction::RemoveConstraint(ref table, ref name) => {
+            ChangeInstruction::DropConstraint(ref table, ref name) => {
                 assert_that!(table.name.to_string()).is_equal_to("my.contacts".to_owned());
                 assert_that!(*name).is_equal_to("pk_my_contacts_id".to_owned());
             }
@@ -1804,7 +1928,7 @@ mod tests {
         // Primary keys cannot be altered, so we drop/create
         assert_that!(changeset).has_length(2);
         match changeset[0] {
-            ChangeInstruction::RemoveConstraint(ref table, ref name) => {
+            ChangeInstruction::DropConstraint(ref table, ref name) => {
                 assert_that!(table.name.to_string()).is_equal_to("my.contacts".to_owned());
                 assert_that!(*name).is_equal_to("pk_my_contacts_id".to_owned());
             }
@@ -1924,7 +2048,7 @@ mod tests {
         // We should have a single instruction to remove a constraint
         assert_that!(changeset).has_length(1);
         match changeset[0] {
-            ChangeInstruction::RemoveConstraint(ref table, ref name) => {
+            ChangeInstruction::DropConstraint(ref table, ref name) => {
                 assert_that!(table.name.to_string()).is_equal_to("my.contacts".to_owned());
                 assert_that!(*name).is_equal_to("fk_my_contacts_my_companies".to_owned());
             }
@@ -1983,7 +2107,7 @@ mod tests {
         // Primary keys cannot be altered, so we drop/create
         assert_that!(changeset).has_length(2);
         match changeset[0] {
-            ChangeInstruction::RemoveConstraint(ref table, ref name) => {
+            ChangeInstruction::DropConstraint(ref table, ref name) => {
                 assert_that!(table.name.to_string()).is_equal_to("my.contacts".to_owned());
                 assert_that!(*name).is_equal_to("fk_my_contacts_my_companies".to_owned());
             }
@@ -2016,5 +2140,186 @@ mod tests {
             .is_equal_to("ALTER TABLE my.contacts\n\
                           ADD CONSTRAINT fk_my_contacts_my_companies FOREIGN KEY (company_id) \
                           REFERENCES my.companies (id) MATCH SIMPLE ON UPDATE NO ACTION ON DELETE NO ACTION".to_owned());
+    }
+
+    #[test]
+    fn it_can_add_a_new_index() {
+        let log = empty_logger();
+        let source_index = IndexDefinition {
+            name: "idx_contacts_first_name".to_owned(),
+            table: ObjectName {
+                schema: Some("public".to_owned()),
+                name: "contacts".to_owned(),
+            },
+            columns: vec![
+                IndexColumn {
+                    name: "first_name".to_owned(),
+                    order: Some(IndexOrder::Ascending),
+                    null_position: Some(IndexPosition::Last),
+                },
+            ],
+            unique: true,
+            index_type: Some(IndexType::BTree),
+            storage_parameters: None,
+        };
+
+        // Create a database with no indexes defined.
+        let existing_database = Package::new();
+        let publish_profile = PublishProfile::default();
+
+        let mut changeset = Vec::new();
+        let result = (&source_index).generate(&mut changeset, &existing_database, &publish_profile, &log);
+        assert_that!(result).is_ok();
+
+        // We should have a single instruction to create a new index
+        assert_that!(changeset).has_length(1);
+        match changeset[0] {
+            ChangeInstruction::AddIndex(ref index, concurrently) => {
+                assert_that!(index.name).is_equal_to("idx_contacts_first_name".to_owned());
+                assert_that!(index.table.to_string()).is_equal_to("public.contacts".to_owned());
+                assert_that!(concurrently).is_true();
+            }
+            ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
+        }
+
+        // Check the SQL generation
+        assert_that!(changeset[0].to_sql(&log))
+            .is_equal_to("CREATE UNIQUE INDEX CONCURRENTLY idx_contacts_first_name \
+                          ON public.contacts USING btree (first_name ASC NULLS LAST)".to_owned());
+    }
+
+    #[test]
+    fn it_can_remove_an_existing_index() {
+        let log = empty_logger();
+        let source_package = Package::new();
+
+        // Create a database with the index already defined.
+        fn existing_db() -> Option<Package> {
+            let mut existing_database = Package::new();
+            existing_database.indexes.push(IndexDefinition {
+                name: "idx_contacts_first_name".to_owned(),
+                table: ObjectName {
+                    schema: Some("public".to_owned()),
+                    name: "contacts".to_owned(),
+                },
+                columns: vec![
+                    IndexColumn {
+                        name: "first_name".to_owned(),
+                        order: Some(IndexOrder::Ascending),
+                        null_position: Some(IndexPosition::Last),
+                    },
+                ],
+                unique: true,
+                index_type: Some(IndexType::BTree),
+                storage_parameters: None,
+            });
+            Some(existing_database)
+        }
+
+        let mut publish_profile = PublishProfile::default();
+        publish_profile.generation_options.drop_indexes = Toggle::Error;
+
+        // First of all, make sure an error is generated
+        let result = Delta::generate(&log, &source_package, existing_db(), "dbname".to_owned(), publish_profile);
+        assert_that!(result).is_err();
+        // Now run it again - it should be ok now
+        let mut publish_profile = PublishProfile::default();
+        publish_profile.generation_options.drop_indexes = Toggle::Allow;
+        let result = Delta::generate(&log, &source_package, existing_db(), "dbname".to_owned(), publish_profile);
+        assert_that!(result).is_ok();
+        let changeset = match result.unwrap() {
+            Delta(c) => c,
+        };
+
+        // We should have a single instruction to remove an index (first will be use database)
+        assert_that!(changeset).has_length(2);
+        match changeset[1] {
+            ChangeInstruction::DropIndex(ref index, concurrently) => {
+                assert_that!(*index).is_equal_to("public.idx_contacts_first_name".to_owned());
+                assert_that!(concurrently).is_true();
+            }
+            ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
+        }
+
+        // Check the SQL generation
+        assert_that!(changeset[1].to_sql(&log))
+            .is_equal_to("DROP INDEX CONCURRENTLY IF EXISTS public.idx_contacts_first_name".to_owned());
+    }
+
+    #[test]
+    fn it_can_modify_an_existing_index() {
+        let log = empty_logger();
+        let source_index = IndexDefinition {
+            name: "idx_contacts_name".to_owned(),
+            table: ObjectName {
+                schema: Some("public".to_owned()),
+                name: "contacts".to_owned(),
+            },
+            columns: vec![
+                IndexColumn {
+                    name: "first_name".to_owned(),
+                    order: Some(IndexOrder::Ascending),
+                    null_position: Some(IndexPosition::Last),
+                },
+                IndexColumn {
+                    name: "last_name".to_owned(),
+                    order: Some(IndexOrder::Descending),
+                    null_position: Some(IndexPosition::First),
+                },
+            ],
+            unique: false,
+            index_type: Some(IndexType::BTree),
+            storage_parameters: None,
+        };
+
+        // Create a database with a single index defined.
+        let mut existing_database = Package::new();
+        existing_database.indexes.push(IndexDefinition {
+            name: "idx_contacts_name".to_owned(),
+            table: ObjectName {
+                schema: Some("public".to_owned()),
+                name: "contacts".to_owned(),
+            },
+            columns: vec![
+                IndexColumn {
+                    name: "first_name".to_owned(),
+                    order: Some(IndexOrder::Ascending),
+                    null_position: Some(IndexPosition::Last),
+                },
+            ],
+            unique: true,
+            index_type: Some(IndexType::BTree),
+            storage_parameters: None,
+        });
+        let publish_profile = PublishProfile::default();
+
+        let mut changeset = Vec::new();
+        let result = (&source_index).generate(&mut changeset, &existing_database, &publish_profile, &log);
+        assert_that!(result).is_ok();
+
+        // We should have two instructions to drop/create a new index
+        assert_that!(changeset).has_length(2);
+        match changeset[0] {
+            ChangeInstruction::DropIndex(ref index_name, concurrently) => {
+                assert_that!(*index_name).is_equal_to("public.idx_contacts_name".to_owned());
+                assert_that!(concurrently).is_true();
+            }
+            ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
+        }
+        match changeset[1] {
+            ChangeInstruction::AddIndex(ref index, concurrently) => {
+                assert_that!(index.name).is_equal_to("idx_contacts_name".to_owned());
+                assert_that!(index.table.to_string()).is_equal_to("public.contacts".to_owned());
+                assert_that!(concurrently).is_true();
+            }
+            ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
+        }
+
+        // Check the SQL generation
+        assert_that!(changeset[0].to_sql(&log))
+            .is_equal_to("DROP INDEX CONCURRENTLY IF EXISTS public.idx_contacts_name".to_owned());
+        assert_that!(changeset[1].to_sql(&log))
+            .is_equal_to("CREATE INDEX CONCURRENTLY idx_contacts_name \
+                          ON public.contacts USING btree (first_name ASC NULLS LAST, last_name DESC NULLS FIRST)".to_owned());
     }
 }

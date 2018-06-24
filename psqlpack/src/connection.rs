@@ -39,17 +39,17 @@ impl Connection {
     }
 
     pub fn connect_host(&self) -> ConnectionResult<PostgresConnection> {
-        Ok(try!(PostgresConnection::connect(
+        Ok(PostgresConnection::connect(
             self.uri.clone(),
             self.tls_mode()
-        )))
+        )?)
     }
 
     pub fn connect_database(&self) -> ConnectionResult<PostgresConnection> {
-        Ok(try!(PostgresConnection::connect(
+        Ok(PostgresConnection::connect(
             self.uri_with_database(),
             self.tls_mode()
-        )))
+        )?)
     }
 
     fn uri_with_database(&self) -> String {
@@ -106,7 +106,7 @@ impl FromStr for Connection {
         }
 
         // Make sure we have enough for a connection string
-        Ok(try!(builder.build()))
+        Ok(builder.build()?)
     }
 }
 

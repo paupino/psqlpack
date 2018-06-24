@@ -17,11 +17,13 @@ extern {
 
         ACTION => lexer::Token::ACTION,
         AS => lexer::Token::AS,
+        ASC => lexer::Token::ASC,
         BIGINT => lexer::Token::BIGINT,
         BIGSERIAL => lexer::Token::BIGSERIAL,
         BIT => lexer::Token::BIT,
         BOOL => lexer::Token::BOOL,
         BOOLEAN => lexer::Token::BOOLEAN,
+        BTREE => lexer::Token::BTREE,
         C => lexer::Token::C,
         CASCADE => lexer::Token::CASCADE,
         CONSTRAINT => lexer::Token::CONSTRAINT,
@@ -31,13 +33,19 @@ extern {
         DATE => lexer::Token::DATE,
         DEFAULT => lexer::Token::DEFAULT,
         DELETE => lexer::Token::DELETE,
+        DESC => lexer::Token::DESC,
         DOUBLE => lexer::Token::DOUBLE,
         ENUM => lexer::Token::ENUM,
         EXTENSION => lexer::Token::EXTENSION,
         FILLFACTOR => lexer::Token::FILLFACTOR,
+        FIRST => lexer::Token::FIRST,
         FOREIGN => lexer::Token::FOREIGN,
         FULL => lexer::Token::FULL,
         FUNCTION => lexer::Token::FUNCTION,
+        GIN => lexer::Token::GIN,
+        GIST => lexer::Token::GIST,
+        HASH => lexer::Token::HASH,
+        INDEX => lexer::Token::INDEX,
         INT => lexer::Token::INT,
         INT2 => lexer::Token::INT2,
         INT4 => lexer::Token::INT4,
@@ -46,11 +54,13 @@ extern {
         INTERNAL => lexer::Token::INTERNAL,
         KEY => lexer::Token::KEY,
         LANGUAGE => lexer::Token::LANGUAGE,
+        LAST => lexer::Token::LAST,
         MATCH => lexer::Token::MATCH,
         MONEY => lexer::Token::MONEY,
         NO => lexer::Token::NO,
         NOT => lexer::Token::NOT,
         NULL => lexer::Token::NULL,
+        NULLS => lexer::Token::NULLS,
         NUMERIC => lexer::Token::NUMERIC,
         ON => lexer::Token::ON,
         OR => lexer::Token::OR,
@@ -82,6 +92,7 @@ extern {
         TYPE => lexer::Token::TYPE,
         UNIQUE => lexer::Token::UNIQUE,
         UPDATE => lexer::Token::UPDATE,
+        USING => lexer::Token::USING,
         UUID => lexer::Token::UUID,
         VARBIT => lexer::Token::VARBIT,
         VARCHAR => lexer::Token::VARCHAR,
@@ -124,6 +135,14 @@ Statement: Statement = {
         return_type: return_type,
         body: body,
         language: lang,
+    }),
+    CREATE <unique:UNIQUE?> INDEX <name:Ident> ON <table:ObjectName> <index_type:IndexType?> "(" <columns:IndexColumnList> ")" <storage_parameters:WithIndexParameters?> ";"? => Statement::Index(IndexDefinition {
+        name: name,
+        table: table,
+        columns: columns,
+        unique: unique.is_some(),
+        index_type: index_type,
+        storage_parameters: storage_parameters,
     }),
     CREATE SCHEMA <name:Ident> ";"? => Statement::Schema(SchemaDefinition {
         name: name,
@@ -276,6 +295,42 @@ ForeignConstraintAction: ForeignConstraintAction = {
     CASCADE => ForeignConstraintAction::Cascade,
     SET NULL => ForeignConstraintAction::SetNull,
     SET DEFAULT => ForeignConstraintAction::SetDefault,
+};
+
+IndexColumnList: Vec<IndexColumn> = {
+    <v:IndexColumnList> "," <c:IndexColumn> => {
+        let mut v = v;
+        v.push(c);
+        v
+    },
+    <IndexColumn> => vec!(<>),
+};
+
+IndexColumn: IndexColumn = {
+    <name:Ident> <order:IndexOrder?> <pos:IndexNullPosition?> => {
+        IndexColumn {
+            name: name,
+            order: order,
+            null_position: pos,
+        }
+    }
+};
+
+IndexOrder: IndexOrder = {
+    ASC => IndexOrder::Ascending,
+    DESC => IndexOrder::Descending,
+};
+
+IndexNullPosition: IndexPosition = {
+    NULLS FIRST => IndexPosition::First,
+    NULLS LAST => IndexPosition::Last,
+};
+
+IndexType: IndexType = {
+    USING BTREE => IndexType::BTree,
+    USING HASH => IndexType::Hash,
+    USING GIST => IndexType::Gist,
+    USING GIN => IndexType::Gin,
 };
 
 pub SqlType: SqlType = {

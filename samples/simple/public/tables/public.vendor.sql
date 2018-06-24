@@ -7,3 +7,5 @@ create table vendor (
 
     constraint fk_exp_organisation foreign key (org_sequence_id) references organisation (sequence_id)
 );
+
+CREATE UNIQUE INDEX idx_organisation_name ON vendor (name ASC NULLS LAST) WITH (FILLFACTOR = 50);

@@ -5,11 +5,13 @@ use std::iter::FromIterator;
 pub enum Token {
     ACTION,
     AS,
+    ASC,
     BIGINT,
     BIGSERIAL,
     BIT,
     BOOL,
     BOOLEAN,
+    BTREE,
     C,
     CASCADE,
     CONSTRAINT,
@@ -19,13 +21,19 @@ pub enum Token {
     DATE,
     DEFAULT,
     DELETE,
+    DESC,
     DOUBLE,
     ENUM,
     EXTENSION,
     FILLFACTOR,
+    FIRST,
     FOREIGN,
     FULL,
     FUNCTION,
+    GIN,
+    GIST,
+    HASH,
+    INDEX,
     INT,
     INT2,
     INT4,
@@ -34,11 +42,13 @@ pub enum Token {
     INTERNAL,
     KEY,
     LANGUAGE,
+    LAST,
     MATCH,
     MONEY,
     NO,
     NOT,
     NULL,
+    NULLS,
     NUMERIC,
     ON,
     OR,
@@ -70,6 +80,7 @@ pub enum Token {
     TYPE,
     UNIQUE,
     UPDATE,
+    USING,
     UUID,
     VARBIT,
     VARCHAR,
@@ -162,11 +173,13 @@ fn create_token(value: String) -> Option<Token> {
     // Keywords
     match_keyword!(value, ACTION);
     match_keyword!(value, AS);
+    match_keyword!(value, ASC);
     match_keyword!(value, BIGINT);
     match_keyword!(value, BIGSERIAL);
     match_keyword!(value, BIT);
     match_keyword!(value, BOOL);
     match_keyword!(value, BOOLEAN);
+    match_keyword!(value, BTREE);
     match_keyword!(value, C);
     match_keyword!(value, CASCADE);
     match_keyword!(value, CONSTRAINT);
@@ -176,13 +189,19 @@ fn create_token(value: String) -> Option<Token> {
     match_keyword!(value, DATE);
     match_keyword!(value, DEFAULT);
     match_keyword!(value, DELETE);
+    match_keyword!(value, DESC);
     match_keyword!(value, DOUBLE);
     match_keyword!(value, ENUM);
     match_keyword!(value, EXTENSION);
     match_keyword!(value, FILLFACTOR);
+    match_keyword!(value, FIRST);
     match_keyword!(value, FOREIGN);
     match_keyword!(value, FULL);
     match_keyword!(value, FUNCTION);
+    match_keyword!(value, GIN);
+    match_keyword!(value, GIST);
+    match_keyword!(value, HASH);
+    match_keyword!(value, INDEX);
     match_keyword!(value, INT);
     match_keyword!(value, INT2);
     match_keyword!(value, INT4);
@@ -191,11 +210,13 @@ fn create_token(value: String) -> Option<Token> {
     match_keyword!(value, INTERNAL);
     match_keyword!(value, KEY);
     match_keyword!(value, LANGUAGE);
+    match_keyword!(value, LAST);
     match_keyword!(value, MATCH);
     match_keyword!(value, MONEY);
     match_keyword!(value, NO);
     match_keyword!(value, NOT);
     match_keyword!(value, NULL);
+    match_keyword!(value, NULLS);
     match_keyword!(value, NUMERIC);
     match_keyword!(value, ON);
     match_keyword!(value, OR);
@@ -227,6 +248,7 @@ fn create_token(value: String) -> Option<Token> {
     match_keyword!(value, TYPE);
     match_keyword!(value, UNIQUE);
     match_keyword!(value, UPDATE);
+    match_keyword!(value, USING);
     match_keyword!(value, UUID);
     match_keyword!(value, VARBIT);
     match_keyword!(value, VARCHAR);
