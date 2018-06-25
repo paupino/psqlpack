@@ -20,9 +20,12 @@ macro_rules! create_db {
 }
 
 macro_rules! drop_table {
-    ($connection:expr, $name:expr) => {{
-        let cmd = format!("DROP TABLE IF EXISTS {}", $name);
-        $connection.batch_execute(&cmd).unwrap();
+    ($connection:expr, $schema:expr, $name:expr) => {{
+        let result = $connection.query("SELECT 1 FROM pg_namespace WHERE nspname = $1", &[&$schema]).unwrap();
+        if !result.is_empty() {
+            let cmd = format!("DROP TABLE IF EXISTS {}.{}", $schema, $name);
+            $connection.batch_execute(&cmd).unwrap();
+        }
     }};
 }
 

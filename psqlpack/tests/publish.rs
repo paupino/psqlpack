@@ -64,7 +64,7 @@ fn it_can_add_a_new_table_to_an_existing_database() {
     // Preliminary: create a database with no tables
     let connection = ConnectionBuilder::new(DB_NAME, "localhost", "postgres").build().unwrap();
     let conn = create_db!(connection);
-    drop_table!(conn, format!("{}.contacts", NAMESPACE));
+    drop_table!(conn, NAMESPACE, "contacts");
     conn.finish().unwrap();
 
     // Publish with basic assert
@@ -81,7 +81,7 @@ fn it_can_add_a_new_column_to_an_existing_table() {
     // Preliminary: create a database with a partial table
     let connection = ConnectionBuilder::new(DB_NAME, "localhost", "postgres").build().unwrap();
     let conn = create_db!(connection);
-    drop_table!(conn, format!("{}.contacts", NAMESPACE));
+    drop_table!(conn, NAMESPACE, "contacts");
     conn.batch_execute(&format!("CREATE SCHEMA IF NOT EXISTS {}", NAMESPACE)).unwrap();
     conn.batch_execute(&format!("CREATE TABLE {}.contacts (id serial PRIMARY KEY NOT NULL)", NAMESPACE)).unwrap();
     conn.finish().unwrap();
@@ -100,7 +100,7 @@ fn it_can_modify_an_existing_column_on_a_table() {
     // Preliminary: create a database with a partial table
     let connection = ConnectionBuilder::new(DB_NAME, "localhost", "postgres").build().unwrap();
     let conn = create_db!(connection);
-    drop_table!(conn, format!("{}.contacts", NAMESPACE));
+    drop_table!(conn, NAMESPACE, "contacts");
     conn.batch_execute(&format!("CREATE SCHEMA IF NOT EXISTS {}", NAMESPACE)).unwrap();
     conn.batch_execute(&format!("CREATE TABLE {}.contacts (id serial PRIMARY KEY NOT NULL, name character varying(10) NULL)", NAMESPACE)).unwrap();
     conn.finish().unwrap();
@@ -119,7 +119,7 @@ fn it_can_drop_an_existing_column_on_a_table() {
     // Preliminary: create a database with a partial table
     let connection = ConnectionBuilder::new(DB_NAME, "localhost", "postgres").build().unwrap();
     let conn = create_db!(connection);
-    drop_table!(conn, format!("{}.contacts", NAMESPACE));
+    drop_table!(conn, NAMESPACE, "contacts");
     conn.batch_execute(&format!("CREATE SCHEMA IF NOT EXISTS {}", NAMESPACE)).unwrap();
     conn.batch_execute(&format!("CREATE TABLE {}.contacts (id serial PRIMARY KEY NOT NULL, name character varying(50) NOT NULL, last_name character varying(10))", NAMESPACE)).unwrap();
     conn.finish().unwrap();
@@ -138,7 +138,7 @@ fn it_can_add_a_new_index_to_an_existing_table() {
     // Preliminary: create a database with a table but no indexes
     let connection = ConnectionBuilder::new(DB_NAME, "localhost", "postgres").build().unwrap();
     let conn = create_db!(connection);
-    drop_table!(conn, format!("{}.contacts", NAMESPACE));
+    drop_table!(conn, NAMESPACE, "contacts");
     conn.batch_execute(&format!("CREATE SCHEMA IF NOT EXISTS {}", NAMESPACE)).unwrap();
     conn.batch_execute(&format!("CREATE TABLE {}.contacts (id serial PRIMARY KEY NOT NULL, name character varying(50) NULL)", NAMESPACE)).unwrap();
     conn.finish().unwrap();
@@ -157,7 +157,7 @@ fn it_can_modify_an_index_on_a_table() {
     // Preliminary: create a database with a table but a broad index
     let connection = ConnectionBuilder::new(DB_NAME, "localhost", "postgres").build().unwrap();
     let conn = create_db!(connection);
-    drop_table!(conn, format!("{}.contacts", NAMESPACE));
+    drop_table!(conn, NAMESPACE, "contacts");
     conn.batch_execute(&format!("CREATE SCHEMA IF NOT EXISTS {}", NAMESPACE)).unwrap();
     conn.batch_execute(&format!("CREATE TABLE {}.contacts (id serial PRIMARY KEY NOT NULL, name character varying(50) NULL, name2 character varying(50) NULL)", NAMESPACE)).unwrap();
     conn.batch_execute(&format!("CREATE INDEX idx_contacts_name ON {}.contacts (name, name2)", NAMESPACE)).unwrap();
@@ -177,7 +177,7 @@ fn it_can_drop_an_index_on_a_table() {
     // Preliminary: create a database with a table and extra index
     let connection = ConnectionBuilder::new(DB_NAME, "localhost", "postgres").build().unwrap();
     let conn = create_db!(connection);
-    drop_table!(conn, format!("{}.contacts", NAMESPACE));
+    drop_table!(conn, NAMESPACE, "contacts");
     conn.batch_execute(&format!("CREATE SCHEMA IF NOT EXISTS {}", NAMESPACE)).unwrap();
     conn.batch_execute(&format!("CREATE TABLE {}.contacts (id serial PRIMARY KEY NOT NULL, name character varying(50) NOT NULL, name2 character varying(50) NULL)", NAMESPACE)).unwrap();
     conn.batch_execute(&format!("CREATE INDEX idx_contacts_name ON {}.contacts (name)", NAMESPACE)).unwrap();
