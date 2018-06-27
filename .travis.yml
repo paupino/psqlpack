@@ -20,7 +20,7 @@ services:
 before_install:
   - docker pull postgres:$POSTGRESQL_VERSION
   - sudo /etc/init.d/postgresql stop
-  - docker run -d postgres:$POSTGRESQL_VERSION
+  - docker run -d -p 127.0.0.1:5432:5432 postgres:$POSTGRESQL_VERSION
 
 script:
   - cargo build --verbose --all --all-features
