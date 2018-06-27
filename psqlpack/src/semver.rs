@@ -72,24 +72,59 @@ pub trait ServerVersion {
 }
 
 lazy_static! {
-    static ref VERSION : Regex = Regex::new("(\\d+)\\.(\\d+)\\.(\\d+)").unwrap();
+    static ref VERSION : Regex = Regex::new("(\\d+)(\\.(\\d+))?(\\.(\\d+))?").unwrap();
+}
+
+fn parse_version_string(version: &str) -> Semver {
+    fn get_u32(caps: &::regex::Captures<'_>, pos: usize) -> u32 {
+        if let Some(rev) = caps.get(pos) {
+            rev.as_str().parse::<u32>().unwrap()
+        } else {
+            0
+        }
+    }
+
+    let caps = VERSION.captures(version).unwrap();
+    let major = get_u32(&caps, 1);
+    let minor = get_u32(&caps, 3);
+    let revision = get_u32(&caps, 5);
+    Semver {
+        major: major,
+        minor: minor,
+        revision: revision,
+    }
 }
 
 impl ServerVersion for PostgresConnection {
     fn server_version(&self) -> PsqlpackResult<Semver> {
-        let rows = self.query("SELECT version();", &[])
+        let rows = self.query("SHOW SERVER_VERSION;", &[])
                       .map_err(|e| DatabaseError(format!("Failed to retrieve server version: {}", e)))?;
         let row = rows.iter().last();
         if let Some(row) = row {
             let version: String = row.get(0);
-            let caps = VERSION.captures(&version[..]).unwrap();
-            Ok(Semver {
-                major: caps.get(1).unwrap().as_str().parse::<u32>().unwrap(),
-                minor: caps.get(2).unwrap().as_str().parse::<u32>().unwrap(),
-                revision: caps.get(3).unwrap().as_str().parse::<u32>().unwrap(),
-            })
+            Ok(parse_version_string(&version[..]))
         } else {
             bail!(DatabaseError("Failed to retrieve version from server".into()))
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_version_string;
+    use spectral::prelude::*;
+
+    #[test]
+    fn it_can_parse_version_strings() {
+        let tests = &[
+            ("11", "11.0.0"),
+            ("10.4", "10.4.0"),
+            ("9.4.18", "9.4.18"),
+            ("9.6.9", "9.6.9"),
+        ];
+        for &(given, expected) in tests {
+            let parsed = parse_version_string(given);
+            assert_that!(parsed.to_string()).is_equal_to(expected.to_string());
         }
     }
 }

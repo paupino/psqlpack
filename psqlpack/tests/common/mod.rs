@@ -10,6 +10,7 @@ macro_rules! drop_db {
 macro_rules! create_db {
     ($connection:expr) => {{
         let conn = $connection.connect_host().unwrap();
+        println!("PG Version: {}", conn.server_version().unwrap());
         let result = conn.query("SELECT 1 FROM pg_database WHERE datname=$1", &[&$connection.database()]).unwrap();
         if result.is_empty() {
             conn.batch_execute(&format!("CREATE DATABASE {}", $connection.database())).unwrap();
@@ -20,9 +21,12 @@ macro_rules! create_db {
 }
 
 macro_rules! drop_table {
-    ($connection:expr, $name:expr) => {{
-        let cmd = format!("DROP TABLE IF EXISTS {}", $name);
-        $connection.batch_execute(&cmd).unwrap();
+    ($connection:expr, $schema:expr, $name:expr) => {{
+        let result = $connection.query("SELECT 1 FROM pg_namespace WHERE nspname = $1", &[&$schema]).unwrap();
+        if !result.is_empty() {
+            let cmd = format!("DROP TABLE IF EXISTS {}.{}", $schema, $name);
+            $connection.batch_execute(&cmd).unwrap();
+        }
     }};
 }
 
