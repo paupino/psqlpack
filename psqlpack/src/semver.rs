@@ -72,18 +72,22 @@ pub trait ServerVersion {
 }
 
 lazy_static! {
-    static ref VERSION : Regex = Regex::new("(\\d+)\\.(\\d+)(\\.(\\d+))?").unwrap();
+    static ref VERSION : Regex = Regex::new("(\\d+)(\\.(\\d+))?(\\.(\\d+))?").unwrap();
 }
 
 fn parse_version_string(version: &str) -> Semver {
+    fn get_u32(caps: &::regex::Captures<'_>, pos: usize) -> u32 {
+        if let Some(rev) = caps.get(pos) {
+            rev.as_str().parse::<u32>().unwrap()
+        } else {
+            0
+        }
+    }
+
     let caps = VERSION.captures(version).unwrap();
-    let major = caps.get(1).unwrap().as_str().parse::<u32>().unwrap();
-    let minor = caps.get(2).unwrap().as_str().parse::<u32>().unwrap();
-    let revision = if let Some(rev) = caps.get(4) {
-        rev.as_str().parse::<u32>().unwrap()
-    } else {
-        0
-    };
+    let major = get_u32(&caps, 1);
+    let minor = get_u32(&caps, 3);
+    let revision = get_u32(&caps, 5);
     Semver {
         major: major,
         minor: minor,
@@ -113,6 +117,7 @@ mod tests {
     #[test]
     fn it_can_parse_version_strings() {
         let tests = &[
+            ("11", "11.0.0"),
             ("10.4", "10.4.0"),
             ("9.4.18", "9.4.18"),
             ("9.6.9", "9.6.9"),
