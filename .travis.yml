@@ -1,4 +1,5 @@
 language: rust
+dist: trusty
 sudo: required
 
 rust:
@@ -7,17 +8,18 @@ rust:
   - nightly
 
 env:
-  - POSTGRESQL_VERSION=9.4 RUST_BACKTRACE=1
-  - POSTGRESQL_VERSION=9.5 RUST_BACKTRACE=1
-  - POSTGRESQL_VERSION=9.6 RUST_BACKTRACE=1
-  - POSTGRESQL_VERSION=10 RUST_BACKTRACE=1
-  - POSTGRESQL_VERSION=11 RUST_BACKTRACE=1
+  - POSTGRESQL_VERSION=9.4
+  - POSTGRESQL_VERSION=9.5
+  - POSTGRESQL_VERSION=9.6
+  - POSTGRESQL_VERSION=10
+  - POSTGRESQL_VERSION=11
 
 services:
   - docker
 
 before_install:
   - docker pull postgres:$POSTGRESQL_VERSION
+  - sudo /etc/init.d/postgresql stop
   - docker run -d postgres:$POSTGRESQL_VERSION
 
 script:
