@@ -2,6 +2,7 @@
 
 [Build Status]: https://api.travis-ci.org/paupino/psqlpack.svg?branch=master
 [travis]: https://travis-ci.org/paupino/psqlpack
+[Supported]: docs/images/supported.svg
 
 [Documentation](docs/index.md)
 
@@ -20,10 +21,10 @@ Psqlpack can be currently used depending on the features you need for deployment
 
 ### Data Object Support
 
-| Status | Feature | Issues |
-|--------|---------|--------|
-| [X]    | Tables  |        |
-| [X]    | Primary and Foreign Keys  |        |
+Status | Feature | Issues
+--------|---------|--------
+![Supported][Supported] | Tables  | 
+[X]    | Primary and Foreign Keys  | 
 
 Data Action Support
 * [X] Extract a psqlpack from a live PostgreSQL database.
