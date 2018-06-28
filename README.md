@@ -21,10 +21,10 @@ Psqlpack can be currently used depending on the features you need for deployment
 
 ### Data Object Support
 
-Feature | Issues
+Feature | Status
 --------|--------
-Tables ![Supported][Supported] | 
-Primary and Foreign Keys ![Supported][Supported] | 
+Tables | ![Supported]
+Primary and Foreign Keys | ![Supported]
 
 Data Action Support
 * [X] Extract a psqlpack from a live PostgreSQL database.
