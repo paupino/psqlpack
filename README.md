@@ -3,6 +3,8 @@
 [Build Status]: https://api.travis-ci.org/paupino/psqlpack.svg?branch=master
 [travis]: https://travis-ci.org/paupino/psqlpack
 [Supported]: docs/images/supported.svg
+[Partial]: docs/images/partially-supported.svg
+[NotStarted]: docs/images/not-started.svg
 
 [Documentation](docs/index.md)
 
@@ -25,6 +27,11 @@ Feature | Status
 --------|--------
 Tables | ![Supported]
 Primary and Foreign Keys | ![Supported]
+Functions | ![Partial]
+Indexes | ![Partial]
+Views | ![NotStarted]
+Materialized Views | ![NotStarted]
+Security Objects | ![NotStarted]
 
 Data Action Support
 * [X] Extract a psqlpack from a live PostgreSQL database.
