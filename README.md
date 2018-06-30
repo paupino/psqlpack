@@ -32,11 +32,7 @@ Indexes | ![Partial]
 Views | ![NotStarted]
 Materialized Views | ![NotStarted]
 Security Objects | ![NotStarted]
-
-Data Action Support
-* [X] Extract a psqlpack from a live PostgreSQL database.
-* [ ] Export a live PostgreSQL database including user data.
-* [ ] Improve the report functionality by providing data movement actions etc.
+Triggers | ![NotStarted]
 
 ## License
 
