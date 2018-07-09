@@ -1,32 +1,21 @@
 # Command Line Syntax
 
+The general command line syntax for `psqlpack` follows the convention:
+
 ```
 psqlpack {action} {options}
 ```
 
-## Package action
+Actions supported are currently:
 
-| Parameter  | Required   | Type                        | Default | Description |
-|------------|------------|-----------------------------|---------|-------------|
-| --source   | Yes        | `string`                    |         | The path to the project file that defines our database schema to package. |
-| --out      | Yes        | `string`                    |         | The path of the psqlpack file (or folder) that should be generated. |
-| --type     | No         | [PackageType](#packagetype) | "file"  | Useful for debugging; allows you to optionally output a folder representation of the psqlpack. |
-| --verbose  | No         | `boolean`                   | false   | Outputs lexer output during scan phase. |
+* [`extract`](#extract-action): Builds a psqlpack package (`.psqlpack` file) from an existing database target.
+* [`new`](#new-action): Generate a starting template for a psqlpack project (`.psqlproj` file) or generate a new publish profile (`.publish` file) defining properties as to how a database schema should be update.
+* [`package`](#package-action): Create a psqlpack package (`.psqlpack` file) from a source psqlpack project (`.psqlproj`).
+* [`publish`](#publish-action): Incrementally update a database schema to match the schema of a source `.psqlpack` file or `.psqlproj` project.  If the database does not exist on the server, the publish operation will create it. Otherwise, an existing database will be updated.
+* [`report`](#report-action): Generate a JSON report of changes that would be made by a publish action.
+* [`script`](#script-action): Create an SQL script of the incremental changes that would be applied to the target in order to match the schema of source.
 
-### PackageType
-
-Package type is an enum type which can either be one of the following values:
-
-* `file`: Output to a file format
-* `folder`: Output to a folder format
-
-## Publish action
-
-| Parameter  | Required   | Type        | Default  | Description |
-|------------|------------|-------------|----------|-------------|
-| --source   | Yes        | `string`    |          | The path to the source psqlpack file representing the database schema. |
-| --target   | No         | `string`    |          | The connection string to the target database to update. Only required if not specified in the publish profile. |
-| --profile  | Yes        | `string`    |          | The path to the publish profile defining properties/values to use to help generate outputs. |
+All actions support an optional `--trace` argument which turns on verbose level logging.
 
 ## Report action
 
