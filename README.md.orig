@@ -34,8 +34,19 @@ Indexes | ![Partial]
 Views | ![NotStarted]
 Materialized Views | ![NotStarted]
 Security Objects | ![NotStarted]
-Extensions | ![Partial]
+<<<<<<< Updated upstream
 Triggers | ![NotStarted]
+=======
+Extensions | ![Partial]
+
+### Data Action Support
+
+Feature | Status
+--------|--------
+Extract a psqlpack from a live PostgreSQL database |
+Export a live PostgreSQL database including user data |
+Improve the report functionality by providing data movement actions etc | 
+>>>>>>> Stashed changes
 
 ## License
 
