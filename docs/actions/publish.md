@@ -2,6 +2,15 @@
 
 The `publish` action incrementally updates a database schema to match the schema of a source `.psqlpack` file or `.psqlproj` project.  If the database does not exist on the server, the publish operation will create it. Otherwise, an existing database will be updated.
 
+## Example
+
+To publish the `example` database project using the `local` publish profile:
+```
+psqlpack publish -s ~/dev/example/example.psqlproj -t "host=localhost;userid=paulmason;password=test;database=example" -p ~/dev/example/local.publish 
+```
+
+## Parameters
+
 | Parameter  | Short | Required   | Type     | Description
 |------------|-------|------------|----------|-------------
 | --source   | -s    | Yes        | `string` | The path to the source psqlpack or project file representing the database schema. 

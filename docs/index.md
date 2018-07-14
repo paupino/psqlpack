@@ -8,32 +8,14 @@ psqlpack {action} {options}
 
 Actions supported are currently:
 
-* [`extract`](#extract-action): Builds a psqlpack package (`.psqlpack` file) from an existing database target.
-* [`new`](#new-action): Generate a starting template for a psqlpack project (`.psqlproj` file) or generate a new publish profile (`.publish` file) defining properties as to how a database schema should be update.
-* [`package`](#package-action): Create a psqlpack package (`.psqlpack` file) from a source psqlpack project (`.psqlproj`).
-* [`publish`](#publish-action): Incrementally update a database schema to match the schema of a source `.psqlpack` file or `.psqlproj` project.  If the database does not exist on the server, the publish operation will create it. Otherwise, an existing database will be updated.
-* [`report`](#report-action): Generate a JSON report of changes that would be made by a publish action.
-* [`script`](#script-action): Create an SQL script of the incremental changes that would be applied to the target in order to match the schema of source.
+* [`extract`](actions/extract.md): Builds a psqlpack package (`.psqlpack` file) from an existing database target.
+* [`new`](actions/new.md): Generate a starting template for a psqlpack project (`.psqlproj` file) or generate a new publish profile (`.publish` file) defining properties as to how a database schema should be update.
+* [`package`](actions/package.md): Create a psqlpack package (`.psqlpack` file) from a source psqlpack project (`.psqlproj`).
+* [`publish`](actions/publish.md): Incrementally update a database schema to match the schema of a source `.psqlpack` file or `.psqlproj` project.  If the database does not exist on the server, the publish operation will create it. Otherwise, an existing database will be updated.
+* [`report`](actions/report.md): Generate a JSON report of changes that would be made by a publish action.
+* [`script`](actions/script.md): Create an SQL script of the incremental changes that would be applied to the target in order to match the schema of source.
 
 All actions support an optional `--trace` argument which turns on verbose level logging.
-
-## Report action
-
-| Parameter  | Required   | Type        | Default  | Description |
-|------------|------------|-------------|----------|-------------|
-| --source   | Yes        | `string`    |          | The path to the source psqlpack file representing the database schema. |
-| --target   | No         | `string`    |          | The connection string to the target database to update. Only required if not specified in the publish profile. |
-| --profile  | Yes        | `string`    |          | The path to the publish profile defining properties/values to use to help generate outputs. |
-| --out      | Yes        | `string`    |          | The path to the report file that should be generated. |
-
-## Script action
-
-| Parameter  | Required   | Type        | Default  | Description |
-|------------|------------|-------------|----------|-------------|
-| --source   | Yes        | `string`    |          | The path to the source psqlpack file representing the database schema. |
-| --target   | No         | `string`    |          | The connection string to the target database to update. Only required if not specified in the publish profile. |
-| --profile  | Yes        | `string`    |          | The path to the publish profile defining properties/values to use to help generate outputs. |
-| --out      | Yes        | `string`    |          | The path to the SQL script that should be generated. |
 
 # File formats
 
