@@ -5,7 +5,7 @@ The `publish` action incrementally updates a database schema to match the schema
 ## Example
 
 To publish the `example` database project using the `local` publish profile:
-```
+```console
 psqlpack publish -s ~/dev/example/example.psqlproj -t "host=localhost;userid=paulmason;password=test;database=example" -p ~/dev/example/local.publish 
 ```
 

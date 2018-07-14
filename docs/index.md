@@ -23,16 +23,17 @@ We define a number of custom file formats to help drive the psqlpack process.
 
 ## Project file format
 
-The project file is what defines the representative database schema. It is currently defined by the following variables:
+The project file is a JSON formatted file which defines how to interpret the files on disk.
 
-| Property           | Required   | Type       | Default  | Description |
-|--------------------|------------|------------|----------|-------------|
-| version            | Yes        | `string`   |          | Must be version 1.0. |
-| defaultSchema      | Yes        | `string`   |          | The default schema to be assumed for the database (if none specified). |
-| include            | Yes        | `[string]` |          | An array of relative paths to files (or alternatively file patterns to match) to be included in the project definition. |
-| extensions         | Yes        | `[string]` |          | An array of relative paths to files (or alternatively file patterns to match) that are PostgreSQL extensions. |
-| preDeployScripts   | Yes        | `[string]` |          | An array of relative paths to scripts (or alternatively file patterns to match) set to be used before deployment begins. |
-| postDeployScripts  | Yes        | `[string]` |          | An array of relative paths to scripts (or alternatively file patterns to match) set to be used after deployment finishes. |
+| Property            | Required   | Type       | Description 
+|---------------------|------------|------------|-------------
+| `version`           | Yes        | `string`   | Must be version `1.0`.
+| `defaultSchema`     | Yes        | `string`   | The default schema to be assumed for the database (if none specified).
+| `preDeployScripts`  | Yes        | `[string]` | An array of relative paths to SQL scripts to be applied before deployment begins.
+| `postDeployScripts` | Yes        | `[string]` | An array of relative paths to SQL scripts to be applied after deployment finishes.
+| `extensions`        | No         | `[string]` | An array of extensions that are required for this project to function. e.g. `postgis`
+| `fileIncludeGlobs`  | No         | `[string]` | An array of globs representing files/folders to be included within your project. Defaults to `["**/*.sql"]`.
+| `fileExcludeGlobs`  | No         | `[string]` | An array of globs representing files/folders to be excluded within your project.
 
 ### Example
 
@@ -40,88 +41,61 @@ The project file is what defines the representative database schema. It is curre
 {
     "version": "1.0",
     "defaultSchema": "public",
-    "include": [
-        "./**/*.sql"
-    ],
-    "extensions": [
-        "./extensions/postgis.sql"
-    ],
     "preDeployScripts": [],
     "postDeployScripts": [
         "./scripts/seed/*.sql"
+    ],
+    "extensions": [
+        "postgis"
     ]
 }
 ```
 
 ## Publish Profile file format
 
-The publish profile file helps define properties/values that define how we generate psqlpack outputs.
+The publish profile file is a JSON formatted file which helps fine tune how the database is published.
 
-| Property               | Required   | Type                                    | Default  | Description |
-|------------------------|------------|-----------------------------------------|----------|-------------|
-| version                | Yes        | `string`                                |          | Must be version 1.0. |
-| targetConnectionString | No         | [ConnectionString](#connectionstring)   |          | Optional target for publish actions to use. If provided as a command line argument will override this value. |
-| generationOptions      | No         | [GenerationOptions](#generationoptions) | Object Defaults | An object specifying various options to configure how publish actions are generated. |
-| commandVariables       | No         | [[Pair]](#pair)                         |          | Command variables allow you to specify dynamic variables per script. e.g. for Shard deployments. |
-
-### Pair
-
-| Property | Required   | Type     | Default  | Description |
-|----------|------------|----------|----------|-------------|
-| name     | Yes        | `string` |          | The name of the pair. |
-| value    | Yes        | `string` |          | The value associated with the pair. |
-
-### ConnectionString
-
-| Property | Required   | Type      | Default  | Description |
-|----------|------------|-----------|----------|-------------|
-| database | Yes        | `string`  |          | The name of the database. |
-| server   | Yes        | `string`  |          | The name of the server hosting the database. |
-| port     | No         | `integer` | 5432     | The port number of the server. |
-| user     | Yes        | `string`  |          | The username to use for authentication. |
-| password | Yes        | `string`  |          | The password to use for authentication. |
-| tlsMode  | No         | `boolean` | false    | Set to true to use TLS for authentication. |
+| Property            | Required   | Type                                      | Description 
+|---------------------|------------|-------------------------------------------|-------------
+| `version`           | Yes        | `string`                                  | Must be version `1.0`.
+| `generationOptions` | Yes        | [`GenerationOptions`](#generationoptions) | An object specifying various options to configure how publish actions are generated.
 
 ### GenerationOptions
 
-| Property                | Required   | Type                      | Default         | Description |
-|-------------------------|------------|---------------------------|-----------------|-------------|
-| alwaysRecreateDatabase  | No         | `boolean`                 | false           | Set to true to always recreate the database. |
-| allowUnsafeOperations   | No         | `boolean`                 | false           | Set to true to allow unsafe operations (e.g. enum value mods) to occur. |
-| blockOnPossibleDataLoss | No         | `boolean`                 | false           | Set to true to block deployment if data loss is detected. |
+| Property                    | Required   | Type                | Description 
+|-----------------------------|------------|---------------------|-------------
+| `alwaysRecreateDatabase`    | Yes        | `boolean`           | Set to true to always recreate the database.
+| `dropEnumValues`            | Yes        | [`Toggle`](#toggle) | Adjust whether enum values can be dropped. No checks are currently performed for usage before dropping so this is considered unsafe.
+| `dropTables`                | Yes        | [`Toggle`](#toggle) | Adjust whether tables can be dropped. Data loss could be encountered.
+| `dropColumns`               | Yes        | [`Toggle`](#toggle) | Adjust whether columns can be dropped. Data loss could be encountered.
+| `dropPrimaryKeyConstraints` | Yes        | [`Toggle`](#toggle) | Adjust whether primary key constraints can be dropped.
+| `dropForeignKeyConstraints` | Yes        | [`Toggle`](#toggle) | Adjust whether foreign key constraints can be dropped.
+| `dropFunctions`             | Yes        | [`Toggle`](#toggle) | Adjust whether functions can be dropped.
+| `dropIndexes`               | Yes        | [`Toggle`](#toggle) | Adjust whether indexes can be dropped.
+| `forceConcurrentIndexes`    | Yes        | `boolean`           | Set to true to force all indexes to be applied concurrently.
+
+### Toggle
+
+Toggle allows you to define three options when encountering an action:
+
+* `Error`: An error will be generated and the operation will be halted.
+* `Ignore`: The action will not be executed however will not halt the operation.
+* `Allow`: The action will be executed.
 
 ### Example
 
-A minimal profile:
 ```
 {
-    "version": "1.0"
-}
-```
-
-A full profile which drops objects such as functions but not tables:
-```
-{
-    "version": "1.0",
-    "targetConnectionString": {
-        "database": "my_db",
-        "server": "localhost",
-        "user": "paul",
-        "password": "somepassword"
-    },
-    "generationOptions": {
-        "alwaysRecreateDatabase": false,
-        "blockOnPossibleDataLoss": true,
-        "dropObjectsNotInSource": true,
-        "tableChangeMode": {
-            "create": true,
-            "modify": true,
-            "drop": false,
-        }
-    },
-    "commandVariables": [
-        { "name": "AUDIT_DB", "value": "audit_db" }
-    ]
+  "version": "1.0",
+  "generationOptions": {
+    "alwaysRecreateDatabase": false,
+    "dropEnumValues": "Error",
+    "dropFunctions": "Error",
+    "dropTables": "Error",
+    "dropColumns": "Error",
+    "dropPrimaryKeyConstraints": "Error",
+    "dropForeignKeyConstraints": "Allow"
+  }
 }
 ```
 
@@ -132,6 +106,7 @@ The psqlpack package structure is not the same as the Microsoft equivalent. Fund
 
 * `extensions`: PostgreSQL extension statements.
 * `functions`: All function definitions.
+* `indexes`: All index definitions.
 * `schemas`: All schema definitions, including public.
 * `scripts`: Any pre/post deployment scripts.
 * `tables`: All table definitions.

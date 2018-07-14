@@ -10,12 +10,12 @@
 
 Psqlpack is a database development tool that is intended to make working with PostgreSQL databases more productive. It was originally inspired by [Microsoft SQL Server sqlpackage](https://docs.microsoft.com/en-us/sql/tools/sqlpackage?view=sql-server-2017) and currently supports the following tasks:
 
-* [Extract](#extract-action): Builds a psqlpack package (`.psqlpack` file) from an existing database target.
-* [New](#new-action): Generate a starting template for a psqlpack project (`.psqlproj` file) or generate a new publish profile (`.publish` file) defining properties as to how a database schema should be update.
-* [Package](#package-action): Create a psqlpack package (`.psqlpack` file) from a source psqlpack project (`.psqlproj`).
-* [Publish](#publish-action): Incrementally update a database schema to match the schema of a source `.psqlpack` file or `.psqlproj` project.  If the database does not exist on the server, the publish operation will create it. Otherwise, an existing database will be updated.
-* [Report](#report-action): Generate a JSON report of changes that would be made by a publish action.
-* [Script](#script-action): Create an SQL script of the incremental changes that would be applied to the target in order to match the schema of source.
+* [Extract](docs/actions/extract.md): Builds a psqlpack package (`.psqlpack` file) from an existing database target.
+* [New](docs/actions/new.md): Generate a starting template for a psqlpack project (`.psqlproj` file) or generate a new publish profile (`.publish` file) defining properties as to how a database schema should be update.
+* [Package](docs/actions/package.md): Create a psqlpack package (`.psqlpack` file) from a source psqlpack project (`.psqlproj`).
+* [Publish](docs/actions/publish.md): Incrementally update a database schema to match the schema of a source `.psqlpack` file or `.psqlproj` project.  If the database does not exist on the server, the publish operation will create it. Otherwise, an existing database will be updated.
+* [Report](docs/actions/report.md): Generate a JSON report of changes that would be made by a publish action.
+* [Script](docs/actions/script.md): Create an SQL script of the incremental changes that would be applied to the target in order to match the schema of source.
 
 ## Is it ready to be used?
 
