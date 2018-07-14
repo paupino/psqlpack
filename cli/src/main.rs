@@ -101,7 +101,7 @@ fn main() {
                         .takes_value(true)
                         .help("The location of the folder to export the psqlpack to"),
                 ),
-        )        
+        )
         .subcommand(
             SubCommand::with_name("new")
                 .about("Creates a new project or publish profile based upon the specified template")
@@ -137,7 +137,7 @@ fn main() {
                         .short("s")
                         .required(false)
                         .takes_value(true)
-                        .help("The source project JSON file"),
+                        .help("The path to the source 'psqlproj' project file."),
                 )
                 .arg(
                     Arg::with_name("OUTPUT")
