@@ -2,7 +2,7 @@
 
 The general command line syntax for `psqlpack` follows the convention:
 
-```
+```bash
 psqlpack {action} {options}
 ```
 
@@ -37,7 +37,7 @@ The project file is a JSON formatted file which defines how to interpret the fil
 
 ### Example
 
-```
+```json
 {
     "version": "1.0",
     "defaultSchema": "public",
@@ -84,7 +84,7 @@ Toggle allows you to define three options when encountering an action:
 
 ### Example
 
-```
+```json
 {
   "version": "1.0",
   "generationOptions": {

@@ -5,7 +5,7 @@ The `script` action outputs a SQL file of the incremental changes that need to b
 ## Example
 
 To generate the SQL statements for changes to be made by the `example` database project using the `local` publish profile:
-```console
+```bash
 psqlpack script -s ~/dev/example/example.psqlproj -t "host=localhost;userid=paulmason;password=test;database=example" -p ~/dev/example/local.publish -o ~/db/example.sql
 ```
 

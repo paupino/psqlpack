@@ -7,7 +7,7 @@ The `report` action outputs a report of the incremental changes that need to be 
 ## Example
 
 To generate a report for changes to be made by the `example` database project using the `local` publish profile:
-```console
+```bash
 psqlpack report -s ~/dev/example/example.psqlproj -t "host=localhost;userid=paulmason;password=test;database=example" -p ~/dev/example/local.publish -o ~/db/example.report
 ```
 

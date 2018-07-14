@@ -5,7 +5,7 @@ The `package` action builds a psqlpack package (`.psqlpack` file) from an existi
 ## Example
 
 To package the `example` database project to a file `~/db/example.psqlpack`:
-```console
+```bash
 psqlpack package -s ~/dev/example/example.psqlproj -o ~/db/example.psqlpack
 ```
 

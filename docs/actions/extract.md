@@ -5,7 +5,7 @@ The `extract` action creates a `.psqlpack` file from the source database.
 ## Example
 
 To extract the `example` database to a file `~/db/example.psqlpack`:
-```console
+```bash
 psqlpack extract -s "host=localhost;userid=paupino;password=test;database=example" -o ~/db/example.psqlpack
 ```
 
