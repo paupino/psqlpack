@@ -2,7 +2,7 @@
 set -e
 
 version=$1
-if [[ ! $version =~ ^\d+\.\d+$ ]]; then
+if [[ ! $version =~ ^[0-9]+\.[0-9]+$ ]]; then
 	echo "Please enter a valid version: '$version'"
 	exit 1
 fi
@@ -26,17 +26,21 @@ do
 done
 
 # First, delete the latest release 
+echo "Deleting last release of $version"
 to_delete=$(curl -s \
     -H "Accept: application/vnd.github.v3+json" \
     -H "Authorization: token $GITHUB_TOKEN" \
     "https://api.github.com/repos/paupino/psqlpack/releases/tags/$version" | jq -r '.url')
-curl -X DELETE -s \
-    -H "Accept: application/vnd.github.v3+json" \
-    -H "Authorization: token $GITHUB_TOKEN" \
-    $to_delete
+if [ ! $to_delete = 'null' ]; then 
+    curl -X DELETE -s \
+        -H "Accept: application/vnd.github.v3+json" \
+        -H "Authorization: token $GITHUB_TOKEN" \
+        $to_delete
+fi
 
 # Now we create the release in Github
 # POST /repos/:owner/:repo/releases
+echo "Creating release $version"
 body="{ \
   \"tag_name\": \"$version\", \
   \"target_commitish\": \"master\", \
@@ -53,6 +57,7 @@ id=$(curl -X POST -s \
     "https://api.github.com/repos/paupino/psqlpack/releases" | jq -r '.id')
 
 # And upload each asset
+echo "   Uploading assets..."
 for target in ${targets[*]}
 do
     filename="psqlpack-$target.tar.gz"
@@ -67,3 +72,4 @@ do
         $asset | jq -r '.url'
     
 done
+echo "Done!"
