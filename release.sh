@@ -21,7 +21,7 @@ do
     cargo build --target=$target --release
     cp -f target/$target/release/psqlpack target/packages/
     pushd target/packages/ > /dev/null
-    tar -cvzf psqlpack-$target.tar.gz psqlpack
+    tar -cvzf psqlpack-$target.tar.gz psqlpack > /dev/null
     popd > /dev/null
 done
 
