@@ -1,6 +1,12 @@
 #!/bin/bash
 set -e
 
+version=$1
+if [[ ! $version =~ ^\d+\.\d+$ ]]; then
+	echo "Please enter a valid version: '$version'"
+	exit 1
+fi
+
 # This is the array of targets to deploy
 targets=(
     "x86_64-apple-darwin"
@@ -23,7 +29,7 @@ done
 to_delete=$(curl -s \
     -H "Accept: application/vnd.github.v3+json" \
     -H "Authorization: token $GITHUB_TOKEN" \
-    "https://api.github.com/repos/paupino/psqlpack/releases/tags/prerelease-0.1" | jq -r '.url')
+    "https://api.github.com/repos/paupino/psqlpack/releases/tags/$version" | jq -r '.url')
 curl -X DELETE -s \
     -H "Accept: application/vnd.github.v3+json" \
     -H "Authorization: token $GITHUB_TOKEN" \
@@ -32,10 +38,10 @@ curl -X DELETE -s \
 # Now we create the release in Github
 # POST /repos/:owner/:repo/releases
 body="{ \
-  \"tag_name\": \"prerelease-0.1\", \
+  \"tag_name\": \"$version\", \
   \"target_commitish\": \"master\", \
-  \"name\": \"psqlpack-prerelease-0.1\", \
-  \"body\": \"Pre-release version of psqlpack\", \
+  \"name\": \"psqlpack-$version\", \
+  \"body\": \"psqlpack $version\", \
   \"draft\": false, \
   \"prerelease\": true \
 }"
