@@ -25,17 +25,17 @@ Psqlpack can be currently used depending on the features you need for deployment
 
 Feature | Status
 --------|--------
-Schemas | ![Supported]
-Tables | ![Supported]
-Types | ![Supported]
-Primary and Foreign Keys | ![Supported]
-Functions | ![Partial]
-Indexes | ![Partial]
-Views | ![NotStarted]
-Materialized Views | ![NotStarted]
-Security Objects | ![NotStarted]
-Extensions | ![Partial]
-Triggers | ![NotStarted]
+Schemas | [![Supported]](https://github.com/paupino/psqlpack/issues?q=is%3Aopen+is%3Aissue+label%3Afeature-schemas)
+Tables | [![Supported]](https://github.com/paupino/psqlpack/issues?q=is%3Aopen+is%3Aissue+label%3Afeature-tables)
+Types | [![Supported]](https://github.com/paupino/psqlpack/issues?q=is%3Aopen+is%3Aissue+label%3Afeature-types)
+Primary and Foreign Keys | [![Supported]](https://github.com/paupino/psqlpack/issues?q=is%3Aopen+is%3Aissue+label%3Afeature-constraints)
+Functions | [![Partial]](https://github.com/paupino/psqlpack/issues?q=is%3Aopen+is%3Aissue+label%3Afeature-functions)
+Indexes | [![Partial]](https://github.com/paupino/psqlpack/issues?q=is%3Aopen+is%3Aissue+label%3Afeature-indexes)
+Views | [![NotStarted]](https://github.com/paupino/psqlpack/issues?q=is%3Aopen+is%3Aissue+label%3Afeature-views)
+Materialized Views | [![NotStarted]](https://github.com/paupino/psqlpack/issues?q=is%3Aopen+is%3Aissue+label%3Afeature-materialized-views)
+Security Objects | [![NotStarted]](https://github.com/paupino/psqlpack/issues?q=is%3Aopen+is%3Aissue+label%3Afeature-security)
+Extensions | [![Partial]](https://github.com/paupino/psqlpack/issues?q=is%3Aopen+is%3Aissue+label%3Afeature-extensions)
+Triggers | [![NotStarted]](https://github.com/paupino/psqlpack/issues?q=is%3Aopen+is%3Aissue+label%3Afeature-triggers)
 
 ## License
 
