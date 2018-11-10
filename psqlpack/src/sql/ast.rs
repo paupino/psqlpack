@@ -1,5 +1,7 @@
 use std::fmt;
 
+use crate::Semver;
+
 #[derive(Debug)]
 pub enum Statement {
     Extension(ExtensionDefinition),
@@ -154,9 +156,15 @@ pub struct SchemaDefinition {
     pub name: String,
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ExtensionDefinition {
     pub name: String,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<Semver>,
+
+    #[serde(skip)]
+    pub installed: Option<bool>,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]

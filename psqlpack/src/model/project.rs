@@ -45,7 +45,7 @@ pub struct Project {
     #[serde(rename = "postDeployScripts")] pub post_deploy_scripts: Vec<String>,
 
     /// An array of extensions to include within this project
-    #[serde(skip_serializing_if = "Option::is_none")] pub extensions: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")] pub extensions: Option<Vec<ExtensionDefinition>>,
 
     /// An array of globs representing files/folders to be included within your project. Defaults to `["**/*.sql"]`.
     #[serde(rename = "fileIncludeGlobs", skip_serializing_if = "Option::is_none")] pub include_globs: Option<Vec<String>>,
@@ -142,9 +142,7 @@ impl Project {
         // Add extensions
         if let Some(ref extensions) = self.extensions {
             for extension in extensions {
-                package.push_extension(ExtensionDefinition {
-                    name: extension.clone(),
-                });
+                package.push_extension(extension.clone());
             }
         }
 

@@ -15,9 +15,9 @@
         "scripts/seed/reference_data.states.sql"
     ],
     "extensions": [
-        "postgis",
-        "postgis_topology",
-        "fuzzystrmatch",
-        "postgis_tiger_geocoder"
+        { "name": "postgis" },
+        { "name": "postgis_topology" },
+        { "name": "fuzzystrmatch" },
+        { "name": "postgis_tiger_geocoder" }
     ]
 }

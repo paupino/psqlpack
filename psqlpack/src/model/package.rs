@@ -54,12 +54,15 @@ macro_rules! map {
 
 static Q_DATABASE_EXISTS: &'static str = "SELECT 1 FROM pg_database WHERE datname=$1;";
 
-static Q_EXTENSIONS: &'static str = "SELECT extname, extversion
-                                     FROM pg_extension
-                                     WHERE extowner <> 10";
+static Q_EXTENSIONS: &'static str = "SELECT name, version, installed, requires
+                                     FROM pg_available_extension_versions ";
 impl<'row> From<Row<'row>> for ExtensionDefinition {
     fn from(row: Row) -> Self {
-        ExtensionDefinition { name: row.get(0) }
+        ExtensionDefinition {
+            name: row.get(0),
+            version: row.get(1),
+            installed: row.get(2),
+        }
     }
 }
 
@@ -680,7 +683,7 @@ impl Package {
         // Get a list of indexes
         let mut indexes = Vec::new();
         // TODO: Find a better way to store queries against semvers. Mod's?
-        let index_query = match version.cmp(&Semver::new(9, 6, 0)) {
+        let index_query = match version.cmp(&Semver::new(9, 6, None)) {
             ::std::cmp::Ordering::Less => Q_INDEXES_94_THRU_96,
             _ => Q_INDEXES,
         };
