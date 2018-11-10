@@ -122,7 +122,7 @@ Statement: Statement = {
     CREATE EXTENSION <name:Ident> ";"? => Statement::Extension(ExtensionDefinition {
         name: name,
         version: None,
-        installed: None,
+        installed: None, // We want it installed, however we don't know if it is or isn't.
     }),
     CREATE (OR REPLACE)? FUNCTION <name:ObjectName> "(" ")" RETURNS <return_type:FunctionReturnType> AS <body:Literal> LANGUAGE <lang:FunctionType> ";"? => Statement::Function(FunctionDefinition {
         name: name,

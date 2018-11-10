@@ -7,6 +7,7 @@ use std::fs::File;
 use slog::Logger;
 use serde_json;
 
+use crate::Semver;
 use sql::ast::*;
 use connection::Connection;
 use model::{Node, Package, PublishProfile, Toggle};
@@ -82,11 +83,70 @@ impl<'a> Diffable<'a, Package> for &'a ExtensionDefinition {
     fn generate(
         &self,
         changeset: &mut Vec<ChangeInstruction<'a>>,
-        _: &Package,
+        target: &Package,
         _: &PublishProfile,
         _: &Logger,
     ) -> PsqlpackResult<()> {
-        changeset.push(ChangeInstruction::AssertExtension(self));
+        // target, in this case, defines what is available as well as
+        // what is installed.
+        fn is_eq(a: &Option<Semver>, b: &Semver) -> bool {
+            if a.is_none() {
+                return false;
+            }
+            b.eq(a.as_ref().unwrap())
+        }
+
+        // First of all, check to see what is installed
+        let installed = target.extensions
+                        .iter()
+                        .filter(|e| e.name == self.name &&
+                                    e.installed.is_some() &&
+                                    e.installed.unwrap())
+                        .nth(0);
+
+        // Nothing is installed
+        if installed.is_none() {
+            // See if something is available to install first.
+            let available_version = if let Some(ref version) = self.version {
+                target.extensions
+                    .iter()
+                    .any(|e| e.name == self.name && is_eq(&e.version, version))
+            } else {
+                target.extensions
+                    .iter()
+                    .filter(|e| e.name == self.name)
+                    .count() > 0
+            };
+            if !available_version {
+                changeset.push(ChangeInstruction::CreateExtension(self));
+            } else {
+                if let Some(ref version) = self.version {
+                    bail!(PublishError(format!("Extension {} version {} not available to install", self.name, version)))
+                }
+                bail!(PublishError(format!("Extension {} not available to install", self.name)))
+            }
+        } else {
+            // Something is installed - verify if we need to upgrade.
+            if let Some(ref version) = self.version {
+                // A SPECIFIC version is specified so check to see if it is available
+                let version_available = target.extensions
+                    .iter()
+                    .filter(|e| e.name == self.name && is_eq(&e.version, version))
+                    .nth(0);
+                if let Some(v) = version_available {
+                    // It's available, if it's not installed then upgrade
+                    if !v.installed.unwrap_or(false) {
+                        changeset.push(ChangeInstruction::UpdateExtension(self));
+                    } // else, it's already installed
+                } else {
+                    // It's not installed and not available... error!
+                    bail!(PublishError(format!("Expecting extension {} version {} to be installed", self.name, version)));
+                }
+            } else {
+                // No version specified - are we on the latest?
+                // TODO
+            }
+        }
         Ok(())
     }
 }
@@ -747,8 +807,9 @@ pub enum ChangeInstruction<'input> {
     CreateDatabase(String),
     UseDatabase(String),
 
-    // Extensions
-    AssertExtension(&'input ExtensionDefinition),
+    // Extensions - no delete for now
+    CreateExtension(&'input ExtensionDefinition),
+    UpdateExtension(&'input ExtensionDefinition),
 
     // Schema
     AddSchema(&'input SchemaDefinition),
@@ -808,7 +869,20 @@ impl<'input> fmt::Display for ChangeInstruction<'input> {
             UseDatabase(ref database) => write!(f, "Use database: {}", database),
 
             // Extensions
-            AssertExtension(extension) => write!(f, "Assert extension: {}", extension.name),
+            CreateExtension(extension) => {
+                if let Some(ref version) = extension.version {
+                    write!(f, "Create extension: {} version {}", extension.name, version)
+                } else {
+                    write!(f, "Create extension: {}", extension.name)
+                }
+            },
+            UpdateExtension(extension) => {
+                if let Some(ref version) = extension.version {
+                    write!(f, "Update extension: {} version {}", extension.name, version)
+                } else {
+                    write!(f, "Update extension: {}", extension.name)
+                }
+            },
 
             // Schema
             AddSchema(schema) => write!(f, "Add schema: {}", schema.name),
@@ -887,7 +961,20 @@ impl<'input> ChangeInstruction<'input> {
             ChangeInstruction::UseDatabase(ref db) => format!("-- Using database `{}`", db),
 
             // Extension level
-            ChangeInstruction::AssertExtension(ext) => format!("-- Assert extension exists {}", ext.name),
+            ChangeInstruction::CreateExtension(ext) => {
+                if let Some(ref version) = ext.version {
+                    format!("CREATE EXTENSION {} WITH VERSION \"{}\"", ext.name, version)
+                } else {
+                    format!("CREATE EXTENSION {}", ext.name)
+                }
+            },
+            ChangeInstruction::UpdateExtension(ext) => {
+                if let Some(ref version) = ext.version {
+                    format!("ALTER EXTENSION {} UPDATE TO \"{}\"", ext.name, version)
+                } else {
+                    format!("ALTER EXTENSION {} UPDATE", ext.name)
+                }
+            },
 
             // Schema level
             ChangeInstruction::AddSchema(schema) => if schema.name == "public" {

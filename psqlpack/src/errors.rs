@@ -151,6 +151,10 @@ error_chain! {
             description("Project format error")
             display("Project format error: {}", message)
         }
+        PublishError(message: String) {
+            description("Publish error")
+            display("Publish error: {}", message)
+        }
         MultipleErrors(errors: Vec<PsqlpackError>) {
             description("Multiple errors")
             display("Multiple errors:\n{}", MultipleErrorFormatter(errors))
