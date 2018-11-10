@@ -84,7 +84,7 @@ impl<'a> Diffable<'a, Package> for &'a ExtensionDefinition {
         &self,
         changeset: &mut Vec<ChangeInstruction<'a>>,
         target: &Package,
-        _: &PublishProfile,
+        profile: &PublishProfile,
         _: &Logger,
     ) -> PsqlpackResult<()> {
         // target, in this case, defines what is available as well as
@@ -96,28 +96,31 @@ impl<'a> Diffable<'a, Package> for &'a ExtensionDefinition {
             b.eq(a.as_ref().unwrap())
         }
 
-        // First of all, check to see what is installed
-        let installed = target.extensions
+        let mut available =
+                    target.extensions
                         .iter()
-                        .filter(|e| e.name == self.name &&
-                                    e.installed.is_some() &&
+                        .filter(|e| e.name == self.name)
+                        .collect::<Vec<_>>();
+        available.sort_by(|a, b| b.version.unwrap().cmp(&a.version.unwrap()));
+
+        // First of all, check to see what is installed
+        let installed = available
+                        .iter()
+                        .filter(|e| e.installed.is_some() &&
                                     e.installed.unwrap())
-                        .nth(0);
+                        .count();
 
         // Nothing is installed
-        if installed.is_none() {
+        if installed == 0 {
             // See if something is available to install first.
             let available_version = if let Some(ref version) = self.version {
-                target.extensions
+                available
                     .iter()
-                    .any(|e| e.name == self.name && is_eq(&e.version, version))
+                    .any(|e| is_eq(&e.version, version))
             } else {
-                target.extensions
-                    .iter()
-                    .filter(|e| e.name == self.name)
-                    .count() > 0
+                !available.is_empty()
             };
-            if !available_version {
+            if available_version {
                 changeset.push(ChangeInstruction::CreateExtension(self));
             } else {
                 if let Some(ref version) = self.version {
@@ -129,22 +132,48 @@ impl<'a> Diffable<'a, Package> for &'a ExtensionDefinition {
             // Something is installed - verify if we need to upgrade.
             if let Some(ref version) = self.version {
                 // A SPECIFIC version is specified so check to see if it is available
-                let version_available = target.extensions
+                let version_available = available
                     .iter()
-                    .filter(|e| e.name == self.name && is_eq(&e.version, version))
+                    .filter(|e| is_eq(&e.version, version))
                     .nth(0);
                 if let Some(v) = version_available {
-                    // It's available, if it's not installed then upgrade
+                    // It's available so if it is not installed then upgrade
                     if !v.installed.unwrap_or(false) {
-                        changeset.push(ChangeInstruction::UpdateExtension(self));
-                    } // else, it's already installed
+                        match profile.generation_options.upgrade_extensions {
+                            Toggle::Allow => {
+                                changeset.push(ChangeInstruction::UpgradeExtension(self));
+                            }
+                            Toggle::Error => {
+                                bail!(PublishUnsafeOperationError(format!(
+                                    "Extension {} version {} is available to upgrade",
+                                    v.name,
+                                    v.version.unwrap(),
+                                )));
+                            }
+                            Toggle::Ignore => {}
+                        }
+                    }
                 } else {
                     // It's not installed and not available... error!
                     bail!(PublishError(format!("Expecting extension {} version {} to be installed", self.name, version)));
                 }
             } else {
                 // No version specified - are we on the latest?
-                // TODO
+                if !available[0].installed.unwrap_or(false) {
+                    match profile.generation_options.upgrade_extensions {
+                        Toggle::Allow => {
+                            changeset.push(ChangeInstruction::UpgradeExtension(self));
+                        }
+                        Toggle::Error => {
+                            bail!(PublishUnsafeOperationError(format!(
+                                "Extension {} version {} is available to upgrade",
+                                available[0].name,
+                                available[0].version.unwrap(),
+                            )));
+                        }
+                        Toggle::Ignore => {}
+                    }
+                }
             }
         }
         Ok(())
@@ -809,7 +838,7 @@ pub enum ChangeInstruction<'input> {
 
     // Extensions - no delete for now
     CreateExtension(&'input ExtensionDefinition),
-    UpdateExtension(&'input ExtensionDefinition),
+    UpgradeExtension(&'input ExtensionDefinition),
 
     // Schema
     AddSchema(&'input SchemaDefinition),
@@ -876,11 +905,11 @@ impl<'input> fmt::Display for ChangeInstruction<'input> {
                     write!(f, "Create extension: {}", extension.name)
                 }
             },
-            UpdateExtension(extension) => {
+            UpgradeExtension(extension) => {
                 if let Some(ref version) = extension.version {
-                    write!(f, "Update extension: {} version {}", extension.name, version)
+                    write!(f, "Upgrade extension: {} version {}", extension.name, version)
                 } else {
-                    write!(f, "Update extension: {}", extension.name)
+                    write!(f, "Upgrade extension: {}", extension.name)
                 }
             },
 
@@ -968,7 +997,7 @@ impl<'input> ChangeInstruction<'input> {
                     format!("CREATE EXTENSION {}", ext.name)
                 }
             },
-            ChangeInstruction::UpdateExtension(ext) => {
+            ChangeInstruction::UpgradeExtension(ext) => {
                 if let Some(ref version) = ext.version {
                     format!("ALTER EXTENSION {} UPDATE TO \"{}\"", ext.name, version)
                 } else {
@@ -1330,6 +1359,7 @@ impl<'input> ChangeInstruction<'input> {
 mod tests {
     use super::*;
 
+    use crate::Semver;
     use errors::PsqlpackError;
     use model::*;
     use sql::ast;
@@ -2408,5 +2438,303 @@ mod tests {
         assert_that!(changeset[1].to_sql(&log))
             .is_equal_to("CREATE INDEX CONCURRENTLY idx_contacts_name \
                           ON public.contacts USING btree (first_name ASC NULLS LAST, last_name DESC NULLS FIRST)".to_owned());
+    }
+
+    #[test]
+    fn it_can_create_an_extension_that_exists_and_isnt_installed_with_version() {
+        let log = empty_logger();
+        let requested_extension = ExtensionDefinition {
+            name: "postgis".to_owned(),
+            version: Some(Semver::new(2, 3, Some(7))),
+            installed: None,
+        };
+
+        // Create a database with a single extension available.
+        let mut existing_database = Package::new();
+        existing_database.extensions.push(ExtensionDefinition {
+            name: "postgis".to_owned(),
+            version: Some(Semver::new(2, 3, Some(7))),
+            installed: Some(false),
+        });
+        let publish_profile = PublishProfile::default();
+
+        let mut changeset = Vec::new();
+        let result = (&requested_extension).generate(&mut changeset, &existing_database, &publish_profile, &log);
+        assert_that!(result).is_ok();
+
+        // We should have one instruction to create an extension
+        assert_that!(changeset).has_length(1);
+        match changeset[0] {
+            ChangeInstruction::CreateExtension(ref extension) => {
+                assert_that!(extension.name).is_equal_to("postgis".to_owned());
+            }
+            ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
+        }
+
+        // Check the SQL generation
+        assert_that!(changeset[0].to_sql(&log))
+            .is_equal_to("CREATE EXTENSION postgis WITH VERSION \"2.3.7\"".to_owned());
+    }
+
+    #[test]
+    fn it_can_create_an_extension_that_exists_and_isnt_installed_without_version() {
+        let log = empty_logger();
+        let requested_extension = ExtensionDefinition {
+            name: "postgis".to_owned(),
+            version: None,
+            installed: None,
+        };
+
+        // Create a database with a single extension available.
+        let mut existing_database = Package::new();
+        existing_database.extensions.push(ExtensionDefinition {
+            name: "postgis".to_owned(),
+            version: Some(Semver::new(2, 3, Some(7))),
+            installed: Some(false),
+        });
+        let publish_profile = PublishProfile::default();
+
+        let mut changeset = Vec::new();
+        let result = (&requested_extension).generate(&mut changeset, &existing_database, &publish_profile, &log);
+        assert_that!(result).is_ok();
+
+        // We should have one instruction to create an extension
+        assert_that!(changeset).has_length(1);
+        match changeset[0] {
+            ChangeInstruction::CreateExtension(ref extension) => {
+                assert_that!(extension.name).is_equal_to("postgis".to_owned());
+            }
+            ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
+        }
+
+        // Check the SQL generation
+        assert_that!(changeset[0].to_sql(&log))
+            .is_equal_to("CREATE EXTENSION postgis".to_owned());
+    }
+
+    #[test]
+    fn it_errors_when_creating_an_extension_that_exists_and_different_version() {
+        let log = empty_logger();
+        let requested_extension = ExtensionDefinition {
+            name: "postgis".to_owned(),
+            version: Some(Semver::new(2, 4, Some(7))),
+            installed: None,
+        };
+
+        // Create a database with a single extension available.
+        let mut existing_database = Package::new();
+        existing_database.extensions.push(ExtensionDefinition {
+            name: "postgis".to_owned(),
+            version: Some(Semver::new(2, 3, Some(7))),
+            installed: Some(false),
+        });
+        let publish_profile = PublishProfile::default();
+
+        let mut changeset = Vec::new();
+        let result = (&requested_extension).generate(&mut changeset, &existing_database, &publish_profile, &log);
+        assert_that!(result).is_err();
+
+        let err = result.err().unwrap();
+        let expect = "Publish error: Extension postgis version 2.4.7 not available to install".to_owned();
+        assert_that!(format!("{}", err)).is_equal_to(&expect);
+    }
+
+    #[test]
+    fn it_errors_when_creating_an_extension_that_doesnt_exist() {
+        let log = empty_logger();
+        let requested_extension = ExtensionDefinition {
+            name: "postgis".to_owned(),
+            version: Some(Semver::new(2, 3, Some(7))),
+            installed: None,
+        };
+
+        // Create a database with a single extension available.
+        let existing_database = Package::new();
+        let publish_profile = PublishProfile::default();
+
+        let mut changeset = Vec::new();
+        let result = (&requested_extension).generate(&mut changeset, &existing_database, &publish_profile, &log);
+        assert_that!(result).is_err();
+
+        let err = result.err().unwrap();
+        let expect = "Publish error: Extension postgis version 2.3.7 not available to install".to_owned();
+        assert_that!(format!("{}", err)).is_equal_to(&expect);
+    }
+
+    #[test]
+    fn it_can_upgrade_an_installed_extension_with_newer_version_specified_and_available() {
+        let log = empty_logger();
+        let requested_extension = ExtensionDefinition {
+            name: "postgis".to_owned(),
+            version: Some(Semver::new(3, 8, None)),
+            installed: None,
+        };
+
+        // Create a database with a single extension available.
+        let mut existing_database = Package::new();
+        existing_database.extensions.push(ExtensionDefinition {
+            name: "postgis".to_owned(),
+            version: Some(Semver::new(2, 3, Some(7))),
+            installed: Some(true),
+        });
+        existing_database.extensions.push(ExtensionDefinition {
+            name: "postgis".to_owned(),
+            version: Some(Semver::new(3, 8, None)),
+            installed: Some(false),
+        });
+        let mut publish_profile = PublishProfile::default();
+        publish_profile.generation_options.upgrade_extensions = Toggle::Allow;
+
+        let mut changeset = Vec::new();
+        let result = (&requested_extension).generate(&mut changeset, &existing_database, &publish_profile, &log);
+        assert_that!(result).is_ok();
+
+        // We should have one instruction to upgrade an extension
+        assert_that!(changeset).has_length(1);
+        match changeset[0] {
+            ChangeInstruction::UpgradeExtension(ref extension) => {
+                assert_that!(extension.name).is_equal_to("postgis".to_owned());
+            }
+            ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
+        }
+
+        // Check the SQL generation
+        assert_that!(changeset[0].to_sql(&log))
+            .is_equal_to("ALTER EXTENSION postgis UPDATE TO \"3.8\"".to_owned());
+    }
+
+
+    #[test]
+    fn it_doesnt_modify_an_extension_that_is_already_installed() {
+        let log = empty_logger();
+        let requested_extension = ExtensionDefinition {
+            name: "postgis".to_owned(),
+            version: None,
+            installed: None,
+        };
+
+        // Create a database with a single extension available.
+        let mut existing_database = Package::new();
+        existing_database.extensions.push(ExtensionDefinition {
+            name: "postgis".to_owned(),
+            version: Some(Semver::new(2, 3, Some(7))),
+            installed: Some(true),
+        });
+        let mut publish_profile = PublishProfile::default();
+        publish_profile.generation_options.upgrade_extensions = Toggle::Allow;
+
+        let mut changeset = Vec::new();
+        let result = (&requested_extension).generate(&mut changeset, &existing_database, &publish_profile, &log);
+        assert_that!(result).is_ok();
+
+        // We should have no instructions
+        assert_that!(changeset).is_empty();
+    }
+
+    #[test]
+    fn it_can_upgrade_an_installed_extension_with_no_version_specified_and_newer_version_available_when_profile_set_to_allow() {
+        let log = empty_logger();
+        let requested_extension = ExtensionDefinition {
+            name: "postgis".to_owned(),
+            version: None,
+            installed: None,
+        };
+
+        // Create a database with a single extension available.
+        let mut existing_database = Package::new();
+        existing_database.extensions.push(ExtensionDefinition {
+            name: "postgis".to_owned(),
+            version: Some(Semver::new(2, 3, Some(7))),
+            installed: Some(true),
+        });
+        existing_database.extensions.push(ExtensionDefinition {
+            name: "postgis".to_owned(),
+            version: Some(Semver::new(3, 8, None)),
+            installed: Some(false),
+        });
+        let mut publish_profile = PublishProfile::default();
+        publish_profile.generation_options.upgrade_extensions = Toggle::Allow;
+
+        let mut changeset = Vec::new();
+        let result = (&requested_extension).generate(&mut changeset, &existing_database, &publish_profile, &log);
+        assert_that!(result).is_ok();
+
+        // We should have one instruction to upgrade an extension
+        assert_that!(changeset).has_length(1);
+        match changeset[0] {
+            ChangeInstruction::UpgradeExtension(ref extension) => {
+                assert_that!(extension.name).is_equal_to("postgis".to_owned());
+            }
+            ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
+        }
+
+        // Check the SQL generation
+        assert_that!(changeset[0].to_sql(&log))
+            .is_equal_to("ALTER EXTENSION postgis UPDATE".to_owned());
+    }
+
+    #[test]
+    fn it_doesnt_upgrade_an_installed_extension_with_no_version_specified_and_newer_version_available_when_profile_set_to_ignore() {
+        let log = empty_logger();
+        let requested_extension = ExtensionDefinition {
+            name: "postgis".to_owned(),
+            version: None,
+            installed: None,
+        };
+
+        // Create a database with a single extension available.
+        let mut existing_database = Package::new();
+        existing_database.extensions.push(ExtensionDefinition {
+            name: "postgis".to_owned(),
+            version: Some(Semver::new(2, 3, Some(7))),
+            installed: Some(true),
+        });
+        existing_database.extensions.push(ExtensionDefinition {
+            name: "postgis".to_owned(),
+            version: Some(Semver::new(3, 8, None)),
+            installed: Some(false),
+        });
+        let mut publish_profile = PublishProfile::default();
+        publish_profile.generation_options.upgrade_extensions = Toggle::Ignore;
+
+        let mut changeset = Vec::new();
+        let result = (&requested_extension).generate(&mut changeset, &existing_database, &publish_profile, &log);
+        assert_that!(result).is_ok();
+
+        // We should have no instructions
+        assert_that!(changeset).is_empty();
+    }
+
+    #[test]
+    fn it_doesnt_upgrade_an_installed_extension_with_no_version_specified_and_newer_version_available_when_profile_set_to_error() {
+        let log = empty_logger();
+        let requested_extension = ExtensionDefinition {
+            name: "postgis".to_owned(),
+            version: None,
+            installed: None,
+        };
+
+        // Create a database with a single extension available.
+        let mut existing_database = Package::new();
+        existing_database.extensions.push(ExtensionDefinition {
+            name: "postgis".to_owned(),
+            version: Some(Semver::new(2, 3, Some(7))),
+            installed: Some(true),
+        });
+        existing_database.extensions.push(ExtensionDefinition {
+            name: "postgis".to_owned(),
+            version: Some(Semver::new(3, 8, None)),
+            installed: Some(false),
+        });
+        let mut publish_profile = PublishProfile::default();
+        publish_profile.generation_options.upgrade_extensions = Toggle::Error;
+
+        let mut changeset = Vec::new();
+        let result = (&requested_extension).generate(&mut changeset, &existing_database, &publish_profile, &log);
+        assert_that!(result).is_err();
+
+        let err = result.err().unwrap();
+        let expect = "Couldn't publish database due to an unsafe operation: Extension postgis version 3.8 is available to upgrade".to_owned();
+        assert_that!(format!("{}", err)).is_equal_to(&expect);
     }
 }

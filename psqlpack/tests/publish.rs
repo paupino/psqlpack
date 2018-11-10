@@ -13,7 +13,7 @@ use slog::{Discard, Drain, Logger};
 use spectral::prelude::*;
 
 macro_rules! publish_package {
-    ($namespace:ident, $db_name:ident, $connection:ident, $package:ident) => {{
+    ($db_name:ident, $connection:ident, $package:ident) => {{
         // Use the default publish profile
         let mut publish_profile = PublishProfile::default();
         publish_profile.generation_options.drop_tables = Toggle::Ignore; // We reuse the same database
@@ -52,7 +52,7 @@ fn it_can_create_a_database_that_doesnt_exist() {
 
     // Publish with basic assert
     let package = generate_simple_package!(NAMESPACE);
-    let final_package = publish_package!(NAMESPACE, DB_NAME, connection, package);
+    let final_package = publish_package!(DB_NAME, connection, package);
     assert_simple_package!(final_package, NAMESPACE);
 }
 
@@ -69,7 +69,7 @@ fn it_can_add_a_new_table_to_an_existing_database() {
 
     // Publish with basic assert
     let package = generate_simple_package!(NAMESPACE);
-    let final_package = publish_package!(NAMESPACE, DB_NAME, connection, package);
+    let final_package = publish_package!(DB_NAME, connection, package);
     assert_simple_package!(final_package, NAMESPACE);
 }
 
@@ -88,7 +88,7 @@ fn it_can_add_a_new_column_to_an_existing_table() {
 
     // Publish with basic assert
     let package = generate_simple_package!(NAMESPACE);
-    let final_package = publish_package!(NAMESPACE, DB_NAME, connection, package);
+    let final_package = publish_package!(DB_NAME, connection, package);
     assert_simple_package!(final_package, NAMESPACE);
 }
 
@@ -107,7 +107,7 @@ fn it_can_modify_an_existing_column_on_a_table() {
 
     // Publish with basic assert
     let package = generate_simple_package!(NAMESPACE);
-    let final_package = publish_package!(NAMESPACE, DB_NAME, connection, package);
+    let final_package = publish_package!(DB_NAME, connection, package);
     assert_simple_package!(final_package, NAMESPACE);
 }
 
@@ -126,7 +126,7 @@ fn it_can_drop_an_existing_column_on_a_table() {
 
     // Publish with basic assert
     let package = generate_simple_package!(NAMESPACE);
-    let final_package = publish_package!(NAMESPACE, DB_NAME, connection, package);
+    let final_package = publish_package!(DB_NAME, connection, package);
     assert_simple_package!(final_package, NAMESPACE);
 }
 
@@ -145,7 +145,7 @@ fn it_can_add_a_new_index_to_an_existing_table() {
 
     // Publish with basic assert
     let package = generate_simple_package!(NAMESPACE);
-    let final_package = publish_package!(NAMESPACE, DB_NAME, connection, package);
+    let final_package = publish_package!(DB_NAME, connection, package);
     assert_simple_package!(final_package, NAMESPACE);
 }
 
@@ -165,7 +165,7 @@ fn it_can_modify_an_index_on_a_table() {
 
     // Publish with basic assert
     let package = generate_simple_package!(NAMESPACE);
-    let final_package = publish_package!(NAMESPACE, DB_NAME, connection, package);
+    let final_package = publish_package!(DB_NAME, connection, package);
     assert_simple_package!(final_package, NAMESPACE);
 }
 
@@ -186,6 +186,6 @@ fn it_can_drop_an_index_on_a_table() {
 
     // Publish with basic assert
     let package = generate_simple_package!(NAMESPACE);
-    let final_package = publish_package!(NAMESPACE, DB_NAME, connection, package);
+    let final_package = publish_package!(DB_NAME, connection, package);
     assert_simple_package!(final_package, NAMESPACE);
 }

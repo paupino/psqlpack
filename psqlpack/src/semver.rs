@@ -7,7 +7,7 @@ use regex::Regex;
 use errors::PsqlpackResult;
 use errors::PsqlpackErrorKind::*;
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 pub struct Semver {
     major: u32,
     minor: u32,

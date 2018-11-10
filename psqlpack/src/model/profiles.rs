@@ -25,6 +25,20 @@ pub enum Toggle {
     Error,
 }
 
+impl Toggle {
+    fn allow() -> Toggle {
+        Toggle::Allow
+    }
+
+    fn ignore() -> Toggle {
+        Toggle::Ignore
+    }
+
+    fn error() -> Toggle {
+        Toggle::Error
+    }
+}
+
 #[derive(Deserialize, Serialize)]
 pub struct GenerationOptions {
     /// If set to true, the database will always be recereated
@@ -52,6 +66,11 @@ pub struct GenerationOptions {
     /// Default: Allow
     #[serde(rename = "dropIndexes")] pub drop_indexes: Toggle,
 
+    /// Extensions may not be intended to be upgraded automatically. If set to Allow, psqlpack will upgrade the extension as necessary.
+    /// Default: Ignore
+    #[serde(rename = "upgradeExtensions", default = "Toggle::ignore")]
+    pub upgrade_extensions: Toggle,
+
     /// Forces index changes to be made concurrently to avoid locking on table writes.
     /// Default: true
     #[serde(rename = "forceConcurrentIndexes")] pub force_concurrent_indexes: bool,
@@ -71,6 +90,8 @@ impl Default for PublishProfile {
                 drop_foreign_key_constraints: Toggle::Allow,
                 drop_functions: Toggle::Error,
                 drop_indexes: Toggle::Allow,
+
+                upgrade_extensions: Toggle::Ignore,
 
                 force_concurrent_indexes: true,
             },

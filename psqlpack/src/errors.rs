@@ -89,7 +89,7 @@ error_chain! {
             display("Couldn't publish database due to an invalid operation: {}", message)
         }
         PublishUnsafeOperationError(message: String) {
-            description("Couldn't publish database due to an unsafe operation")
+            description("Unsafe Operation")
             display("Couldn't publish database due to an unsafe operation: {}", message)
         }
         GlobPatternError(err: PatternError) {
