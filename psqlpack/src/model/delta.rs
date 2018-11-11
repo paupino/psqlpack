@@ -326,7 +326,15 @@ impl<'a> Diffable<'a, Package> for LinkedColumn<'a> {
                 // target_set - src_set (e.g. adding new constraints)
                 for x in target_set.difference(&src_set) {
                     match *x {
-                        ColumnConstraint::Null | ColumnConstraint::NotNull => change_set.push(ChangeInstruction::ModifyColumnNull(self.table, &self.column)),
+                        ColumnConstraint::Null => {
+                            // This is a strange one - first check if the source specifies not null.
+                            // If it doesn't then it's likely implicitly implied to be null.
+                            // Also, we only check not null as if null is specified then we've got nothing to change!
+                            if self.column.constraints.iter().any(|c| ColumnConstraint::NotNull.eq(c)) {
+                                change_set.push(ChangeInstruction::ModifyColumnNull(self.table, &self.column));
+                            }
+                        },
+                        ColumnConstraint::NotNull => change_set.push(ChangeInstruction::ModifyColumnNull(self.table, &self.column)),
                         ColumnConstraint::Default(_) => change_set.push(ChangeInstruction::ModifyColumnDefault(self.table, &self.column)),
                         ColumnConstraint::Unique => change_set.push(ChangeInstruction::ModifyColumnUniqueConstraint(self.table, &self.column)),
                         ColumnConstraint::PrimaryKey => change_set.push(ChangeInstruction::ModifyColumnPrimaryKeyConstraint(self.table, &self.column)),
@@ -1396,6 +1404,7 @@ mod tests {
         let capabilities = Capabilities {
             server_version: Semver::new(9, 6, None),
             extensions: Vec::new(),
+            database_exists: true,
         };
         let publish_profile = PublishProfile::default();
 
@@ -1439,6 +1448,7 @@ mod tests {
         let capabilities = Capabilities {
             server_version: Semver::new(9, 6, None),
             extensions: Vec::new(),
+            database_exists: true,
         };
         let publish_profile = PublishProfile::default();
 
@@ -1473,6 +1483,7 @@ mod tests {
         let capabilities = Capabilities {
             server_version: Semver::new(9, 6, None),
             extensions: Vec::new(),
+            database_exists: true,
         };
         let publish_profile = PublishProfile::default();
 
@@ -1528,6 +1539,7 @@ mod tests {
         let capabilities = Capabilities {
             server_version: Semver::new(9, 6, None),
             extensions: Vec::new(),
+            database_exists: true,
         };
         let publish_profile = PublishProfile::default();
 
@@ -1583,6 +1595,7 @@ mod tests {
         let capabilities = Capabilities {
             server_version: Semver::new(9, 6, None),
             extensions: Vec::new(),
+            database_exists: true,
         };
         let publish_profile = PublishProfile::default();
 
@@ -1637,6 +1650,7 @@ mod tests {
         let capabilities = Capabilities {
             server_version: Semver::new(9, 6, None),
             extensions: Vec::new(),
+            database_exists: true,
         };
         let mut publish_profile = PublishProfile::default();
         publish_profile.generation_options.drop_enum_values = Toggle::Allow;
@@ -1716,6 +1730,7 @@ mod tests {
         let capabilities = Capabilities {
             server_version: Semver::new(9, 6, None),
             extensions: Vec::new(),
+            database_exists: true,
         };
         let publish_profile = PublishProfile::default();
 
@@ -1749,6 +1764,7 @@ mod tests {
         let capabilities = Capabilities {
             server_version: Semver::new(9, 6, None),
             extensions: Vec::new(),
+            database_exists: true,
         };
         let mut publish_profile = PublishProfile::default();
         publish_profile.generation_options.drop_enum_values = Toggle::Allow;
@@ -1832,6 +1848,7 @@ mod tests {
         let capabilities = Capabilities {
             server_version: Semver::new(9, 6, None),
             extensions: Vec::new(),
+            database_exists: true,
         };
         let publish_profile = PublishProfile::default();
 
@@ -1884,6 +1901,7 @@ mod tests {
         let capabilities = Capabilities {
             server_version: Semver::new(9, 6, None),
             extensions: Vec::new(),
+            database_exists: true,
         };
         let publish_profile = PublishProfile::default();
 
@@ -1951,6 +1969,7 @@ mod tests {
         let capabilities = Capabilities {
             server_version: Semver::new(9, 6, None),
             extensions: Vec::new(),
+            database_exists: true,
         };
         let publish_profile = PublishProfile::default();
 
@@ -2010,6 +2029,7 @@ mod tests {
         let capabilities = Capabilities {
             server_version: Semver::new(9, 6, None),
             extensions: Vec::new(),
+            database_exists: true,
         };
         let mut publish_profile = PublishProfile::default();
         publish_profile.generation_options.drop_columns = Toggle::Allow;
@@ -2053,6 +2073,7 @@ mod tests {
         let capabilities = Capabilities {
             server_version: Semver::new(9, 6, None),
             extensions: Vec::new(),
+            database_exists: true,
         };
         let publish_profile = PublishProfile::default();
 
@@ -2114,6 +2135,7 @@ mod tests {
         let capabilities = Capabilities {
             server_version: Semver::new(9, 6, None),
             extensions: Vec::new(),
+            database_exists: true,
         };
         let mut publish_profile = PublishProfile::default();
         publish_profile.generation_options.drop_primary_key_constraints = Toggle::Allow;
@@ -2164,6 +2186,7 @@ mod tests {
         let capabilities = Capabilities {
             server_version: Semver::new(9, 6, None),
             extensions: Vec::new(),
+            database_exists: true,
         };
         let mut publish_profile = PublishProfile::default();
         publish_profile.generation_options.drop_primary_key_constraints = Toggle::Allow;
@@ -2240,6 +2263,7 @@ mod tests {
         let capabilities = Capabilities {
             server_version: Semver::new(9, 6, None),
             extensions: Vec::new(),
+            database_exists: true,
         };
         let publish_profile = PublishProfile::default();
 
@@ -2313,6 +2337,7 @@ mod tests {
         let capabilities = Capabilities {
             server_version: Semver::new(9, 6, None),
             extensions: Vec::new(),
+            database_exists: true,
         };
         let mut publish_profile = PublishProfile::default();
         publish_profile.generation_options.drop_foreign_key_constraints = Toggle::Allow;
@@ -2375,6 +2400,7 @@ mod tests {
         let capabilities = Capabilities {
             server_version: Semver::new(9, 6, None),
             extensions: Vec::new(),
+            database_exists: true,
         };
         let mut publish_profile = PublishProfile::default();
         publish_profile.generation_options.drop_foreign_key_constraints = Toggle::Allow;
@@ -2462,6 +2488,7 @@ mod tests {
         let capabilities = Capabilities {
             server_version: Semver::new(9, 6, None),
             extensions: Vec::new(),
+            database_exists: true,
         };
 
         let mut change_set = Vec::new();
@@ -2519,6 +2546,7 @@ mod tests {
         let capabilities = Capabilities {
             server_version: Semver::new(9, 6, None),
             extensions: Vec::new(),
+            database_exists: true,
         };
         let mut publish_profile = PublishProfile::default();
         publish_profile.generation_options.drop_indexes = Toggle::Error;
@@ -2535,6 +2563,7 @@ mod tests {
         let capabilities = Capabilities {
             server_version: Semver::new(9, 6, None),
             extensions: Vec::new(),
+            database_exists: true,
         };
         let mut publish_profile = PublishProfile::default();
         publish_profile.generation_options.drop_indexes = Toggle::Allow;
@@ -2612,6 +2641,7 @@ mod tests {
         let capabilities = Capabilities {
             server_version: Semver::new(9, 6, None),
             extensions: Vec::new(),
+            database_exists: true,
         };
         let publish_profile = PublishProfile::default();
 
@@ -2666,8 +2696,9 @@ mod tests {
                     name: "postgis".to_owned(),
                     version: Semver::new(2, 3, Some(7)),
                     installed: false,
-                }
+                },
             ],
+            database_exists: true,
         };
         let publish_profile = PublishProfile::default();
 
@@ -2710,8 +2741,9 @@ mod tests {
                     name: "postgis".to_owned(),
                     version: Semver::new(2, 3, Some(7)),
                     installed: false,
-                }
+                },
             ],
+            database_exists: true,
         };
         let publish_profile = PublishProfile::default();
 
@@ -2754,8 +2786,9 @@ mod tests {
                     name: "postgis".to_owned(),
                     version: Semver::new(2, 3, Some(7)),
                     installed: false,
-                }
+                },
             ],
+            database_exists: true,
         };
         let publish_profile = PublishProfile::default();
 
@@ -2785,6 +2818,7 @@ mod tests {
         let capabilities = Capabilities {
             server_version: Semver::new(9, 6, None),
             extensions: Vec::new(),
+            database_exists: true,
         };
         let publish_profile = PublishProfile::default();
 
@@ -2825,6 +2859,7 @@ mod tests {
                     installed: false,
                 },
             ],
+            database_exists: true,
         };
         let mut publish_profile = PublishProfile::default();
         publish_profile.generation_options.upgrade_extensions = Toggle::Allow;
@@ -2869,8 +2904,9 @@ mod tests {
                     name: "postgis".to_owned(),
                     version: Semver::new(2, 3, Some(7)),
                     installed: true,
-                }
+                },
             ],
+            database_exists: true,
         };
         let mut publish_profile = PublishProfile::default();
         publish_profile.generation_options.upgrade_extensions = Toggle::Allow;
@@ -2911,6 +2947,7 @@ mod tests {
                     installed: false,
                 }
             ],
+            database_exists: true,
         };
         let mut publish_profile = PublishProfile::default();
         publish_profile.generation_options.upgrade_extensions = Toggle::Allow;
@@ -2961,6 +2998,7 @@ mod tests {
                     installed: false,
                 },
             ],
+            database_exists: true,
         };
         let mut publish_profile = PublishProfile::default();
         publish_profile.generation_options.upgrade_extensions = Toggle::Ignore;
@@ -3001,6 +3039,7 @@ mod tests {
                     installed: false,
                 },
             ],
+            database_exists: true,
         };
         let mut publish_profile = PublishProfile::default();
         publish_profile.generation_options.upgrade_extensions = Toggle::Error;

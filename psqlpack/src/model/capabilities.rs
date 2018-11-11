@@ -20,6 +20,7 @@ pub struct Extension {
 pub struct Capabilities {
     pub server_version: Semver,
     pub extensions: Vec<Extension>,
+    pub database_exists: bool,
 }
 
 impl Capabilities {
@@ -27,9 +28,18 @@ impl Capabilities {
         let log = log.new(o!("capabilities" => "from_connection"));
 
         trace!(log, "Connecting to host");
-        let db_conn = connection.connect_host()?;
+        let mut db_conn = connection.connect_host()?;
 
         let version = Self::server_version(&db_conn)?;
+
+        let db_result = dbtry!(db_conn.query(Q_DATABASE_EXISTS, &[&connection.database()]));
+        let exists = !db_result.is_empty();
+
+        // If it exists, then connect directly as we'll get better results
+        if exists {
+            dbtry!(db_conn.finish());
+            db_conn = connection.connect_database()?;
+        }
 
         let extensions = db_conn
             .query(Q_EXTENSIONS, &[])
@@ -40,6 +50,7 @@ impl Capabilities {
         Ok(Capabilities {
             server_version: version,
             extensions: map!(extensions),
+            database_exists: exists,
         })
     }
 
@@ -78,5 +89,6 @@ impl FromSql for Semver {
     }
 }
 
+static Q_DATABASE_EXISTS: &'static str = "SELECT 1 FROM pg_database WHERE datname=$1;";
 static Q_EXTENSIONS: &'static str = "SELECT name, version, installed, requires
                                      FROM pg_available_extension_versions ";

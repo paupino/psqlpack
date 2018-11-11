@@ -46,8 +46,6 @@ macro_rules! zip_collection {
     }};
 }
 
-static Q_DATABASE_EXISTS: &'static str = "SELECT 1 FROM pg_database WHERE datname=$1;";
-
 static Q_SCHEMAS: &'static str = "SELECT schema_name FROM information_schema.schemata
                                   WHERE catalog_name = $1 AND schema_name !~* 'pg_|information_schema'";
 impl<'row> From<Row<'row>> for SchemaDefinition {
@@ -535,20 +533,17 @@ impl Package {
         -> PsqlpackResult<Option<Package>> {
         let log = log.new(o!("package" => "from_connection"));
 
-        trace!(log, "Connecting to host");
-        let db_conn = connection.connect_host()?;
         trace!(
             log,
             "Checking for database `{}`",
             &connection.database()[..]
         );
-        let db_result = dbtry!(db_conn.query(Q_DATABASE_EXISTS, &[&connection.database()]));
-        if db_result.is_empty() {
+        if !capabilities.database_exists {
             return Ok(None);
         }
-        dbtry!(db_conn.finish());
 
         // We do a few SQL queries to get the package details
+        trace!(log, "Connecting to database");
         let db_conn = connection.connect_database()?;
 
         let extensions = capabilities.extensions
