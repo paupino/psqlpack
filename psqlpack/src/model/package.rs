@@ -19,7 +19,7 @@ use connection::Connection;
 use sql::lexer;
 use sql::ast::*;
 use sql::parser::{SqlTypeParser, FunctionArgumentListParser, FunctionReturnTypeParser};
-use model::{Capabilities, Dependency, Project};
+use model::{Capabilities, DefinableCatalog, Dependency, Project};
 use semver::Semver;
 use errors::{PsqlpackError, PsqlpackResult, PsqlpackResultExt};
 use errors::PsqlpackErrorKind::*;
@@ -46,14 +46,6 @@ macro_rules! zip_collection {
             ztry!($zip.write_all(json.as_bytes()));
         }
     }};
-}
-
-static Q_SCHEMAS: &'static str = "SELECT schema_name FROM information_schema.schemata
-                                  WHERE catalog_name = $1 AND schema_name !~* 'pg_|information_schema'";
-impl<'row> From<Row<'row>> for SchemaDefinition {
-    fn from(row: Row) -> Self {
-        SchemaDefinition { name: row.get(0) }
-    }
 }
 
 static Q_ENUMS: &'static str = "SELECT typname, array_agg(enumlabel)
@@ -605,9 +597,7 @@ impl Package {
             .map(|e| Dependency { name: e.name.clone(), version: Some(e.version) })
             .collect::<Vec<_>>();
 
-        let schemas = db_conn
-            .query(Q_SCHEMAS, &[&connection.database()])
-            .chain_err(|| PackageQuerySchemasError)?;
+        let schemas = capabilities.schemata(&db_conn, connection.database())?;
 
         let types = db_conn
             .query(Q_ENUMS, &[])
@@ -730,7 +720,7 @@ impl Package {
             extensions,
             functions,
             indexes,
-            schemas: map!(schemas),
+            schemas,
             scripts: Vec::new(), // Scripts can't be known from a connection
             tables: tables.into_iter().map(|(_,b)| b).collect(),
             types: map!(types),

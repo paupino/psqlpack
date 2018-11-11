@@ -1,6 +1,6 @@
 use connection::Connection;
 use errors::{PsqlpackResult, PsqlpackErrorKind};
-use model::{Capabilities, Package};
+use model::{Capabilities, DefinableCatalog, Package};
 use semver::Semver;
 
 use slog::Logger;
@@ -17,6 +17,12 @@ impl Extension {
                                          log: &Logger,
                                          connection: &Connection,
                                          capabilities: &Capabilities) -> PsqlpackResult<Package> {
+
+        trace!(log, "Connecting to database");
+        let db_conn = connection.connect_database()?;
+
+        let context = capabilities.with_context(self);
+        let schemas = context.schemata(&db_conn, connection.database());
         /*
         let mut package = Package {
             meta,

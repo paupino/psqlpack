@@ -21,7 +21,7 @@ mod package;
 mod delta;
 pub mod template;
 
-pub use self::capabilities::{Capabilities};
+pub use self::capabilities::{Capabilities, DefinableCatalog};
 pub use self::extension::{Extension};
 pub use self::profiles::{GenerationOptions, PublishProfile, Toggle};
 pub use self::project::{Dependency, Project};

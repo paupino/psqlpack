@@ -1,5 +1,6 @@
 use std::str::FromStr;
 
+use ast::{SchemaDefinition};
 use model::Extension;
 use semver::Semver;
 use connection::Connection;
@@ -69,10 +70,38 @@ impl Capabilities {
         available.sort_by(|a, b| b.version.cmp(&a.version));
         available
     }
+
+    // I'm not incredibly happy with this name, but it'll work for now
+    pub(crate) fn with_context<'a>(&'a self, extension: &'a Extension) -> ExtensionCapabilities<'a> {
+        ExtensionCapabilities {
+            capabilities: self,
+            extension,
+        }
+    }
+}
+
+pub(crate) struct ExtensionCapabilities<'a> {
+    capabilities: &'a Capabilities,
+    extension: &'a Extension,
 }
 
 pub trait DefinableCatalog {
+    fn schemata(&self, conn: &PostgresConnection, database: &str) -> PsqlpackResult<Vec<SchemaDefinition>>;
+}
 
+impl DefinableCatalog for Capabilities {
+    fn schemata(&self, conn: &PostgresConnection, database: &str) -> PsqlpackResult<Vec<SchemaDefinition>> {
+        let schemata =
+            conn.query(Q_SCHEMAS, &[&database])
+                   .chain_err(|| PackageQuerySchemasError)?;
+        Ok(map!(schemata))
+    }
+}
+
+impl<'a> DefinableCatalog for ExtensionCapabilities<'a> {
+    fn schemata(&self, conn: &PostgresConnection, database: &str) -> PsqlpackResult<Vec<SchemaDefinition>> {
+        Ok(Vec::new())
+    }
 }
 
 impl<'row> From<Row<'row>> for Extension {
@@ -100,3 +129,11 @@ impl FromSql for Semver {
 static Q_DATABASE_EXISTS: &'static str = "SELECT 1 FROM pg_database WHERE datname=$1;";
 static Q_EXTENSIONS: &'static str = "SELECT name, version, installed, requires
                                      FROM pg_available_extension_versions ";
+
+static Q_SCHEMAS: &'static str = "SELECT schema_name FROM information_schema.schemata
+                                  WHERE catalog_name = $1 AND schema_name !~* 'pg_|information_schema'";
+impl<'row> From<Row<'row>> for SchemaDefinition {
+    fn from(row: Row) -> Self {
+        SchemaDefinition { name: row.get(0) }
+    }
+}
