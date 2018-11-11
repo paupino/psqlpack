@@ -2,7 +2,16 @@ use std::path::Path;
 
 use slog::Logger;
 
-use psqlpack::{Delta, Package, Project, PsqlpackResult, PsqlpackErrorKind, PublishProfile, template};
+use psqlpack::{
+    Capabilities,
+    Delta,
+    Package,
+    Project,
+    PsqlpackResult,
+    PsqlpackErrorKind,
+    PublishProfile,
+    template
+};
 
 pub fn package<L: Into<Logger>>(log: L, project_file: &Path, output_path: &Path) -> PsqlpackResult<()> {
     let log = log.into().new(o!("operation" => "package"));
@@ -16,8 +25,11 @@ pub fn extract<L: Into<Logger>>(log: L, source_connection_string: &str, target_p
     let log = log.into().new(o!("operation" => "extract"));
     let connection = source_connection_string.parse()?;
 
+    trace!(log, "Loading Server Capabilities");
+    let capabilities = Capabilities::from_connection(&log, &connection)?;
+
     trace!(log, "Loading Package from connection");
-    let package = Package::from_connection(&log, &connection)?;
+    let package = Package::from_connection(&log, &connection, &capabilities)?;
     match package {
         Some(data) => {
             trace!(log, "Writing Package"; "output" => target_package_path.to_str().unwrap());
@@ -53,14 +65,18 @@ pub fn publish<L: Into<Logger>>(
     let publish_profile = PublishProfile::from_path(publish_profile)?;
     let connection = target_connection_string.parse()?;
 
+    trace!(log, "Loading Server Capabilities");
+    let capabilities = Capabilities::from_connection(&log, &connection)?;
+
     // Now we generate our instructions
-    let target_package = Package::from_connection(&log, &connection)?;
+    let target_package = Package::from_connection(&log, &connection, &capabilities)?;
     let target_database_name = connection.database().to_owned();
     let delta = Delta::generate(
         &log,
         &package,
         target_package,
         target_database_name,
+        capabilities,
         publish_profile,
     )?;
     delta.apply(&log, &connection)
@@ -78,14 +94,18 @@ pub fn generate_sql<L: Into<Logger>>(
     let publish_profile = PublishProfile::from_path(publish_profile)?;
     let connection = target_connection_string.parse()?;
 
+    trace!(log, "Loading Server Capabilities");
+    let capabilities = Capabilities::from_connection(&log, &connection)?;
+
     // Now we generate our instructions
-    let target_package = Package::from_connection(&log, &connection)?;
+    let target_package = Package::from_connection(&log, &connection, &capabilities)?;
     let target_database_name = connection.database().to_owned();
     let delta = Delta::generate(
         &log,
         &package,
         target_package,
         target_database_name,
+        capabilities,
         publish_profile,
     )?;
     delta.write_sql(&log, output_file)
@@ -103,14 +123,18 @@ pub fn generate_report<L: Into<Logger>>(
     let publish_profile = PublishProfile::from_path(publish_profile)?;
     let connection = target_connection_string.parse()?;
 
+    trace!(log, "Loading Server Capabilities");
+    let capabilities = Capabilities::from_connection(&log, &connection)?;
+
     // Now we generate our instructions
-    let target_package = Package::from_connection(&log, &connection)?;
+    let target_package = Package::from_connection(&log, &connection, &capabilities)?;
     let target_database_name = connection.database().to_owned();
     let delta = Delta::generate(
         &log,
         &package,
         target_package,
         target_database_name,
+        capabilities,
         publish_profile,
     )?;
     delta.write_report(output_file)

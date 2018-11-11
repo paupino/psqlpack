@@ -22,7 +22,8 @@ macro_rules! publish_package {
 
         // Create a target package from connection string
         let log = Logger::root(Discard.fuse(), o!());
-        let target_package = Package::from_connection(&log, &$connection).unwrap();
+        let capabilities = Capabilities::from_connection(&log, &$connection).unwrap();
+        let target_package = Package::from_connection(&log, &$connection, &capabilities).unwrap();
 
         // Generate delta and apply
         let delta = Delta::generate(
@@ -30,12 +31,14 @@ macro_rules! publish_package {
             &$package,
             target_package,
             $db_name.into(),
+            capabilities,
             publish_profile,
         ).unwrap();
         delta.apply(&log, &$connection).unwrap();
 
         // Confirm db exists with data
-        Package::from_connection(&log, &$connection).unwrap().unwrap()
+        let capabilities = Capabilities::from_connection(&log, &$connection).unwrap();
+        Package::from_connection(&log, &$connection, &capabilities).unwrap().unwrap()
     }};
 }
 
@@ -63,6 +66,7 @@ fn it_can_add_a_new_table_to_an_existing_database() {
 
     // Preliminary: create a database with no tables
     let connection = ConnectionBuilder::new(DB_NAME, "localhost", "postgres").build().unwrap();
+    dump_capabilities!(connection);
     let conn = create_db!(connection);
     drop_table!(conn, NAMESPACE, "contacts");
     conn.finish().unwrap();
@@ -80,6 +84,7 @@ fn it_can_add_a_new_column_to_an_existing_table() {
 
     // Preliminary: create a database with a partial table
     let connection = ConnectionBuilder::new(DB_NAME, "localhost", "postgres").build().unwrap();
+    dump_capabilities!(connection);
     let conn = create_db!(connection);
     drop_table!(conn, NAMESPACE, "contacts");
     conn.batch_execute(&format!("CREATE SCHEMA IF NOT EXISTS {}", NAMESPACE)).unwrap();
@@ -99,6 +104,7 @@ fn it_can_modify_an_existing_column_on_a_table() {
 
     // Preliminary: create a database with a partial table
     let connection = ConnectionBuilder::new(DB_NAME, "localhost", "postgres").build().unwrap();
+    dump_capabilities!(connection);
     let conn = create_db!(connection);
     drop_table!(conn, NAMESPACE, "contacts");
     conn.batch_execute(&format!("CREATE SCHEMA IF NOT EXISTS {}", NAMESPACE)).unwrap();
@@ -118,6 +124,7 @@ fn it_can_drop_an_existing_column_on_a_table() {
 
     // Preliminary: create a database with a partial table
     let connection = ConnectionBuilder::new(DB_NAME, "localhost", "postgres").build().unwrap();
+    dump_capabilities!(connection);
     let conn = create_db!(connection);
     drop_table!(conn, NAMESPACE, "contacts");
     conn.batch_execute(&format!("CREATE SCHEMA IF NOT EXISTS {}", NAMESPACE)).unwrap();
@@ -137,6 +144,7 @@ fn it_can_add_a_new_index_to_an_existing_table() {
 
     // Preliminary: create a database with a table but no indexes
     let connection = ConnectionBuilder::new(DB_NAME, "localhost", "postgres").build().unwrap();
+    dump_capabilities!(connection);
     let conn = create_db!(connection);
     drop_table!(conn, NAMESPACE, "contacts");
     conn.batch_execute(&format!("CREATE SCHEMA IF NOT EXISTS {}", NAMESPACE)).unwrap();
@@ -156,6 +164,7 @@ fn it_can_modify_an_index_on_a_table() {
 
     // Preliminary: create a database with a table but a broad index
     let connection = ConnectionBuilder::new(DB_NAME, "localhost", "postgres").build().unwrap();
+    dump_capabilities!(connection);
     let conn = create_db!(connection);
     drop_table!(conn, NAMESPACE, "contacts");
     conn.batch_execute(&format!("CREATE SCHEMA IF NOT EXISTS {}", NAMESPACE)).unwrap();
@@ -176,6 +185,7 @@ fn it_can_drop_an_index_on_a_table() {
 
     // Preliminary: create a database with a table and extra index
     let connection = ConnectionBuilder::new(DB_NAME, "localhost", "postgres").build().unwrap();
+    dump_capabilities!(connection);
     let conn = create_db!(connection);
     drop_table!(conn, NAMESPACE, "contacts");
     conn.batch_execute(&format!("CREATE SCHEMA IF NOT EXISTS {}", NAMESPACE)).unwrap();

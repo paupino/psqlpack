@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 use glob::PatternError;
 
+pub use ast::ErrorKind;
 pub use error_chain::ChainedError;
 pub use lalrpop_util::ParseError;
 pub use model::ValidationKind;
@@ -52,7 +53,7 @@ error_chain! {
             description("Couldn't read part of the package file")
             display("Couldn't read part of the package file: {}", file_name)
         }
-        PackageQueryExtensionsError {
+        QueryExtensionsError {
             description("Couldn't query extensions")
         }
         PackageQuerySchemasError {
@@ -118,6 +119,10 @@ error_chain! {
         InlineParseError(error: ParseError<(), lexer::Token, &'static str>) {
             description("Parser error")
             display("Parser error: {}", ParseErrorFormatter(error))
+        }
+        HandledParseError(kind: ErrorKind) {
+            description("Parser error")
+            display("Parser error: {}", kind)
         }
         TemplateGenerationError(message: String) {
             description("Error generating template")

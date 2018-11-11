@@ -7,10 +7,17 @@ macro_rules! drop_db {
     }};
 }
 
+macro_rules! dump_capabilities {
+    ($connection: expr) => {{
+        let log = Logger::root(Discard.fuse(), o!());
+        let capabilities = Capabilities::from_connection(&log, &$connection).unwrap();
+        println!("PG Version: {}", capabilities.server_version);
+    }};
+}
+
 macro_rules! create_db {
     ($connection:expr) => {{
         let conn = $connection.connect_host().unwrap();
-        println!("PG Version: {}", conn.server_version().unwrap());
         let result = conn.query("SELECT 1 FROM pg_database WHERE datname=$1", &[&$connection.database()]).unwrap();
         if result.is_empty() {
             conn.batch_execute(&format!("CREATE DATABASE {}", $connection.database())).unwrap();

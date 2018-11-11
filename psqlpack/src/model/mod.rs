@@ -7,13 +7,21 @@ macro_rules! dbtry {
     };
 }
 
+macro_rules! map {
+    ($expr:expr) => {{
+        $expr.iter().map(|row| row.into()).collect()
+    }};
+}
+
+mod capabilities;
 mod profiles;
 mod project;
 mod package;
 mod delta;
 pub mod template;
 
+pub use self::capabilities::{Capabilities, Extension};
 pub use self::profiles::{GenerationOptions, PublishProfile, Toggle};
-pub use self::project::Project;
+pub use self::project::{Dependency, Project};
 pub use self::package::{Node, Package, ValidationKind};
 pub use self::delta::Delta;

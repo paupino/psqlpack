@@ -17,8 +17,8 @@ use connection::Connection;
 use sql::lexer;
 use sql::ast::*;
 use sql::parser::{SqlTypeParser, FunctionArgumentListParser, FunctionReturnTypeParser};
-use model::Project;
-use semver::{Semver, ServerVersion};
+use model::{Capabilities, Dependency, Project};
+use semver::Semver;
 use errors::{PsqlpackError, PsqlpackResult, PsqlpackResultExt};
 use errors::PsqlpackErrorKind::*;
 
@@ -46,25 +46,7 @@ macro_rules! zip_collection {
     }};
 }
 
-macro_rules! map {
-    ($expr:expr) => {{
-        $expr.iter().map(|row| row.into()).collect()
-    }};
-}
-
 static Q_DATABASE_EXISTS: &'static str = "SELECT 1 FROM pg_database WHERE datname=$1;";
-
-static Q_EXTENSIONS: &'static str = "SELECT name, version, installed, requires
-                                     FROM pg_available_extension_versions ";
-impl<'row> From<Row<'row>> for ExtensionDefinition {
-    fn from(row: Row) -> Self {
-        ExtensionDefinition {
-            name: row.get(0),
-            version: row.get(1),
-            installed: row.get(2),
-        }
-    }
-}
 
 static Q_SCHEMAS: &'static str = "SELECT schema_name FROM information_schema.schemata
                                   WHERE catalog_name = $1 AND schema_name !~* 'pg_|information_schema'";
@@ -448,7 +430,7 @@ impl From<String> for SqlType {
 
 #[derive(Debug, PartialEq)]
 pub struct Package {
-    pub extensions: Vec<ExtensionDefinition>,
+    pub extensions: Vec<Dependency>,
     pub functions: Vec<FunctionDefinition>,
     pub indexes: Vec<IndexDefinition>,
     pub schemas: Vec<SchemaDefinition>,
@@ -537,19 +519,20 @@ impl Package {
         }
 
         let mut package = Package {
-            extensions: extensions,
-            functions: functions,
-            indexes: indexes,
-            schemas: schemas,
-            scripts: scripts,
-            tables: tables,
-            types: types,
+            extensions,
+            functions,
+            indexes,
+            schemas,
+            scripts,
+            tables,
+            types,
         };
         package.promote_primary_keys_to_table_constraints();
         Ok(package)
     }
 
-    pub fn from_connection(log: &Logger, connection: &Connection) -> PsqlpackResult<Option<Package>> {
+    pub fn from_connection(log: &Logger, connection: &Connection, capabilities: &Capabilities)
+        -> PsqlpackResult<Option<Package>> {
         let log = log.new(o!("package" => "from_connection"));
 
         trace!(log, "Connecting to host");
@@ -568,12 +551,11 @@ impl Package {
         // We do a few SQL queries to get the package details
         let db_conn = connection.connect_database()?;
 
-        // Get the server version
-        let version = db_conn.server_version()?;
-
-        let extensions = db_conn
-            .query(Q_EXTENSIONS, &[])
-            .chain_err(|| PackageQueryExtensionsError)?;
+        let extensions = capabilities.extensions
+            .iter()
+            .filter(|e| e.installed)
+            .map(|e| Dependency { name: e.name.clone(), version: Some(e.version) })
+            .collect::<Vec<_>>();
 
         let schemas = db_conn
             .query(Q_SCHEMAS, &[&connection.database()])
@@ -639,9 +621,9 @@ impl Package {
                     name: function_name,
                 },
                 arguments: function_args,
-                return_type: return_type,
+                return_type,
                 body: function_src,
-                language: language,
+                language,
             });
         }
 
@@ -682,8 +664,8 @@ impl Package {
 
         // Get a list of indexes
         let mut indexes = Vec::new();
-        // TODO: Find a better way to store queries against semvers. Mod's?
-        let index_query = match version.cmp(&Semver::new(9, 6, None)) {
+        // TODO: Move this logic into Capabilities to avoid having to manage here
+        let index_query = match capabilities.server_version.cmp(&Semver::new(9, 6, None)) {
             ::std::cmp::Ordering::Less => Q_INDEXES_94_THRU_96,
             _ => Q_INDEXES,
         };
@@ -697,9 +679,9 @@ impl Package {
 
         // Get the package
         let mut package = Package {
-            extensions: map!(extensions),
-            functions: functions,
-            indexes: indexes,
+            extensions,
+            functions,
+            indexes,
             schemas: map!(schemas),
             scripts: Vec::new(), // Scripts can't be known from a connection
             tables: tables.into_iter().map(|(_,b)| b).collect(),
@@ -742,7 +724,7 @@ impl Package {
         }
     }
 
-    pub fn push_extension(&mut self, extension: ExtensionDefinition) {
+    pub fn push_extension(&mut self, extension: Dependency) {
         self.extensions.push(extension);
     }
 
@@ -902,7 +884,7 @@ impl Package {
         let mut graph = Graph::new();
 
         // Go through and add each object and add it to the graph
-        // Extensions, schemas and types are always implied
+        // Schemas and types are always implied
         trace!(log, "Scanning table dependencies");
         for table in &self.tables {
             let log = log.new(o!("table" => table.name.to_string()));
@@ -939,7 +921,7 @@ impl Package {
     }
 
     pub fn validate(&self) -> PsqlpackResult<()> {
-        // 1. Validate schema existance
+        // 1. Validate schema existence
         let schemata = self.schemas
             .iter()
             .map(|schema| &schema.name[..])
@@ -1387,7 +1369,7 @@ mod tests {
         match StatementListParser::new().parse(tokens) {
             Ok(statement_list) => for statement in statement_list {
                 match statement {
-                    ast::Statement::Extension(_) => panic!("Extension statement found"),
+                    ast::Statement::Error(kind) => panic!("Unhandled error detected: {}", kind),
                     ast::Statement::Function(function_definition) => package.push_function(function_definition),
                     ast::Statement::Index(index_definition) => package.push_index(index_definition),
                     ast::Statement::Schema(schema_definition) => package.push_schema(schema_definition),

@@ -1,10 +1,22 @@
 use std::fmt;
 
-use crate::Semver;
+#[derive(Debug)]
+pub enum ErrorKind {
+    ExtensionNotSupported(String),
+}
+
+impl fmt::Display for ErrorKind {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            ErrorKind::ExtensionNotSupported(ref name) =>
+                write!(f, "Extensions definined in SQL not supported (found {}). Please define extensions within the project file.", name),
+        }
+    }
+}
 
 #[derive(Debug)]
 pub enum Statement {
-    Extension(ExtensionDefinition),
+    Error(ErrorKind),
     Function(FunctionDefinition),
     Index(IndexDefinition),
     Schema(SchemaDefinition),
@@ -154,17 +166,6 @@ pub struct ColumnDefinition {
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct SchemaDefinition {
     pub name: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ExtensionDefinition {
-    pub name: String,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub version: Option<Semver>,
-
-    #[serde(skip)]
-    pub installed: Option<bool>,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
