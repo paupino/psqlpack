@@ -70,7 +70,7 @@ impl<'a> Diffable<'a, Package> for DbObject<'a> {
         match *self {
             DbObject::Column(table, column) => LinkedColumn { table: &table, column: &column }.generate(change_set, target, target_capabilities, publish_profile, log),
             DbObject::Constraint(table, constraint) => LinkedTableConstraint { table: &table, constraint: &constraint }.generate(change_set, target, target_capabilities, publish_profile, log),
-            DbObject::Extension(dependency) => ExtensionDefinition { name: &dependency.name, version: &dependency.version }.generate(change_set, target, target_capabilities, publish_profile, log),
+            DbObject::Extension(dependency) => Extension { name: &dependency.name, version: &dependency.version }.generate(change_set, target, target_capabilities, publish_profile, log),
             DbObject::Function(function) => function.generate(change_set, target, target_capabilities, publish_profile, log),
             DbObject::Index(index) => index.generate(change_set, target, target_capabilities, publish_profile, log),
             DbObject::Schema(schema) => schema.generate(change_set, target, target_capabilities, publish_profile, log),
@@ -81,12 +81,12 @@ impl<'a> Diffable<'a, Package> for DbObject<'a> {
     }
 }
 
-struct ExtensionDefinition<'a> {
+struct Extension<'a> {
     name: &'a String,
     version: &'a Option<Semver>,
 }
 
-impl<'a> Diffable<'a, Package> for ExtensionDefinition<'a> {
+impl<'a> Diffable<'a, Package> for Extension<'a> {
     fn generate(
         &self,
         change_set: &mut Vec<ChangeInstruction<'a>>,
@@ -95,12 +95,7 @@ impl<'a> Diffable<'a, Package> for ExtensionDefinition<'a> {
         profile: &PublishProfile,
         _log: &Logger,
     ) -> PsqlpackResult<()> {
-        let mut available =
-                    target_capabilities.extensions
-                        .iter()
-                        .filter(|e| e.name.eq(self.name))
-                        .collect::<Vec<_>>();
-        available.sort_by(|a, b| b.version.cmp(&a.version));
+        let available = target_capabilities.available_extensions(self.name, None);
 
         // First of all, check to see what is installed
         let installed = available
@@ -2682,7 +2677,7 @@ mod tests {
     #[test]
     fn it_can_create_an_extension_that_exists_and_is_not_installed_with_version() {
         let log = empty_logger();
-        let requested_extension = ExtensionDefinition {
+        let requested_extension = Extension {
             name: &"postgis".to_owned(),
             version: &Some(Semver::new(2, 3, Some(7))),
         };
@@ -2727,7 +2722,7 @@ mod tests {
     #[test]
     fn it_can_create_an_extension_that_exists_and_is_not_installed_without_version() {
         let log = empty_logger();
-        let requested_extension = ExtensionDefinition {
+        let requested_extension = Extension {
             name: &"postgis".to_owned(),
             version: &None,
         };
@@ -2772,7 +2767,7 @@ mod tests {
     #[test]
     fn it_errors_when_creating_an_extension_that_exists_and_different_version() {
         let log = empty_logger();
-        let requested_extension = ExtensionDefinition {
+        let requested_extension = Extension {
             name: &"postgis".to_owned(),
             version: &Some(Semver::new(2, 4, Some(7))),
         };
@@ -2808,7 +2803,7 @@ mod tests {
     #[test]
     fn it_errors_when_creating_an_extension_that_does_not_exist() {
         let log = empty_logger();
-        let requested_extension = ExtensionDefinition {
+        let requested_extension = Extension {
             name: &"postgis".to_owned(),
             version: &Some(Semver::new(2, 3, Some(7))),
         };
@@ -2838,7 +2833,7 @@ mod tests {
     #[test]
     fn it_can_upgrade_an_installed_extension_with_newer_version_specified_and_available() {
         let log = empty_logger();
-        let requested_extension = ExtensionDefinition {
+        let requested_extension = Extension {
             name: &"postgis".to_owned(),
             version: &Some(Semver::new(3, 8, None)),
         };
@@ -2890,7 +2885,7 @@ mod tests {
     #[test]
     fn it_does_not_modify_an_extension_that_is_already_installed() {
         let log = empty_logger();
-        let requested_extension = ExtensionDefinition {
+        let requested_extension = Extension {
             name: &"postgis".to_owned(),
             version: &None,
         };
@@ -2926,7 +2921,7 @@ mod tests {
     #[test]
     fn it_can_upgrade_an_installed_extension_with_no_version_specified_and_newer_version_available_when_profile_set_to_allow() {
         let log = empty_logger();
-        let requested_extension = ExtensionDefinition {
+        let requested_extension = Extension {
             name: &"postgis".to_owned(),
             version: &None,
         };
@@ -2977,7 +2972,7 @@ mod tests {
     #[test]
     fn it_doesnt_upgrade_an_installed_extension_with_no_version_specified_and_newer_version_available_when_profile_set_to_ignore() {
         let log = empty_logger();
-        let requested_extension = ExtensionDefinition {
+        let requested_extension = Extension {
             name: &"postgis".to_owned(),
             version: &None,
         };
@@ -3018,7 +3013,7 @@ mod tests {
     #[test]
     fn it_doesnt_upgrade_an_installed_extension_with_no_version_specified_and_newer_version_available_when_profile_set_to_error() {
         let log = empty_logger();
-        let requested_extension = ExtensionDefinition {
+        let requested_extension = Extension {
             name: &"postgis".to_owned(),
             version: &None,
         };

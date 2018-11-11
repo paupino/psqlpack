@@ -152,6 +152,10 @@ error_chain! {
             description("Database connection couldn't finish")
             display("Database connection couldn't finish")
         }
+        ExtractError(message: String) {
+            description("Extract Error")
+            display("Extraction Error: {}", message)
+        }
         ProjectError(message: String) {
             description("Project format error")
             display("Project format error: {}", message)

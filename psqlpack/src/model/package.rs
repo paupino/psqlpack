@@ -1,17 +1,19 @@
 use std::collections::HashMap;
 use std::fmt;
-use std::path::Path;
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::{BufReader, Read, Write};
+use std::path::Path;
+use std::str::FromStr;
 
-use regex::Regex;
-use slog::Logger;
-use serde_json;
-use zip::{ZipArchive, ZipWriter};
-use zip::write::FileOptions;
+use chrono::prelude::*;
+use lalrpop_util;
 use petgraph;
 use postgres::rows::Row;
-use lalrpop_util;
+use regex::Regex;
+use serde_json;
+use slog::Logger;
+use zip::{ZipArchive, ZipWriter};
+use zip::write::FileOptions;
 
 use connection::Connection;
 use sql::lexer;
@@ -426,8 +428,9 @@ impl From<String> for SqlType {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub struct Package {
+    pub meta: MetaInfo,
     pub extensions: Vec<Dependency>,
     pub functions: Vec<FunctionDefinition>,
     pub indexes: Vec<IndexDefinition>,
@@ -435,6 +438,41 @@ pub struct Package {
     pub scripts: Vec<ScriptDefinition>,
     pub tables: Vec<TableDefinition>,
     pub types: Vec<TypeDefinition>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct MetaInfo {
+    version: Semver,
+    generated_at: DateTime<Utc>,
+    source: SourceInfo,
+    publishable: bool,
+}
+
+impl MetaInfo {
+    pub fn new(source: SourceInfo) -> Self {
+        MetaInfo {
+            version: crate_version(),
+            generated_at: Utc::now(),
+            source,
+            publishable: source != SourceInfo::Extension,
+        }
+    }
+}
+
+fn crate_version() -> Semver {
+    Semver::from_str(
+        &format!("{}.{}.{}",
+            env!("CARGO_PKG_VERSION_MAJOR"),
+            env!("CARGO_PKG_VERSION_MINOR"),
+            env!("CARGO_PKG_VERSION_PATCH"))
+    ).unwrap()
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum SourceInfo {
+    Database,
+    Extension,
+    Project,
 }
 
 impl Package {
@@ -466,7 +504,7 @@ impl Package {
         } else {
             // We'll optimistically load it as a project
             let project = Project::from_project_file(&log, source_path)?;
-            project.to_package(&log)
+            project.build_package(&log)
         }
     }
 
@@ -478,6 +516,7 @@ impl Package {
                 ZipArchive::new(file).chain_err(|| PackageUnarchiveError(source_path.to_path_buf()))
             })?;
 
+        let mut meta : Option<MetaInfo> = None;
         let mut extensions = Vec::new();
         let mut functions = Vec::new();
         let mut indexes = Vec::new();
@@ -492,7 +531,15 @@ impl Package {
                 continue;
             }
             let name = file.name().to_owned();
-            if name.starts_with("extensions/") {
+            if name.starts_with("meta") {
+                if meta.is_some() {
+                    bail!(PackageReadError(source_path.to_path_buf()));
+                }
+                let m = serde_json::from_reader(file)
+                    .chain_err(|| PackageInternalReadError(name))?;
+                meta = Some(m);
+            }
+            else if name.starts_with("extensions/") {
                 extensions.push(serde_json::from_reader(file)
                     .chain_err(|| PackageInternalReadError(name))?);
             } else if name.starts_with("functions/") {
@@ -517,6 +564,12 @@ impl Package {
         }
 
         let mut package = Package {
+            meta: match meta {
+                Some(m) => m,
+                // Temporary - this will be an error in the future
+                // For now, it assumes a standard project
+                None => MetaInfo::new(SourceInfo::Project),
+            },
             extensions,
             functions,
             indexes,
@@ -672,8 +725,8 @@ impl Package {
         // Close the connection
         dbtry!(db_conn.finish());
 
-        // Get the package
         let mut package = Package {
+            meta: MetaInfo::new(SourceInfo::Database),
             extensions,
             functions,
             indexes,
@@ -688,11 +741,26 @@ impl Package {
     }
 
     pub fn write_to(&self, destination: &Path) -> PsqlpackResult<()> {
+        if let Some(parent) = destination.parent() {
+            match fs::create_dir_all(parent) {
+                Ok(_) => {}
+                Err(e) => bail!(GenerationError(
+                    format!("Failed to create package directory: {}", e)
+                )),
+            }
+        }
+
         File::create(&destination)
             .chain_err(|| GenerationError("Failed to write package".to_owned()))
             .and_then(|output_file| {
                 let mut zip = ZipWriter::new(output_file);
 
+                ztry!(zip.start_file("meta.json", FileOptions::default()));
+                let json = match serde_json::to_string_pretty(&self.meta) {
+                    Ok(j) => j,
+                    Err(e) => bail!(GenerationError(format!("Failed to write package: {}", e))),
+                };
+                ztry!(zip.write_all(json.as_bytes()));
                 zip_collection!(zip, self, extensions);
                 zip_collection!(zip, self, functions);
                 zip_collection!(zip, self, indexes);
@@ -709,6 +777,8 @@ impl Package {
 
     pub fn new() -> Self {
         Package {
+            // By default, our source is a project file
+            meta: MetaInfo::new(SourceInfo::Project),
             extensions: Vec::new(),
             functions: Vec::new(),
             indexes: Vec::new(),
@@ -845,7 +915,7 @@ impl Package {
         self.promote_primary_keys_to_table_constraints();
     }
 
-    fn promote_primary_keys_to_table_constraints(&mut self) {
+    pub fn promote_primary_keys_to_table_constraints(&mut self) {
         // Set default schema's as well as marking primary key columns as not null
         for table in &mut self.tables {
             // Primary keys may also be specified against the column directly. We promote these to table constraints.`

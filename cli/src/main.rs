@@ -10,15 +10,16 @@ mod operation;
 use std::env;
 use std::path::Path;
 use std::time::Instant;
+use std::str::FromStr;
 use std::sync::{atomic, Arc};
 use std::sync::atomic::Ordering;
 use std::result;
 
 use clap::{App, Arg, ArgMatches, SubCommand};
 use slog::{Drain, Logger};
-use psqlpack::{ChainedError, PsqlpackResult};
+use psqlpack::{ChainedError, PsqlpackResult, Semver};
 
-/// A threadsafe toggle.
+/// A thread safe toggle.
 #[derive(Clone)]
 struct Toggle(Arc<atomic::AtomicBool>);
 
@@ -45,8 +46,8 @@ struct TraceFilter<D: Drain> {
 impl<D: Drain> TraceFilter<D> {
     pub fn new(drain: D, toggle: Toggle) -> TraceFilter<D> {
         TraceFilter {
-            drain: drain,
-            toggle: toggle,
+            drain,
+            toggle,
         }
     }
 }
@@ -83,13 +84,49 @@ fn main() {
         .version(crate_version!())
         .author(crate_authors!())
         .subcommand(
+            SubCommand::with_name("extension")
+                .about("Creates a psqlpack from an extension installed on an existing database")
+                .arg(
+                    Arg::with_name("SOURCE")
+                        .long("source")
+                        .short("s")
+                        .required(true)
+                        .takes_value(true)
+                        .help("The source database connection string"),
+                )
+                .arg(
+                    Arg::with_name("NAME")
+                        .long("name")
+                        .short("n")
+                        .required(true)
+                        .takes_value(true)
+                        .help("The name of the extension to extract"),
+                )
+                .arg(
+                    Arg::with_name("VERSION")
+                        .long("version")
+                        .short("v")
+                        .required(false)
+                        .takes_value(true)
+                        .help("The version of the extension to extract"),
+                )
+                .arg(
+                    Arg::with_name("OUTPUT")
+                        .long("output")
+                        .short("o")
+                        .required(true)
+                        .takes_value(true)
+                        .help("The folder location to export the psqlpack to"),
+                ),
+        )
+        .subcommand(
             SubCommand::with_name("extract")
                 .about("Creates a psqlpack from an existing database")
                 .arg(
                     Arg::with_name("SOURCE")
                         .long("source")
                         .short("s")
-                        .required(false)
+                        .required(true)
                         .takes_value(true)
                         .help("The source database connection string"),
                 )
@@ -99,7 +136,7 @@ fn main() {
                         .short("o")
                         .required(true)
                         .takes_value(true)
-                        .help("The location of the folder to export the psqlpack to"),
+                        .help("The folder location to export the psqlpack to"),
                 ),
         )
         .subcommand(
@@ -280,6 +317,14 @@ fn main() {
                 "No command found\nCommand is required\nFor more information try --help"
             );
         }
+        HandleResult::InvalidArgument(arg, reason) => {
+            error!(
+                log,
+                "Invalid argument for {}\n{}",
+                arg,
+                reason,
+            );
+        }
         HandleResult::Outcome(action, Err(error)) => {
             error!(
                 log,
@@ -299,20 +344,44 @@ fn main() {
 
 enum HandleResult {
     UnknownSubcommand,
+    InvalidArgument(String, String),
     Outcome(String, PsqlpackResult<()>),
 }
 
 fn handle(log: &Logger, matches: &ArgMatches) -> HandleResult {
     // TODO: do some validation
     match matches.subcommand() {
+        (command @ "extension", Some(extension)) => {
+            let log = log.new(o!("command" => command.to_owned()));
+            let source = String::from(extension.value_of("SOURCE").unwrap());
+            info!(log, "Source connection string"; "source" => &source);
+            let output = Path::new(extension.value_of("OUTPUT").unwrap());
+            info!(log, "Output path"; "output" => output.to_str().unwrap());
+            let name = String::from(extension.value_of("NAME").unwrap());
+            let version = match extension.value_of("VERSION") {
+                Some(version) => {
+                    let v = match Semver::from_str(version) {
+                        Ok(v) => v,
+                        Err(_) => return HandleResult::InvalidArgument(
+                            "version".into(),
+                            "Unable to parse version string".into(),
+                        ),
+                    };
+                    Some(v)
+                },
+                None => None,
+            };
+            info!(log, "Extension"; "name" => &name);
+            let result = operation::extract_extension(log, &source, output, name, version);
+            HandleResult::Outcome(command.to_owned(), result)
+        }
         (command @ "extract", Some(extract)) => {
             let log = log.new(o!("command" => command.to_owned()));
-            // Source is a DB, target is a path
             let source = String::from(extract.value_of("SOURCE").unwrap());
             info!(log, "Source connection string"; "source" => &source);
             let output = Path::new(extract.value_of("OUTPUT").unwrap());
             info!(log, "Output path"; "output" => output.to_str().unwrap());
-            let result = operation::extract(log, &source, output);
+            let result = operation::extract_database(log, &source, output);
             HandleResult::Outcome(command.to_owned(), result)
         }
         (command @ "new", Some(new)) => {

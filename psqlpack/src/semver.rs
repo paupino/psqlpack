@@ -1,9 +1,10 @@
 use std::cmp;
 use std::fmt;
 use std::str::FromStr;
+
 use regex::Regex;
 
-#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug)]
 pub struct Semver {
     major: u32,
     minor: u32,
@@ -69,6 +70,45 @@ impl cmp::Ord for Semver {
         cmp::Ordering::Equal
     }
 }
+
+impl serde::Serialize for Semver {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: serde::Serializer,
+    {
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for Semver {
+    fn deserialize<D>(deserializer: D) -> Result<Semver, D::Error>
+        where
+            D: serde::de::Deserializer<'de>,
+    {
+        deserializer.deserialize_str(SemverVisitor)
+    }
+}
+
+struct SemverVisitor;
+
+impl<'de> serde::de::Visitor<'de> for SemverVisitor {
+    type Value = Semver;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            formatter,
+            "a semantically versioned string"
+        )
+    }
+
+    fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error,
+    {
+        Semver::from_str(value).map_err(|_| E::invalid_value(serde::de::Unexpected::Str(value), &self))
+    }
+}
+
 
 lazy_static! {
     static ref VERSION : Regex = Regex::new("(\\d+)(\\.(\\d+))?(\\.(\\d+))?").unwrap();

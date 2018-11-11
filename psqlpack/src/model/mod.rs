@@ -14,13 +14,15 @@ macro_rules! map {
 }
 
 mod capabilities;
+mod extension;
 mod profiles;
 mod project;
 mod package;
 mod delta;
 pub mod template;
 
-pub use self::capabilities::{Capabilities, Extension};
+pub use self::capabilities::{Capabilities};
+pub use self::extension::{Extension};
 pub use self::profiles::{GenerationOptions, PublishProfile, Toggle};
 pub use self::project::{Dependency, Project};
 pub use self::package::{Node, Package, ValidationKind};

@@ -1,5 +1,6 @@
 use std::str::FromStr;
 
+use model::Extension;
 use semver::Semver;
 use connection::Connection;
 use errors::{PsqlpackResult, PsqlpackResultExt};
@@ -9,13 +10,6 @@ use slog::Logger;
 use postgres::{Connection as PostgresConnection};
 use postgres::rows::Row;
 use postgres::types::{FromSql, Type, TEXT};
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct Extension {
-    pub name: String,
-    pub version: Semver,
-    pub installed: bool,
-}
 
 pub struct Capabilities {
     pub server_version: Semver,
@@ -64,6 +58,16 @@ impl Capabilities {
         } else {
             bail!(DatabaseError("Failed to retrieve version from server".into()))
         }
+    }
+
+    pub fn available_extensions(&self, name: &str, version: Option<Semver>) -> Vec<&Extension> {
+        let mut available = self.extensions
+                            .iter()
+                            .filter(|x| x.name.eq(name) && (version.is_none() ||
+                                version.unwrap().eq(&x.version)))
+                            .collect::<Vec<_>>();
+        available.sort_by(|a, b| b.version.cmp(&a.version));
+        available
     }
 }
 
