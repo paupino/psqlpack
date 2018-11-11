@@ -154,6 +154,16 @@ impl Project {
         let mut package = Package::new();
         let mut errors: Vec<PsqlpackError> = Vec::new();
 
+        // Add extensions into package
+        if let Some(ref extensions) = self.extensions {
+            for extension in extensions {
+                package.push_extension(Dependency {
+                    name: extension.name.clone(),
+                    version: extension.version,
+                });
+            }
+        }
+
         // Enumerate the glob paths
         for path in self.walk_files(&parent)? {
             let log = log.new(o!("file" => path.to_str().unwrap().to_owned()));

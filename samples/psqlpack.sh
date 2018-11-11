@@ -44,6 +44,7 @@ case $1 in
         ;;        
     unpack)
         action="Unpacking psqlpack for '$db'"
+        rm -rf out/$db
         unzip out/$db.psqlpack -d out/$db
         ;;
     *)
