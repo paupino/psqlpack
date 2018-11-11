@@ -25,6 +25,27 @@ pub enum Toggle {
     Error,
 }
 
+impl Toggle {
+    fn allow() -> Toggle {
+        Toggle::Allow
+    }
+
+    fn ignore() -> Toggle {
+        Toggle::Ignore
+    }
+
+    fn error() -> Toggle {
+        Toggle::Error
+    }
+}
+
+struct Bool;
+impl Bool {
+    fn t() -> bool {
+        true
+    }
+}
+
 #[derive(Deserialize, Serialize)]
 pub struct GenerationOptions {
     /// If set to true, the database will always be recereated
@@ -32,29 +53,42 @@ pub struct GenerationOptions {
 
     /// Enum values are typically unsafe to delete. If set to Allow, psqlpack will attempt to delete.
     /// Default: Error
-    #[serde(rename = "dropEnumValues")] pub drop_enum_values: Toggle,
+    #[serde(rename = "dropEnumValues", default = "Toggle::error")]
+    pub drop_enum_values: Toggle,
     /// Tables may have data in them which may not be intended to be deleted. If set to Allow, psqlpack will drop the table.
     /// Default: Error
-    #[serde(rename = "dropTables")] pub drop_tables: Toggle,
+    #[serde(rename = "dropTables", default = "Toggle::error")]
+    pub drop_tables: Toggle,
     /// Columns may have data in them which may not be intended to be deleted. If set to Allow, psqlpack will drop the column.
     /// Default: Error
-    #[serde(rename = "dropColumns")] pub drop_columns: Toggle,
+    #[serde(rename = "dropColumns", default = "Toggle::error")]
+    pub drop_columns: Toggle,
     /// Primary Keys define how a table is looked up on disk. If set to Allow, psqlpack will drop the primary key.
     /// Default: Error
-    #[serde(rename = "dropPrimaryKeyConstraints")] pub drop_primary_key_constraints: Toggle,
+    #[serde(rename = "dropPrimaryKeyConstraints", default = "Toggle::error")]
+    pub drop_primary_key_constraints: Toggle,
     /// Foreign Keys define a constraint to another table. If set to Allow, psqlpack will drop the foreign key.
     /// Default: Allow
-    #[serde(rename = "dropForeignKeyConstraints")] pub drop_foreign_key_constraints: Toggle,
+    #[serde(rename = "dropForeignKeyConstraints", default = "Toggle::allow")]
+    pub drop_foreign_key_constraints: Toggle,
     /// Functions may not be intended to be deleted. If set to Allow, psqlpack will drop the function.
     /// Default: Error
-    #[serde(rename = "dropFunctions")] pub drop_functions: Toggle,
+    #[serde(rename = "dropFunctions", default = "Toggle::error")]
+    pub drop_functions: Toggle,
     /// Indexes may not be intended to be deleted. If set to Allow, psqlpack will drop the index.
     /// Default: Allow
-    #[serde(rename = "dropIndexes")] pub drop_indexes: Toggle,
+    #[serde(rename = "dropIndexes", default = "Toggle::allow")]
+    pub drop_indexes: Toggle,
+
+    /// Extensions may not be intended to be upgraded automatically. If set to Allow, psqlpack will upgrade the extension as necessary.
+    /// Default: Ignore
+    #[serde(rename = "upgradeExtensions", default = "Toggle::ignore")]
+    pub upgrade_extensions: Toggle,
 
     /// Forces index changes to be made concurrently to avoid locking on table writes.
     /// Default: true
-    #[serde(rename = "forceConcurrentIndexes")] pub force_concurrent_indexes: bool,
+    #[serde(rename = "forceConcurrentIndexes", default = "Bool::t")]
+    pub force_concurrent_indexes: bool,
 }
 
 impl Default for PublishProfile {
@@ -71,6 +105,8 @@ impl Default for PublishProfile {
                 drop_foreign_key_constraints: Toggle::Allow,
                 drop_functions: Toggle::Error,
                 drop_indexes: Toggle::Allow,
+
+                upgrade_extensions: Toggle::Ignore,
 
                 force_concurrent_indexes: true,
             },

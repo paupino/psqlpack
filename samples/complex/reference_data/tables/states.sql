@@ -9,8 +9,8 @@ CREATE TABLE reference_data.states
   CONSTRAINT pk_reference_data_states PRIMARY KEY (id),
   CONSTRAINT fk_reference_data_states__country_id FOREIGN KEY (country_id)
       REFERENCES reference_data.countries (id) MATCH SIMPLE
-      ON UPDATE NO ACTION ON DELETE NO ACTION,
-  CONSTRAINT fk_reference_data_states__gid FOREIGN KEY (gid)
+      ON UPDATE NO ACTION ON DELETE NO ACTION
+  /*,CONSTRAINT fk_reference_data_states__gid FOREIGN KEY (gid)
       REFERENCES geo.states (gid) MATCH SIMPLE
-      ON UPDATE NO ACTION ON DELETE NO ACTION      
+      ON UPDATE NO ACTION ON DELETE NO ACTION*/   
 )

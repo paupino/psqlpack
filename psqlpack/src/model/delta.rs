@@ -7,16 +7,17 @@ use std::fs::File;
 use slog::Logger;
 use serde_json;
 
-use sql::ast::*;
+use crate::Semver;
 use connection::Connection;
-use model::{Node, Package, PublishProfile, Toggle};
 use errors::{PsqlpackResult, PsqlpackResultExt};
 use errors::PsqlpackErrorKind::*;
+use model::{Capabilities, Dependency, Node, Package, PublishProfile, Toggle};
+use sql::ast::*;
 
 enum DbObject<'a> {
     Column(&'a TableDefinition, &'a ColumnDefinition),
     Constraint(&'a TableDefinition, &'a TableConstraint),
-    Extension(&'a ExtensionDefinition), // 2
+    Extension(&'a Dependency),          // 2
     Function(&'a FunctionDefinition),   // 6 (ordered)
     Index(&'a IndexDefinition),         // 7
     Schema(&'a SchemaDefinition),       // 3
@@ -49,8 +50,9 @@ impl<'a> fmt::Display for DbObject<'a> {
 trait Diffable<'a, T> {
     fn generate(
         &self,
-        changeset: &mut Vec<ChangeInstruction<'a>>,
+        change_set: &mut Vec<ChangeInstruction<'a>>,
         target: &T,
+        target_capabilities: &Capabilities,
         publish_profile: &PublishProfile,
         log: &Logger,
     ) -> PsqlpackResult<()>;
@@ -59,34 +61,119 @@ trait Diffable<'a, T> {
 impl<'a> Diffable<'a, Package> for DbObject<'a> {
     fn generate(
         &self,
-        changeset: &mut Vec<ChangeInstruction<'a>>,
+        change_set: &mut Vec<ChangeInstruction<'a>>,
         target: &Package,
+        target_capabilities: &Capabilities,
         publish_profile: &PublishProfile,
         log: &Logger,
     ) -> PsqlpackResult<()> {
         match *self {
-            DbObject::Column(table, column) => LinkedColumn { table: &table, column: &column }.generate(changeset, target, publish_profile, log),
-            DbObject::Constraint(table, constraint) => LinkedTableConstraint { table: &table, constraint: &constraint }.generate(changeset, target, publish_profile, log),
-            DbObject::Extension(extension) => extension.generate(changeset, target, publish_profile, log),
-            DbObject::Function(function) => function.generate(changeset, target, publish_profile, log),
-            DbObject::Index(index) => index.generate(changeset, target, publish_profile, log),
-            DbObject::Schema(schema) => schema.generate(changeset, target, publish_profile, log),
-            DbObject::Script(script) => script.generate(changeset, target, publish_profile, log),
-            DbObject::Table(table) => table.generate(changeset, target, publish_profile, log),
-            DbObject::Type(ty) => ty.generate(changeset, target, publish_profile, log),
+            DbObject::Column(table, column) => LinkedColumn { table: &table, column: &column }.generate(change_set, target, target_capabilities, publish_profile, log),
+            DbObject::Constraint(table, constraint) => LinkedTableConstraint { table: &table, constraint: &constraint }.generate(change_set, target, target_capabilities, publish_profile, log),
+            DbObject::Extension(dependency) => ExtensionDefinition { name: &dependency.name, version: &dependency.version }.generate(change_set, target, target_capabilities, publish_profile, log),
+            DbObject::Function(function) => function.generate(change_set, target, target_capabilities, publish_profile, log),
+            DbObject::Index(index) => index.generate(change_set, target, target_capabilities, publish_profile, log),
+            DbObject::Schema(schema) => schema.generate(change_set, target, target_capabilities, publish_profile, log),
+            DbObject::Script(script) => script.generate(change_set, target, target_capabilities, publish_profile, log),
+            DbObject::Table(table) => table.generate(change_set, target, target_capabilities, publish_profile, log),
+            DbObject::Type(ty) => ty.generate(change_set, target, target_capabilities, publish_profile, log),
         }
     }
 }
 
-impl<'a> Diffable<'a, Package> for &'a ExtensionDefinition {
+struct ExtensionDefinition<'a> {
+    name: &'a String,
+    version: &'a Option<Semver>,
+}
+
+impl<'a> Diffable<'a, Package> for ExtensionDefinition<'a> {
     fn generate(
         &self,
-        changeset: &mut Vec<ChangeInstruction<'a>>,
-        _: &Package,
-        _: &PublishProfile,
-        _: &Logger,
+        change_set: &mut Vec<ChangeInstruction<'a>>,
+        _target: &Package,
+        target_capabilities: &Capabilities,
+        profile: &PublishProfile,
+        _log: &Logger,
     ) -> PsqlpackResult<()> {
-        changeset.push(ChangeInstruction::AssertExtension(self));
+        let mut available =
+                    target_capabilities.extensions
+                        .iter()
+                        .filter(|e| e.name.eq(self.name))
+                        .collect::<Vec<_>>();
+        available.sort_by(|a, b| b.version.cmp(&a.version));
+
+        // First of all, check to see what is installed
+        let installed = available
+                        .iter()
+                        .filter(|e| e.installed)
+                        .count();
+
+        // Nothing is installed
+        if installed == 0 {
+            // See if something is available to install first.
+            let available_version = if let Some(ref version) = self.version {
+                available
+                    .iter()
+                    .any(|e|e.version.eq( version))
+            } else {
+                !available.is_empty()
+            };
+            if available_version {
+                change_set.push(ChangeInstruction::CreateExtension(self.name.to_string(), *self.version));
+            } else {
+                if let Some(ref version) = self.version {
+                    bail!(PublishError(format!("Extension {} version {} not available to install", self.name, version)))
+                }
+                bail!(PublishError(format!("Extension {} not available to install", self.name)))
+            }
+        } else {
+            // Something is installed - verify if we need to upgrade.
+            if let Some(ref version) = self.version {
+                // A SPECIFIC version is specified so check to see if it is available
+                let version_available = available
+                    .iter()
+                    .filter(|e| e.version.eq(version))
+                    .nth(0);
+                if let Some(v) = version_available {
+                    // It's available so if it is not installed then upgrade
+                    if !v.installed {
+                        match profile.generation_options.upgrade_extensions {
+                            Toggle::Allow => {
+                                change_set.push(ChangeInstruction::UpgradeExtension(self.name.to_string(), *self.version));
+                            }
+                            Toggle::Error => {
+                                bail!(PublishUnsafeOperationError(format!(
+                                    "Extension {} version {} is available to upgrade",
+                                    v.name,
+                                    v.version,
+                                )));
+                            }
+                            Toggle::Ignore => {}
+                        }
+                    }
+                } else {
+                    // It's not installed and not available... error!
+                    bail!(PublishError(format!("Expecting extension {} version {} to be installed", self.name, version)));
+                }
+            } else {
+                // No version specified - are we on the latest?
+                if !available[0].installed {
+                    match profile.generation_options.upgrade_extensions {
+                        Toggle::Allow => {
+                            change_set.push(ChangeInstruction::UpgradeExtension(self.name.to_string(), *self.version));
+                        }
+                        Toggle::Error => {
+                            bail!(PublishUnsafeOperationError(format!(
+                                "Extension {} version {} is available to upgrade",
+                                available[0].name,
+                                available[0].version,
+                            )));
+                        }
+                        Toggle::Ignore => {}
+                    }
+                }
+            }
+        }
         Ok(())
     }
 }
@@ -94,15 +181,16 @@ impl<'a> Diffable<'a, Package> for &'a ExtensionDefinition {
 impl<'a> Diffable<'a, Package> for &'a FunctionDefinition {
     fn generate(
         &self,
-        changeset: &mut Vec<ChangeInstruction<'a>>,
-        _: &Package,
-        _: &PublishProfile,
-        _: &Logger,
+        change_set: &mut Vec<ChangeInstruction<'a>>,
+        _target: &Package,
+        _target_capabilities: &Capabilities,
+        _publish_profile: &PublishProfile,
+        _log: &Logger,
     ) -> PsqlpackResult<()> {
         // Since we don't really need to worry about this in PG we just
         // add it as is and rely on CREATE OR REPLACE. In the future, it'd
         // be good to check the hash or something to only do this when required
-        changeset.push(ChangeInstruction::ModifyFunction(self));
+        change_set.push(ChangeInstruction::ModifyFunction(self));
         Ok(())
     }
 }
@@ -110,15 +198,16 @@ impl<'a> Diffable<'a, Package> for &'a FunctionDefinition {
 impl<'a> Diffable<'a, Package> for &'a SchemaDefinition {
     fn generate(
         &self,
-        changeset: &mut Vec<ChangeInstruction<'a>>,
+        change_set: &mut Vec<ChangeInstruction<'a>>,
         target: &Package,
-        _: &PublishProfile,
-        _: &Logger,
+        _target_capabilities: &Capabilities,
+        _publish_profile: &PublishProfile,
+        _log: &Logger,
     ) -> PsqlpackResult<()> {
         // Only add schema's, we do not drop them at this point
         let schema_exists = target.schemas.iter().any(|s| s.name == self.name);
         if !schema_exists {
-            changeset.push(ChangeInstruction::AddSchema(self));
+            change_set.push(ChangeInstruction::AddSchema(self));
         }
         Ok(())
     }
@@ -127,12 +216,13 @@ impl<'a> Diffable<'a, Package> for &'a SchemaDefinition {
 impl<'a> Diffable<'a, Package> for &'a ScriptDefinition {
     fn generate(
         &self,
-        changeset: &mut Vec<ChangeInstruction<'a>>,
-        _: &Package,
-        _: &PublishProfile,
-        _: &Logger,
+        change_set: &mut Vec<ChangeInstruction<'a>>,
+        _target: &Package,
+        _target_capabilities: &Capabilities,
+        _publish_profile: &PublishProfile,
+        _log: &Logger,
     ) -> PsqlpackResult<()> {
-        changeset.push(ChangeInstruction::RunScript(self));
+        change_set.push(ChangeInstruction::RunScript(self));
         Ok(())
     }
 }
@@ -140,8 +230,9 @@ impl<'a> Diffable<'a, Package> for &'a ScriptDefinition {
 impl<'a> Diffable<'a, Package> for &'a TableDefinition {
     fn generate(
         &self,
-        changeset: &mut Vec<ChangeInstruction<'a>>,
+        change_set: &mut Vec<ChangeInstruction<'a>>,
         target: &Package,
+        _target_capabilities: &Capabilities,
         publish_profile: &PublishProfile,
         _log: &Logger,
     ) -> PsqlpackResult<()> {
@@ -152,7 +243,7 @@ impl<'a> Diffable<'a, Package> for &'a TableDefinition {
                 if !self.columns.iter().any(|src| tgt.name.eq(&src.name)) {
                     // Column in target but not in source
                     match publish_profile.generation_options.drop_columns {
-                        Toggle::Allow => changeset.push(ChangeInstruction::DropColumn(self, tgt.name.to_owned())),
+                        Toggle::Allow => change_set.push(ChangeInstruction::DropColumn(self, tgt.name.to_owned())),
                         Toggle::Error => {
                             bail!(PublishUnsafeOperationError(format!(
                                 "Unable to drop column as dropping columns is currently disabled: {}",
@@ -190,12 +281,12 @@ impl<'a> Diffable<'a, Package> for &'a TableDefinition {
                         }
                     };
                     if remove_ok {
-                        changeset.push(ChangeInstruction::DropConstraint(self, tgt.name().to_owned()));
+                        change_set.push(ChangeInstruction::DropConstraint(self, tgt.name().to_owned()));
                     }
                 }
             }
         } else {
-            changeset.push(ChangeInstruction::AddTable(self));
+            change_set.push(ChangeInstruction::AddTable(self));
         }
         Ok(())
     }
@@ -209,8 +300,9 @@ struct LinkedColumn<'a> {
 impl<'a> Diffable<'a, Package> for LinkedColumn<'a> {
     fn generate(
         &self,
-        changeset: &mut Vec<ChangeInstruction<'a>>,
+        change_set: &mut Vec<ChangeInstruction<'a>>,
         target: &Package,
+        _target_capabilities: &Capabilities,
         _publish_profile: &PublishProfile,
         _log: &Logger,
     ) -> PsqlpackResult<()> {
@@ -224,7 +316,7 @@ impl<'a> Diffable<'a, Package> for LinkedColumn<'a> {
             if let Some(target_column) = target_column {
                 // Check the type
                 if !self.column.sql_type.eq(&target_column.sql_type) {
-                    changeset.push(ChangeInstruction::ModifyColumnType(self.table, &self.column));
+                    change_set.push(ChangeInstruction::ModifyColumnType(self.table, &self.column));
                 }
 
                 // Check column constraints
@@ -234,10 +326,18 @@ impl<'a> Diffable<'a, Package> for LinkedColumn<'a> {
                 // target_set - src_set (e.g. adding new constraints)
                 for x in target_set.difference(&src_set) {
                     match *x {
-                        ColumnConstraint::Null | ColumnConstraint::NotNull => changeset.push(ChangeInstruction::ModifyColumnNull(self.table, &self.column)),
-                        ColumnConstraint::Default(_) => changeset.push(ChangeInstruction::ModifyColumnDefault(self.table, &self.column)),
-                        ColumnConstraint::Unique => changeset.push(ChangeInstruction::ModifyColumnUniqueConstraint(self.table, &self.column)),
-                        ColumnConstraint::PrimaryKey => changeset.push(ChangeInstruction::ModifyColumnPrimaryKeyConstraint(self.table, &self.column)),
+                        ColumnConstraint::Null => {
+                            // This is a strange one - first check if the source specifies not null.
+                            // If it doesn't then it's likely implicitly implied to be null.
+                            // Also, we only check not null as if null is specified then we've got nothing to change!
+                            if self.column.constraints.iter().any(|c| ColumnConstraint::NotNull.eq(c)) {
+                                change_set.push(ChangeInstruction::ModifyColumnNull(self.table, &self.column));
+                            }
+                        },
+                        ColumnConstraint::NotNull => change_set.push(ChangeInstruction::ModifyColumnNull(self.table, &self.column)),
+                        ColumnConstraint::Default(_) => change_set.push(ChangeInstruction::ModifyColumnDefault(self.table, &self.column)),
+                        ColumnConstraint::Unique => change_set.push(ChangeInstruction::ModifyColumnUniqueConstraint(self.table, &self.column)),
+                        ColumnConstraint::PrimaryKey => change_set.push(ChangeInstruction::ModifyColumnPrimaryKeyConstraint(self.table, &self.column)),
                     }
                 }
 
@@ -245,7 +345,7 @@ impl<'a> Diffable<'a, Package> for LinkedColumn<'a> {
 
             } else {
                 // Doesn't exist, add it
-                changeset.push(ChangeInstruction::AddColumn(self.table, &self.column));
+                change_set.push(ChangeInstruction::AddColumn(self.table, &self.column));
             }
         }
         Ok(())
@@ -260,8 +360,9 @@ struct LinkedTableConstraint<'a> {
 impl<'a> Diffable<'a, Package> for LinkedTableConstraint<'a> {
     fn generate(
         &self,
-        changeset: &mut Vec<ChangeInstruction<'a>>,
+        change_set: &mut Vec<ChangeInstruction<'a>>,
         target: &Package,
+        _target_capabilities: &Capabilities,
         publish_profile: &PublishProfile,
         _log: &Logger,
     ) -> PsqlpackResult<()> {
@@ -365,17 +466,17 @@ impl<'a> Diffable<'a, Package> for LinkedTableConstraint<'a> {
                         }
                     };
                     if remove_ok {
-                        changeset.push(ChangeInstruction::DropConstraint(self.table, self.constraint.name().to_owned()));
-                        changeset.push(ChangeInstruction::AddConstraint(self.table, self.constraint));
+                        change_set.push(ChangeInstruction::DropConstraint(self.table, self.constraint.name().to_owned()));
+                        change_set.push(ChangeInstruction::AddConstraint(self.table, self.constraint));
                     }
                 }
             } else {
                 // Doesn't exist, add it
-                changeset.push(ChangeInstruction::AddConstraint(self.table, &self.constraint));
+                change_set.push(ChangeInstruction::AddConstraint(self.table, &self.constraint));
             }
 
         } else {
-            changeset.push(ChangeInstruction::AddConstraint(self.table, &self.constraint));
+            change_set.push(ChangeInstruction::AddConstraint(self.table, &self.constraint));
         }
         Ok(())
     }
@@ -384,8 +485,9 @@ impl<'a> Diffable<'a, Package> for LinkedTableConstraint<'a> {
 impl<'a> Diffable<'a, Package> for &'a IndexDefinition {
     fn generate(
         &self,
-        changeset: &mut Vec<ChangeInstruction<'a>>,
+        change_set: &mut Vec<ChangeInstruction<'a>>,
         target: &Package,
+        _target_capabilities: &Capabilities,
         publish_profile: &PublishProfile,
         _log: &Logger,
     ) -> PsqlpackResult<()> {
@@ -395,11 +497,11 @@ impl<'a> Diffable<'a, Package> for &'a IndexDefinition {
         if let Some(index) = index {
             // We should be able to just use an eq for this since column ordering is significant
             if index.ne(self) {
-                changeset.push(ChangeInstruction::DropIndex(self.fully_qualified_name(), concurrently));
-                changeset.push(ChangeInstruction::AddIndex(self, concurrently));
+                change_set.push(ChangeInstruction::DropIndex(self.fully_qualified_name(), concurrently));
+                change_set.push(ChangeInstruction::AddIndex(self, concurrently));
             }
         } else {
-            changeset.push(ChangeInstruction::AddIndex(self, concurrently));
+            change_set.push(ChangeInstruction::AddIndex(self, concurrently));
         }
         Ok(())
     }
@@ -408,16 +510,17 @@ impl<'a> Diffable<'a, Package> for &'a IndexDefinition {
 impl<'a> Diffable<'a, Package> for &'a TypeDefinition {
     fn generate(
         &self,
-        changeset: &mut Vec<ChangeInstruction<'a>>,
+        change_set: &mut Vec<ChangeInstruction<'a>>,
         target: &Package,
+        _target_capabilities: &Capabilities,
         publish_profile: &PublishProfile,
         log: &Logger,
     ) -> PsqlpackResult<()> {
         let ty = target.types.iter().find(|t| t.name == self.name);
         if let Some(ty) = ty {
-            self.generate(changeset, ty, publish_profile, log)
+            self.generate(change_set, ty, _target_capabilities, publish_profile, log)
         } else {
-            changeset.push(ChangeInstruction::AddType(self));
+            change_set.push(ChangeInstruction::AddType(self));
             Ok(())
         }
     }
@@ -426,10 +529,11 @@ impl<'a> Diffable<'a, Package> for &'a TypeDefinition {
 impl<'a> Diffable<'a, TypeDefinition> for &'a TypeDefinition {
     fn generate(
         &self,
-        changeset: &mut Vec<ChangeInstruction<'a>>,
+        change_set: &mut Vec<ChangeInstruction<'a>>,
         target: &TypeDefinition,
+        _target_capabilities: &Capabilities,
         publish_profile: &PublishProfile,
-        _: &Logger,
+        _log: &Logger,
     ) -> PsqlpackResult<()> {
         if self.name.ne(&target.name) {
             bail!(PublishInvalidOperationError(format!(
@@ -456,7 +560,7 @@ impl<'a> Diffable<'a, TypeDefinition> for &'a TypeDefinition {
                         if !to_delete.is_empty() {
                             match publish_profile.generation_options.drop_enum_values {
                                 Toggle::Allow => {
-                                    changeset.extend(
+                                    change_set.extend(
                                         to_delete
                                             .drain(..)
                                             .map(|d| ChangeInstruction::ModifyType(self, d)),
@@ -483,7 +587,7 @@ impl<'a> Diffable<'a, TypeDefinition> for &'a TypeDefinition {
                         for value in source_values {
                             if !working.contains(&value) {
                                 if index == 0 {
-                                    changeset.push(ChangeInstruction::ModifyType(
+                                    change_set.push(ChangeInstruction::ModifyType(
                                         self,
                                         TypeModificationAction::AddEnumValueBefore {
                                             value: value.to_owned(),
@@ -492,7 +596,7 @@ impl<'a> Diffable<'a, TypeDefinition> for &'a TypeDefinition {
                                     ));
                                     working.insert(0, value);
                                 } else {
-                                    changeset.push(ChangeInstruction::ModifyType(
+                                    change_set.push(ChangeInstruction::ModifyType(
                                         self,
                                         TypeModificationAction::AddEnumValueAfter {
                                             value: value.to_owned(),
@@ -521,17 +625,18 @@ impl<'package> Delta<'package> {
         package: &'package Package,
         target: Option<Package>,
         target_database_name: String,
+        target_capabilities: Capabilities,
         publish_profile: PublishProfile,
     ) -> PsqlpackResult<Delta<'package>> {
         let log = log.new(o!("delta" => "generate"));
 
-        // Start the changeset
-        let mut changeset = Vec::new();
+        // Start the change_set
+        let mut change_set = Vec::new();
 
         // If we always recreate then add a drop and set to false
         let mut target = target;
         if target.is_some() && publish_profile.generation_options.always_recreate_database {
-            changeset.push(ChangeInstruction::DropDatabase(
+            change_set.push(ChangeInstruction::DropDatabase(
                 target_database_name.to_owned(),
             ));
             target = None;
@@ -541,7 +646,7 @@ impl<'package> Delta<'package> {
         let target_package = match target {
             Some(target_package) => target_package,
             None => {
-                changeset.push(ChangeInstruction::CreateDatabase(
+                change_set.push(ChangeInstruction::CreateDatabase(
                     target_database_name.to_owned(),
                 ));
                 Package::new()
@@ -549,7 +654,7 @@ impl<'package> Delta<'package> {
         };
 
         // Set the connection instruction
-        changeset.push(ChangeInstruction::UseDatabase(
+        change_set.push(ChangeInstruction::UseDatabase(
             target_database_name.to_owned(),
         ));
 
@@ -582,7 +687,7 @@ impl<'package> Delta<'package> {
         for index in &target_package.indexes {
             if !package.indexes.iter().any(|idx| idx.is_same_index(&index)) {
                 match publish_profile.generation_options.drop_indexes {
-                    Toggle::Allow => changeset.push(ChangeInstruction::DropIndex(index.fully_qualified_name(), publish_profile.generation_options.force_concurrent_indexes)),
+                    Toggle::Allow => change_set.push(ChangeInstruction::DropIndex(index.fully_qualified_name(), publish_profile.generation_options.force_concurrent_indexes)),
                     Toggle::Error => bail!(
                                         PublishUnsafeOperationError(
                                             format!("Attempted to drop index {} however dropping indexes is currently disabled", index.name)
@@ -597,7 +702,7 @@ impl<'package> Delta<'package> {
         for function in &target_package.functions {
             if !package.functions.iter().any(|t| t.name.eq(&function.name)) {
                 match publish_profile.generation_options.drop_functions {
-                    Toggle::Allow => changeset.push(ChangeInstruction::DropFunction(function.name.to_string())),
+                    Toggle::Allow => change_set.push(ChangeInstruction::DropFunction(function.name.to_string())),
                     Toggle::Error => bail!(
                                         PublishUnsafeOperationError(
                                             format!("Attempted to drop function {} however dropping functions is currently disabled", function.name)
@@ -612,7 +717,7 @@ impl<'package> Delta<'package> {
         for table in &target_package.tables {
             if !package.tables.iter().any(|t| t.name.eq(&table.name)) {
                 match publish_profile.generation_options.drop_tables {
-                    Toggle::Allow => changeset.push(ChangeInstruction::DropTable(table.name.to_string())),
+                    Toggle::Allow => change_set.push(ChangeInstruction::DropTable(table.name.to_string())),
                     Toggle::Error => bail!(
                                         PublishUnsafeOperationError(
                                             format!("Attempted to drop table {} however dropping tables is currently disabled", table.name)
@@ -659,21 +764,21 @@ impl<'package> Delta<'package> {
 
         // Go through each item in order and figure out what to do with it
         for item in &build_order {
-            item.generate(&mut changeset, &target_package, &publish_profile, &log)?;
+            item.generate(&mut change_set, &target_package, &target_capabilities, &publish_profile, &log)?;
         }
 
-        Ok(Delta(changeset))
+        Ok(Delta(change_set))
     }
 
     pub fn apply(&self, log: &Logger, connection: &Connection) -> PsqlpackResult<()> {
         let log = log.new(o!("delta" => "apply"));
 
-        let changeset = &self.0;
+        let change_set = &self.0;
 
         // These instructions turn into SQL statements that get executed
         let mut conn = connection.connect_host()?;
 
-        for change in changeset.iter() {
+        for change in change_set.iter() {
             if let ChangeInstruction::UseDatabase(..) = *change {
                 conn.finish().chain_err(|| DatabaseConnectionFinishError)?;
                 conn = connection.connect_database()?;
@@ -694,12 +799,12 @@ impl<'package> Delta<'package> {
     }
 
     pub fn write_report(&self, destination: &Path) -> PsqlpackResult<()> {
-        let changeset = &self.0;
+        let change_set = &self.0;
 
         File::create(destination)
             .chain_err(|| GenerationError("Failed to generate report".to_owned()))
             .and_then(|writer| {
-                serde_json::to_writer_pretty(writer, &changeset)
+                serde_json::to_writer_pretty(writer, &change_set)
                     .chain_err(|| GenerationError("Failed to generate report".to_owned()))
             })?;
 
@@ -707,7 +812,7 @@ impl<'package> Delta<'package> {
     }
 
     pub fn write_sql(&self, log: &Logger, destination: &Path) -> PsqlpackResult<()> {
-        let changeset = &self.0;
+        let change_set = &self.0;
 
         // These instructions turn into a single SQL file
         let mut out = match File::create(destination) {
@@ -717,7 +822,7 @@ impl<'package> Delta<'package> {
             )),
         };
 
-        for change in changeset.iter() {
+        for change in change_set.iter() {
             let sql = change.to_sql(log);
             match out.write_all(sql.as_bytes()) {
                 Ok(_) => {
@@ -747,8 +852,9 @@ pub enum ChangeInstruction<'input> {
     CreateDatabase(String),
     UseDatabase(String),
 
-    // Extensions
-    AssertExtension(&'input ExtensionDefinition),
+    // Extensions - no delete for now
+    CreateExtension(String, Option<Semver>),
+    UpgradeExtension(String, Option<Semver>),
 
     // Schema
     AddSchema(&'input SchemaDefinition),
@@ -808,7 +914,20 @@ impl<'input> fmt::Display for ChangeInstruction<'input> {
             UseDatabase(ref database) => write!(f, "Use database: {}", database),
 
             // Extensions
-            AssertExtension(extension) => write!(f, "Assert extension: {}", extension.name),
+            CreateExtension(ref name, ref version) => {
+                if let Some(ref version) = version {
+                    write!(f, "Create extension: {} version {}", name, version)
+                } else {
+                    write!(f, "Create extension: {}", name)
+                }
+            },
+            UpgradeExtension(ref name, ref version) => {
+                if let Some(ref version) = version {
+                    write!(f, "Upgrade extension: {} version {}", name, version)
+                } else {
+                    write!(f, "Upgrade extension: {}", name)
+                }
+            },
 
             // Schema
             AddSchema(schema) => write!(f, "Add schema: {}", schema.name),
@@ -887,7 +1006,20 @@ impl<'input> ChangeInstruction<'input> {
             ChangeInstruction::UseDatabase(ref db) => format!("-- Using database `{}`", db),
 
             // Extension level
-            ChangeInstruction::AssertExtension(ext) => format!("-- Assert extension exists {}", ext.name),
+            ChangeInstruction::CreateExtension(ref name, ref version) => {
+                if let Some(ref version) = version {
+                    format!("CREATE EXTENSION {} WITH VERSION \"{}\"", name, version)
+                } else {
+                    format!("CREATE EXTENSION {}", name)
+                }
+            },
+            ChangeInstruction::UpgradeExtension(ref name, ref version) => {
+                if let Some(ref version) = version {
+                    format!("ALTER EXTENSION {} UPDATE TO \"{}\"", name, version)
+                } else {
+                    format!("ALTER EXTENSION {} UPDATE", name)
+                }
+            },
 
             // Schema level
             ChangeInstruction::AddSchema(schema) => if schema.name == "public" {
@@ -1243,6 +1375,7 @@ impl<'input> ChangeInstruction<'input> {
 mod tests {
     use super::*;
 
+    use crate::Semver;
     use errors::PsqlpackError;
     use model::*;
     use sql::ast;
@@ -1268,15 +1401,24 @@ mod tests {
 
         // Create an empty package (i.e. so it needs to create the type)
         let existing_database = Package::new();
+        let capabilities = Capabilities {
+            server_version: Semver::new(9, 6, None),
+            extensions: Vec::new(),
+            database_exists: true,
+        };
         let publish_profile = PublishProfile::default();
 
-        let mut changeset = Vec::new();
-        let result = (&source_type).generate(&mut changeset, &existing_database, &publish_profile, &log);
+        let mut change_set = Vec::new();
+        let result = (&source_type).generate(&mut change_set,
+                                             &existing_database,
+                                             &capabilities,
+                                             &publish_profile,
+                                             &log);
         assert_that!(result).is_ok();
 
         // We should have a single instruction to add
-        assert_that!(changeset).has_length(1);
-        match changeset[0] {
+        assert_that!(change_set).has_length(1);
+        match change_set[0] {
             ChangeInstruction::AddType(ref ty) => {
                 assert_that!(ty.name).is_equal_to("colors".to_owned());
                 let values = match ty.kind {
@@ -1291,7 +1433,7 @@ mod tests {
         }
 
         // Check the SQL generation
-        assert_that!(changeset[0].to_sql(&log))
+        assert_that!(change_set[0].to_sql(&log))
             .is_equal_to("CREATE TYPE colors AS ENUM (\n  'red',\n  'green',\n  'blue'\n)".to_owned());
     }
 
@@ -1303,14 +1445,23 @@ mod tests {
         // Create a package with the type already defined (same as base type)
         let mut existing_database = Package::new();
         existing_database.types.push(base_type());
+        let capabilities = Capabilities {
+            server_version: Semver::new(9, 6, None),
+            extensions: Vec::new(),
+            database_exists: true,
+        };
         let publish_profile = PublishProfile::default();
 
-        let mut changeset = Vec::new();
-        let result = (&source_type).generate(&mut changeset, &existing_database, &publish_profile, &log);
+        let mut change_set = Vec::new();
+        let result = (&source_type).generate(&mut change_set,
+                                             &existing_database,
+                                             &capabilities,
+                                             &publish_profile,
+                                             &log);
         assert_that!(result).is_ok();
 
         // We should have a single instruction to add
-        assert_that!(changeset).is_empty();
+        assert_that!(change_set).is_empty();
     }
 
     #[test]
@@ -1329,15 +1480,24 @@ mod tests {
         // Create a package with the type already defined
         let mut existing_database = Package::new();
         existing_database.types.push(base_type());
+        let capabilities = Capabilities {
+            server_version: Semver::new(9, 6, None),
+            extensions: Vec::new(),
+            database_exists: true,
+        };
         let publish_profile = PublishProfile::default();
 
-        let mut changeset = Vec::new();
-        let result = (&source_type).generate(&mut changeset, &existing_database, &publish_profile, &log);
+        let mut change_set = Vec::new();
+        let result = (&source_type).generate(&mut change_set,
+                                             &existing_database,
+                                             &capabilities,
+                                             &publish_profile,
+                                             &log);
         assert_that!(result).is_ok();
 
         // We should have a single instruction to modify the enum with an additional value
-        assert_that!(changeset).has_length(1);
-        match changeset[0] {
+        assert_that!(change_set).has_length(1);
+        match change_set[0] {
             ChangeInstruction::ModifyType(ty, ref action) => {
                 assert_that!(ty.name).is_equal_to("colors".to_owned());
 
@@ -1357,7 +1517,7 @@ mod tests {
         }
 
         // Check the SQL generation
-        assert_that!(changeset[0].to_sql(&log)).is_equal_to("ALTER TYPE colors ADD VALUE 'black' AFTER 'blue'".to_owned());
+        assert_that!(change_set[0].to_sql(&log)).is_equal_to("ALTER TYPE colors ADD VALUE 'black' AFTER 'blue'".to_owned());
     }
 
     #[test]
@@ -1376,15 +1536,24 @@ mod tests {
         // Create a package with the type already defined
         let mut existing_database = Package::new();
         existing_database.types.push(base_type());
+        let capabilities = Capabilities {
+            server_version: Semver::new(9, 6, None),
+            extensions: Vec::new(),
+            database_exists: true,
+        };
         let publish_profile = PublishProfile::default();
 
-        let mut changeset = Vec::new();
-        let result = (&source_type).generate(&mut changeset, &existing_database, &publish_profile, &log);
+        let mut change_set = Vec::new();
+        let result = (&source_type).generate(&mut change_set,
+                                             &existing_database,
+                                             &capabilities,
+                                             &publish_profile,
+                                             &log);
         assert_that!(result).is_ok();
 
         // We should have a single instruction to modify the enum with an additional value
-        assert_that!(changeset).has_length(1);
-        match changeset[0] {
+        assert_that!(change_set).has_length(1);
+        match change_set[0] {
             ChangeInstruction::ModifyType(ty, ref action) => {
                 assert_that!(ty.name).is_equal_to("colors".to_owned());
 
@@ -1404,7 +1573,7 @@ mod tests {
         }
 
         // Check the SQL generation
-        assert_that!(changeset[0].to_sql(&log)).is_equal_to("ALTER TYPE colors ADD VALUE 'black' BEFORE 'red'".to_owned());
+        assert_that!(change_set[0].to_sql(&log)).is_equal_to("ALTER TYPE colors ADD VALUE 'black' BEFORE 'red'".to_owned());
     }
 
     #[test]
@@ -1423,15 +1592,24 @@ mod tests {
         // Create a package with the type already defined
         let mut existing_database = Package::new();
         existing_database.types.push(base_type());
+        let capabilities = Capabilities {
+            server_version: Semver::new(9, 6, None),
+            extensions: Vec::new(),
+            database_exists: true,
+        };
         let publish_profile = PublishProfile::default();
 
-        let mut changeset = Vec::new();
-        let result = (&source_type).generate(&mut changeset, &existing_database, &publish_profile, &log);
+        let mut change_set = Vec::new();
+        let result = (&source_type).generate(&mut change_set,
+                                             &existing_database,
+                                             &capabilities,
+                                             &publish_profile,
+                                             &log);
         assert_that!(result).is_ok();
 
         // We should have a single instruction to modify the enum with an additional value
-        assert_that!(changeset).has_length(1);
-        match changeset[0] {
+        assert_that!(change_set).has_length(1);
+        match change_set[0] {
             ChangeInstruction::ModifyType(ty, ref action) => {
                 assert_that!(ty.name).is_equal_to("colors".to_owned());
 
@@ -1451,7 +1629,7 @@ mod tests {
         }
 
         // Check the SQL generation
-        assert_that!(changeset[0].to_sql(&log)).is_equal_to("ALTER TYPE colors ADD VALUE 'black' AFTER 'green'".to_owned());
+        assert_that!(change_set[0].to_sql(&log)).is_equal_to("ALTER TYPE colors ADD VALUE 'black' AFTER 'green'".to_owned());
     }
 
     #[test]
@@ -1469,18 +1647,27 @@ mod tests {
         // Create a package with the type already defined
         let mut existing_database = Package::new();
         existing_database.types.push(base_type());
+        let capabilities = Capabilities {
+            server_version: Semver::new(9, 6, None),
+            extensions: Vec::new(),
+            database_exists: true,
+        };
         let mut publish_profile = PublishProfile::default();
         publish_profile.generation_options.drop_enum_values = Toggle::Allow;
 
-        let mut changeset = Vec::new();
-        let result = (&source_type).generate(&mut changeset, &existing_database, &publish_profile, &log);
+        let mut change_set = Vec::new();
+        let result = (&source_type).generate(&mut change_set,
+                                             &existing_database,
+                                             &capabilities,
+                                             &publish_profile,
+                                             &log);
         assert_that!(result).is_ok();
 
         // We should have a single instruction to modify the enum with an additional value
-        assert_that!(changeset).has_length(2);
+        assert_that!(change_set).has_length(2);
 
         // Removals first
-        match changeset[0] {
+        match change_set[0] {
             ChangeInstruction::ModifyType(ty, ref action) => {
                 assert_that!(ty.name).is_equal_to("colors".to_owned());
 
@@ -1495,7 +1682,7 @@ mod tests {
             ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
         }
         // Check the SQL generation
-        assert_that!(changeset[0].to_sql(&log)).is_equal_to(
+        assert_that!(change_set[0].to_sql(&log)).is_equal_to(
             "DELETE FROM pg_enum \
              WHERE enumlabel = 'red' AND \
              enumtypid = (SELECT oid FROM pg_type WHERE typname = 'colors')"
@@ -1503,7 +1690,7 @@ mod tests {
         );
 
         // Additions second
-        match changeset[1] {
+        match change_set[1] {
             ChangeInstruction::ModifyType(ty, ref action) => {
                 assert_that!(ty.name).is_equal_to("colors".to_owned());
 
@@ -1522,7 +1709,7 @@ mod tests {
             ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
         }
         // Check the SQL generation
-        assert_that!(changeset[1].to_sql(&log)).is_equal_to("ALTER TYPE colors ADD VALUE 'black' BEFORE 'green'".to_owned());
+        assert_that!(change_set[1].to_sql(&log)).is_equal_to("ALTER TYPE colors ADD VALUE 'black' BEFORE 'green'".to_owned());
     }
 
     #[test]
@@ -1540,10 +1727,19 @@ mod tests {
         // Create a package with the type already defined
         let mut existing_database = Package::new();
         existing_database.types.push(base_type());
+        let capabilities = Capabilities {
+            server_version: Semver::new(9, 6, None),
+            extensions: Vec::new(),
+            database_exists: true,
+        };
         let publish_profile = PublishProfile::default();
 
-        let mut changeset = Vec::new();
-        let result = (&source_type).generate(&mut changeset, &existing_database, &publish_profile, &log);
+        let mut change_set = Vec::new();
+        let result = (&source_type).generate(&mut change_set,
+                                             &existing_database,
+                                             &capabilities,
+                                             &publish_profile,
+                                             &log);
         assert_that!(result).is_err();
         match result.err().unwrap() {
             PsqlpackError(PublishUnsafeOperationError(_), _) => {}
@@ -1565,18 +1761,27 @@ mod tests {
         // Create a package with the type already defined
         let mut existing_database = Package::new();
         existing_database.types.push(base_type());
+        let capabilities = Capabilities {
+            server_version: Semver::new(9, 6, None),
+            extensions: Vec::new(),
+            database_exists: true,
+        };
         let mut publish_profile = PublishProfile::default();
         publish_profile.generation_options.drop_enum_values = Toggle::Allow;
 
-        let mut changeset = Vec::new();
-        let result = (&source_type).generate(&mut changeset, &existing_database, &publish_profile, &log);
+        let mut change_set = Vec::new();
+        let result = (&source_type).generate(&mut change_set,
+                                             &existing_database,
+                                             &capabilities,
+                                             &publish_profile,
+                                             &log);
         assert_that!(result).is_ok();
 
         // We should have a single instruction to modify the enum with an additional value
-        assert_that!(changeset).has_length(1);
+        assert_that!(change_set).has_length(1);
 
         // Removals first
-        match changeset[0] {
+        match change_set[0] {
             ChangeInstruction::ModifyType(ty, ref action) => {
                 assert_that!(ty.name).is_equal_to("colors".to_owned());
 
@@ -1591,7 +1796,7 @@ mod tests {
             ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
         }
         // Check the SQL generation
-        assert_that!(changeset[0].to_sql(&log)).is_equal_to(
+        assert_that!(change_set[0].to_sql(&log)).is_equal_to(
             "DELETE FROM pg_enum \
              WHERE enumlabel = 'red' AND \
              enumtypid = (SELECT oid FROM pg_type WHERE typname = 'colors')"
@@ -1640,15 +1845,24 @@ mod tests {
 
         // Create an empty database
         let existing_database = Package::new();
+        let capabilities = Capabilities {
+            server_version: Semver::new(9, 6, None),
+            extensions: Vec::new(),
+            database_exists: true,
+        };
         let publish_profile = PublishProfile::default();
 
-        let mut changeset = Vec::new();
-        let result = (&source_table).generate(&mut changeset, &existing_database, &publish_profile, &log);
+        let mut change_set = Vec::new();
+        let result = (&source_table).generate(&mut change_set,
+                                              &existing_database,
+                                              &capabilities,
+                                              &publish_profile,
+                                              &log);
         assert_that!(result).is_ok();
 
         // We should have a single instruction to create a new table
-        assert_that!(changeset).has_length(1);
-        match changeset[0] {
+        assert_that!(change_set).has_length(1);
+        match change_set[0] {
             ChangeInstruction::AddTable(ref table) => {
                 assert_that!(table.name.to_string()).is_equal_to("my.contacts".to_owned());
                 assert_that!(table.columns).has_length(3);
@@ -1661,7 +1875,7 @@ mod tests {
         }
 
         // Check the SQL generation
-        assert_that!(changeset[0].to_sql(&log))
+        assert_that!(change_set[0].to_sql(&log))
             .is_equal_to("CREATE TABLE my.contacts (\n\
                 \tid serial NOT NULL PRIMARY KEY,\n\
                 \tcompany_id bigint NOT NULL,\n\
@@ -1684,21 +1898,34 @@ mod tests {
         // Create a database with the base table already defined.
         let mut existing_database = Package::new();
         existing_database.tables.push(base_table());
+        let capabilities = Capabilities {
+            server_version: Semver::new(9, 6, None),
+            extensions: Vec::new(),
+            database_exists: true,
+        };
         let publish_profile = PublishProfile::default();
 
-        let mut changeset = Vec::new();
+        let mut change_set = Vec::new();
         // First, check that source table changes do nothing
-        let _ = (&source_table).generate(&mut changeset, &existing_database, &publish_profile, &log);
-        assert_that!(changeset).is_empty();
+        let _ = (&source_table).generate(&mut change_set,
+                                         &existing_database,
+                                         &capabilities,
+                                         &publish_profile,
+                                         &log);
+        assert_that!(change_set).is_empty();
 
         // Now we check with a linked column
         let result = LinkedColumn { table: &source_table, column: &source_table.columns.last().unwrap()}
-                        .generate(&mut changeset, &existing_database, &publish_profile, &log);
+                        .generate(&mut change_set,
+                                  &existing_database,
+                                  &capabilities,
+                                  &publish_profile,
+                                  &log);
         assert_that!(result).is_ok();
 
         // We should have a single instruction to create a new table
-        assert_that!(changeset).has_length(1);
-        match changeset[0] {
+        assert_that!(change_set).has_length(1);
+        match change_set[0] {
             ChangeInstruction::AddColumn(ref table, ref column) => {
                 assert_that!(table.name.to_string()).is_equal_to("my.contacts".to_owned());
                 assert_that!(column.name).is_equal_to("last_name".to_owned());
@@ -1709,7 +1936,7 @@ mod tests {
         }
 
         // Check the SQL generation
-        assert_that!(changeset[0].to_sql(&log))
+        assert_that!(change_set[0].to_sql(&log))
             .is_equal_to("ALTER TABLE my.contacts ADD COLUMN last_name varchar(100) NOT NULL".to_owned());
     }
 
@@ -1739,21 +1966,34 @@ mod tests {
             });
 
         existing_database.tables.push(existing_table);
+        let capabilities = Capabilities {
+            server_version: Semver::new(9, 6, None),
+            extensions: Vec::new(),
+            database_exists: true,
+        };
         let publish_profile = PublishProfile::default();
 
-        let mut changeset = Vec::new();
+        let mut change_set = Vec::new();
         // First, check that source table changes do nothing
-        let _ = (&source_table).generate(&mut changeset, &existing_database, &publish_profile, &log);
-        assert_that!(changeset).is_empty();
+        let _ = (&source_table).generate(&mut change_set,
+                                         &existing_database,
+                                         &capabilities,
+                                         &publish_profile,
+                                         &log);
+        assert_that!(change_set).is_empty();
 
         // Now we check with a linked column
         let result = LinkedColumn { table: &source_table, column: &source_table.columns.last().unwrap()}
-                        .generate(&mut changeset, &existing_database, &publish_profile, &log);
+                        .generate(&mut change_set,
+                                  &existing_database,
+                                  &capabilities,
+                                  &publish_profile,
+                                  &log);
         assert_that!(result).is_ok();
 
         // We should have a single instruction to create a new table
-        assert_that!(changeset).has_length(1);
-        match changeset[0] {
+        assert_that!(change_set).has_length(1);
+        match change_set[0] {
             ChangeInstruction::ModifyColumnType(ref table, ref column) => {
                 assert_that!(table.name.to_string()).is_equal_to("my.contacts".to_owned());
                 assert_that!(column.name).is_equal_to("last_name".to_owned());
@@ -1764,7 +2004,7 @@ mod tests {
         }
 
         // Check the SQL generation
-        assert_that!(changeset[0].to_sql(&log))
+        assert_that!(change_set[0].to_sql(&log))
             .is_equal_to("ALTER TABLE my.contacts ALTER COLUMN last_name TYPE varchar(200)".to_owned());
     }
 
@@ -1786,16 +2026,25 @@ mod tests {
             });
 
         existing_database.tables.push(existing_table);
+        let capabilities = Capabilities {
+            server_version: Semver::new(9, 6, None),
+            extensions: Vec::new(),
+            database_exists: true,
+        };
         let mut publish_profile = PublishProfile::default();
         publish_profile.generation_options.drop_columns = Toggle::Allow;
 
-        let mut changeset = Vec::new();
-        let result = (&source_table).generate(&mut changeset, &existing_database, &publish_profile, &log);
+        let mut change_set = Vec::new();
+        let result = (&source_table).generate(&mut change_set,
+                                              &existing_database,
+                                              &capabilities,
+                                              &publish_profile,
+                                              &log);
         assert_that!(result).is_ok();
 
         // We should have a single instruction to create a new table
-        assert_that!(changeset).has_length(1);
-        match changeset[0] {
+        assert_that!(change_set).has_length(1);
+        match change_set[0] {
             ChangeInstruction::DropColumn(ref table, ref column_name) => {
                 assert_that!(table.name.to_string()).is_equal_to("my.contacts".to_owned());
                 assert_that!(*column_name).is_equal_to("last_name".to_owned());
@@ -1804,7 +2053,7 @@ mod tests {
         }
 
         // Check the SQL generation
-        assert_that!(changeset[0].to_sql(&log))
+        assert_that!(change_set[0].to_sql(&log))
             .is_equal_to("ALTER TABLE my.contacts DROP COLUMN last_name".to_owned());
     }
 
@@ -1821,21 +2070,34 @@ mod tests {
         // Create a database with the base table already defined.
         let mut existing_database = Package::new();
         existing_database.tables.push(base_table());
+        let capabilities = Capabilities {
+            server_version: Semver::new(9, 6, None),
+            extensions: Vec::new(),
+            database_exists: true,
+        };
         let publish_profile = PublishProfile::default();
 
-        let mut changeset = Vec::new();
+        let mut change_set = Vec::new();
         // First, check that source table changes do nothing
-        let _ = (&source_table).generate(&mut changeset, &existing_database, &publish_profile, &log);
-        assert_that!(changeset).is_empty();
+        let _ = (&source_table).generate(&mut change_set,
+                                         &existing_database,
+                                         &capabilities,
+                                         &publish_profile,
+                                         &log);
+        assert_that!(change_set).is_empty();
 
         // Now we check with a linked table constraint
         let result = LinkedTableConstraint { table: &source_table, constraint: &source_table.constraints.first().unwrap()}
-                        .generate(&mut changeset, &existing_database, &publish_profile, &log);
+                        .generate(&mut change_set,
+                                  &existing_database,
+                                  &capabilities,
+                                  &publish_profile,
+                                  &log);
         assert_that!(result).is_ok();
 
         // We should have a single instruction to add a constraint
-        assert_that!(changeset).has_length(1);
-        match changeset[0] {
+        assert_that!(change_set).has_length(1);
+        match change_set[0] {
             ChangeInstruction::AddConstraint(ref table, ref constraint) => {
                 assert_that!(table.name.to_string()).is_equal_to("my.contacts".to_owned());
                 match *constraint {
@@ -1852,7 +2114,7 @@ mod tests {
         }
 
         // Check the SQL generation
-        assert_that!(changeset[0].to_sql(&log))
+        assert_that!(change_set[0].to_sql(&log))
             .is_equal_to("ALTER TABLE my.contacts\nADD CONSTRAINT pk_my_contacts_id PRIMARY KEY (id) WITH (FILLFACTOR=80)".to_owned());
     }
 
@@ -1870,17 +2132,26 @@ mod tests {
             parameters: Some(vec![IndexParameter::FillFactor(80)]),
         });
         existing_database.tables.push(existing_table);
+        let capabilities = Capabilities {
+            server_version: Semver::new(9, 6, None),
+            extensions: Vec::new(),
+            database_exists: true,
+        };
         let mut publish_profile = PublishProfile::default();
         publish_profile.generation_options.drop_primary_key_constraints = Toggle::Allow;
 
-        let mut changeset = Vec::new();
-        // This changeset gets generated at the table level
-        let result = (&source_table).generate(&mut changeset, &existing_database, &publish_profile, &log);
+        let mut change_set = Vec::new();
+        // This change_set gets generated at the table level
+        let result = (&source_table).generate(&mut change_set,
+                                              &existing_database,
+                                              &capabilities,
+                                              &publish_profile,
+                                              &log);
         assert_that!(result).is_ok();
 
         // We should have a single instruction to remove the constraint
-        assert_that!(changeset).has_length(1);
-        match changeset[0] {
+        assert_that!(change_set).has_length(1);
+        match change_set[0] {
             ChangeInstruction::DropConstraint(ref table, ref name) => {
                 assert_that!(table.name.to_string()).is_equal_to("my.contacts".to_owned());
                 assert_that!(*name).is_equal_to("pk_my_contacts_id".to_owned());
@@ -1889,7 +2160,7 @@ mod tests {
         }
 
         // Check the SQL generation
-        assert_that!(changeset[0].to_sql(&log))
+        assert_that!(change_set[0].to_sql(&log))
             .is_equal_to("ALTER TABLE my.contacts\nDROP CONSTRAINT pk_my_contacts_id".to_owned());
     }
 
@@ -1912,29 +2183,42 @@ mod tests {
                 parameters: Some(vec![IndexParameter::FillFactor(80)]),
             });
         existing_database.tables.push(existing_table);
+        let capabilities = Capabilities {
+            server_version: Semver::new(9, 6, None),
+            extensions: Vec::new(),
+            database_exists: true,
+        };
         let mut publish_profile = PublishProfile::default();
         publish_profile.generation_options.drop_primary_key_constraints = Toggle::Allow;
 
-        let mut changeset = Vec::new();
+        let mut change_set = Vec::new();
         // First, check that source table changes do nothing
-        let _ = (&source_table).generate(&mut changeset, &existing_database, &publish_profile, &log);
-        assert_that!(changeset).is_empty();
+        let _ = (&source_table).generate(&mut change_set,
+                                         &existing_database,
+                                         &capabilities,
+                                         &publish_profile,
+                                         &log);
+        assert_that!(change_set).is_empty();
 
         // Now we check with a linked table constraint
         let result = LinkedTableConstraint { table: &source_table, constraint: &source_table.constraints.first().unwrap()}
-                        .generate(&mut changeset, &existing_database, &publish_profile, &log);
+                        .generate(&mut change_set,
+                                  &existing_database,
+                                  &capabilities,
+                                  &publish_profile,
+                                  &log);
         assert_that!(result).is_ok();
 
         // Primary keys cannot be altered, so we drop/create
-        assert_that!(changeset).has_length(2);
-        match changeset[0] {
+        assert_that!(change_set).has_length(2);
+        match change_set[0] {
             ChangeInstruction::DropConstraint(ref table, ref name) => {
                 assert_that!(table.name.to_string()).is_equal_to("my.contacts".to_owned());
                 assert_that!(*name).is_equal_to("pk_my_contacts_id".to_owned());
             }
             ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
         }
-        match changeset[1] {
+        match change_set[1] {
             ChangeInstruction::AddConstraint(ref table, ref constraint) => {
                 assert_that!(table.name.to_string()).is_equal_to("my.contacts".to_owned());
                 match *constraint {
@@ -1951,9 +2235,9 @@ mod tests {
         }
 
         // Check the SQL generation
-        assert_that!(changeset[0].to_sql(&log))
+        assert_that!(change_set[0].to_sql(&log))
             .is_equal_to("ALTER TABLE my.contacts\nDROP CONSTRAINT pk_my_contacts_id".to_owned());
-        assert_that!(changeset[1].to_sql(&log))
+        assert_that!(change_set[1].to_sql(&log))
             .is_equal_to("ALTER TABLE my.contacts\nADD CONSTRAINT pk_my_contacts_id PRIMARY KEY (id) WITH (FILLFACTOR=80)".to_owned());
     }
 
@@ -1976,21 +2260,34 @@ mod tests {
         // Create a database with the base table already defined.
         let mut existing_database = Package::new();
         existing_database.tables.push(base_table());
+        let capabilities = Capabilities {
+            server_version: Semver::new(9, 6, None),
+            extensions: Vec::new(),
+            database_exists: true,
+        };
         let publish_profile = PublishProfile::default();
 
-        let mut changeset = Vec::new();
+        let mut change_set = Vec::new();
         // First, check that source table changes do nothing
-        let _ = (&source_table).generate(&mut changeset, &existing_database, &publish_profile, &log);
-        assert_that!(changeset).is_empty();
+        let _ = (&source_table).generate(&mut change_set,
+                                         &existing_database,
+                                         &capabilities,
+                                         &publish_profile,
+                                         &log);
+        assert_that!(change_set).is_empty();
 
         // Now we check with a linked table constraint
         let result = LinkedTableConstraint { table: &source_table, constraint: &source_table.constraints.first().unwrap()}
-                        .generate(&mut changeset, &existing_database, &publish_profile, &log);
+                        .generate(&mut change_set,
+                                  &existing_database,
+                                  &capabilities,
+                                  &publish_profile,
+                                  &log);
         assert_that!(result).is_ok();
 
         // We should have a single instruction to create a new constraint
-        assert_that!(changeset).has_length(1);
-        match changeset[0] {
+        assert_that!(change_set).has_length(1);
+        match change_set[0] {
             ChangeInstruction::AddConstraint(ref table, ref constraint) => {
                 assert_that!(table.name.to_string()).is_equal_to("my.contacts".to_owned());
                 match *constraint {
@@ -2011,7 +2308,7 @@ mod tests {
         }
 
         // Check the SQL generation
-        assert_that!(changeset[0].to_sql(&log))
+        assert_that!(change_set[0].to_sql(&log))
             .is_equal_to("ALTER TABLE my.contacts\n\
                           ADD CONSTRAINT fk_my_contacts_my_companies FOREIGN KEY (company_id) \
                           REFERENCES my.companies (id) MATCH SIMPLE ON UPDATE CASCADE ON DELETE NO ACTION".to_owned());
@@ -2037,17 +2334,26 @@ mod tests {
                 ]),
             });
         existing_database.tables.push(existing_table);
+        let capabilities = Capabilities {
+            server_version: Semver::new(9, 6, None),
+            extensions: Vec::new(),
+            database_exists: true,
+        };
         let mut publish_profile = PublishProfile::default();
         publish_profile.generation_options.drop_foreign_key_constraints = Toggle::Allow;
 
-        let mut changeset = Vec::new();
-        // This changeset gets generated at the table level
-        let result = (&source_table).generate(&mut changeset, &existing_database, &publish_profile, &log);
+        let mut change_set = Vec::new();
+        // This change_set gets generated at the table level
+        let result = (&source_table).generate(&mut change_set,
+                                              &existing_database,
+                                              &capabilities,
+                                              &publish_profile,
+                                              &log);
         assert_that!(result).is_ok();
 
         // We should have a single instruction to remove a constraint
-        assert_that!(changeset).has_length(1);
-        match changeset[0] {
+        assert_that!(change_set).has_length(1);
+        match change_set[0] {
             ChangeInstruction::DropConstraint(ref table, ref name) => {
                 assert_that!(table.name.to_string()).is_equal_to("my.contacts".to_owned());
                 assert_that!(*name).is_equal_to("fk_my_contacts_my_companies".to_owned());
@@ -2056,7 +2362,7 @@ mod tests {
         }
 
         // Check the SQL generation
-        assert_that!(changeset[0].to_sql(&log))
+        assert_that!(change_set[0].to_sql(&log))
             .is_equal_to("ALTER TABLE my.contacts\nDROP CONSTRAINT fk_my_contacts_my_companies".to_owned());
     }
 
@@ -2091,29 +2397,42 @@ mod tests {
                 ]),
             });
         existing_database.tables.push(existing_table);
+        let capabilities = Capabilities {
+            server_version: Semver::new(9, 6, None),
+            extensions: Vec::new(),
+            database_exists: true,
+        };
         let mut publish_profile = PublishProfile::default();
         publish_profile.generation_options.drop_foreign_key_constraints = Toggle::Allow;
 
-        let mut changeset = Vec::new();
+        let mut change_set = Vec::new();
         // First, check that source table changes do nothing
-        let _ = (&source_table).generate(&mut changeset, &existing_database, &publish_profile, &log);
-        assert_that!(changeset).is_empty();
+        let _ = (&source_table).generate(&mut change_set,
+                                         &existing_database,
+                                         &capabilities,
+                                         &publish_profile,
+                                         &log);
+        assert_that!(change_set).is_empty();
 
         // Now we check with a linked table constraint
         let result = LinkedTableConstraint { table: &source_table, constraint: &source_table.constraints.first().unwrap()}
-                        .generate(&mut changeset, &existing_database, &publish_profile, &log);
+                        .generate(&mut change_set,
+                                  &existing_database,
+                                  &capabilities,
+                                  &publish_profile,
+                                  &log);
         assert_that!(result).is_ok();
 
         // Primary keys cannot be altered, so we drop/create
-        assert_that!(changeset).has_length(2);
-        match changeset[0] {
+        assert_that!(change_set).has_length(2);
+        match change_set[0] {
             ChangeInstruction::DropConstraint(ref table, ref name) => {
                 assert_that!(table.name.to_string()).is_equal_to("my.contacts".to_owned());
                 assert_that!(*name).is_equal_to("fk_my_contacts_my_companies".to_owned());
             }
             ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
         }
-        match changeset[1] {
+        match change_set[1] {
             ChangeInstruction::AddConstraint(ref table, ref constraint) => {
                 assert_that!(table.name.to_string()).is_equal_to("my.contacts".to_owned());
                 match *constraint {
@@ -2134,9 +2453,9 @@ mod tests {
         }
 
         // Check the SQL generation
-        assert_that!(changeset[0].to_sql(&log))
+        assert_that!(change_set[0].to_sql(&log))
             .is_equal_to("ALTER TABLE my.contacts\nDROP CONSTRAINT fk_my_contacts_my_companies".to_owned());
-        assert_that!(changeset[1].to_sql(&log))
+        assert_that!(change_set[1].to_sql(&log))
             .is_equal_to("ALTER TABLE my.contacts\n\
                           ADD CONSTRAINT fk_my_contacts_my_companies FOREIGN KEY (company_id) \
                           REFERENCES my.companies (id) MATCH SIMPLE ON UPDATE NO ACTION ON DELETE NO ACTION".to_owned());
@@ -2166,14 +2485,23 @@ mod tests {
         // Create a database with no indexes defined.
         let existing_database = Package::new();
         let publish_profile = PublishProfile::default();
+        let capabilities = Capabilities {
+            server_version: Semver::new(9, 6, None),
+            extensions: Vec::new(),
+            database_exists: true,
+        };
 
-        let mut changeset = Vec::new();
-        let result = (&source_index).generate(&mut changeset, &existing_database, &publish_profile, &log);
+        let mut change_set = Vec::new();
+        let result = (&source_index).generate(&mut change_set,
+                                              &existing_database,
+                                              &capabilities,
+                                              &publish_profile,
+                                              &log);
         assert_that!(result).is_ok();
 
         // We should have a single instruction to create a new index
-        assert_that!(changeset).has_length(1);
-        match changeset[0] {
+        assert_that!(change_set).has_length(1);
+        match change_set[0] {
             ChangeInstruction::AddIndex(ref index, concurrently) => {
                 assert_that!(index.name).is_equal_to("idx_contacts_first_name".to_owned());
                 assert_that!(index.table.to_string()).is_equal_to("public.contacts".to_owned());
@@ -2183,7 +2511,7 @@ mod tests {
         }
 
         // Check the SQL generation
-        assert_that!(changeset[0].to_sql(&log))
+        assert_that!(change_set[0].to_sql(&log))
             .is_equal_to("CREATE UNIQUE INDEX CONCURRENTLY idx_contacts_first_name \
                           ON public.contacts USING btree (first_name ASC NULLS LAST)".to_owned());
     }
@@ -2215,25 +2543,44 @@ mod tests {
             });
             Some(existing_database)
         }
-
+        let capabilities = Capabilities {
+            server_version: Semver::new(9, 6, None),
+            extensions: Vec::new(),
+            database_exists: true,
+        };
         let mut publish_profile = PublishProfile::default();
         publish_profile.generation_options.drop_indexes = Toggle::Error;
 
         // First of all, make sure an error is generated
-        let result = Delta::generate(&log, &source_package, existing_db(), "dbname".to_owned(), publish_profile);
+        let result = Delta::generate(&log,
+                                     &source_package,
+                                     existing_db(),
+                                     "dbname".to_owned(),
+                                     capabilities,
+                                     publish_profile);
         assert_that!(result).is_err();
         // Now run it again - it should be ok now
+        let capabilities = Capabilities {
+            server_version: Semver::new(9, 6, None),
+            extensions: Vec::new(),
+            database_exists: true,
+        };
         let mut publish_profile = PublishProfile::default();
         publish_profile.generation_options.drop_indexes = Toggle::Allow;
-        let result = Delta::generate(&log, &source_package, existing_db(), "dbname".to_owned(), publish_profile);
+        let result = Delta::generate(&log,
+                                     &source_package,
+                                     existing_db(),
+                                     "dbname".to_owned(),
+                                     capabilities,
+                                     publish_profile);
         assert_that!(result).is_ok();
-        let changeset = match result.unwrap() {
+        let change_set = match result.unwrap() {
             Delta(c) => c,
         };
 
         // We should have a single instruction to remove an index (first will be use database)
-        assert_that!(changeset).has_length(2);
-        match changeset[1] {
+        assert_that!(change_set).has_length(2);
+        match change_set[1] {
             ChangeInstruction::DropIndex(ref index, concurrently) => {
                 assert_that!(*index).is_equal_to("public.idx_contacts_first_name".to_owned());
                 assert_that!(concurrently).is_true();
@@ -2242,7 +2589,7 @@ mod tests {
         }
 
         // Check the SQL generation
-        assert_that!(changeset[1].to_sql(&log))
+        assert_that!(change_set[1].to_sql(&log))
             .is_equal_to("DROP INDEX CONCURRENTLY IF EXISTS public.idx_contacts_first_name".to_owned());
     }
 
@@ -2291,22 +2638,31 @@ mod tests {
             index_type: Some(IndexType::BTree),
             storage_parameters: None,
         });
+        let capabilities = Capabilities {
+            server_version: Semver::new(9, 6, None),
+            extensions: Vec::new(),
+            database_exists: true,
+        };
         let publish_profile = PublishProfile::default();
 
-        let mut changeset = Vec::new();
-        let result = (&source_index).generate(&mut changeset, &existing_database, &publish_profile, &log);
+        let mut change_set = Vec::new();
+        let result = (&source_index).generate(&mut change_set,
+                                              &existing_database,
+                                              &capabilities,
+                                              &publish_profile,
+                                              &log);
         assert_that!(result).is_ok();
 
         // We should have two instructions to drop/create a new index
-        assert_that!(changeset).has_length(2);
-        match changeset[0] {
+        assert_that!(change_set).has_length(2);
+        match change_set[0] {
             ChangeInstruction::DropIndex(ref index_name, concurrently) => {
                 assert_that!(*index_name).is_equal_to("public.idx_contacts_name".to_owned());
                 assert_that!(concurrently).is_true();
             }
             ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
         }
-        match changeset[1] {
+        match change_set[1] {
             ChangeInstruction::AddIndex(ref index, concurrently) => {
                 assert_that!(index.name).is_equal_to("idx_contacts_name".to_owned());
                 assert_that!(index.table.to_string()).is_equal_to("public.contacts".to_owned());
@@ -2316,10 +2672,388 @@ mod tests {
         }
 
         // Check the SQL generation
-        assert_that!(changeset[0].to_sql(&log))
+        assert_that!(change_set[0].to_sql(&log))
             .is_equal_to("DROP INDEX CONCURRENTLY IF EXISTS public.idx_contacts_name".to_owned());
-        assert_that!(changeset[1].to_sql(&log))
+        assert_that!(change_set[1].to_sql(&log))
             .is_equal_to("CREATE INDEX CONCURRENTLY idx_contacts_name \
                           ON public.contacts USING btree (first_name ASC NULLS LAST, last_name DESC NULLS FIRST)".to_owned());
+    }
+
+    #[test]
+    fn it_can_create_an_extension_that_exists_and_is_not_installed_with_version() {
+        let log = empty_logger();
+        let requested_extension = ExtensionDefinition {
+            name: &"postgis".to_owned(),
+            version: &Some(Semver::new(2, 3, Some(7))),
+        };
+
+        // Create a database with a single extension available.
+        let existing_database = Package::new();
+        let capabilities = Capabilities {
+            server_version: Semver::new(9, 6, None),
+            extensions: vec![
+                Extension {
+                    name: "postgis".to_owned(),
+                    version: Semver::new(2, 3, Some(7)),
+                    installed: false,
+                },
+            ],
+            database_exists: true,
+        };
+        let publish_profile = PublishProfile::default();
+
+        let mut change_set = Vec::new();
+        let result = (&requested_extension).generate(&mut change_set,
+                                                     &existing_database,
+                                                     &capabilities,
+                                                     &publish_profile,
+                                                     &log);
+        assert_that!(result).is_ok();
+
+        // We should have one instruction to create an extension
+        assert_that!(change_set).has_length(1);
+        match change_set[0] {
+            ChangeInstruction::CreateExtension(ref name, ref _version) => {
+                assert_that!(name).is_equal_to(&"postgis".to_owned());
+            }
+            ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
+        }
+
+        // Check the SQL generation
+        assert_that!(change_set[0].to_sql(&log))
+            .is_equal_to("CREATE EXTENSION postgis WITH VERSION \"2.3.7\"".to_owned());
+    }
+
+    #[test]
+    fn it_can_create_an_extension_that_exists_and_is_not_installed_without_version() {
+        let log = empty_logger();
+        let requested_extension = ExtensionDefinition {
+            name: &"postgis".to_owned(),
+            version: &None,
+        };
+
+        // Create a database with a single extension available.
+        let existing_database = Package::new();
+        let capabilities = Capabilities {
+            server_version: Semver::new(9, 6, None),
+            extensions: vec![
+                Extension {
+                    name: "postgis".to_owned(),
+                    version: Semver::new(2, 3, Some(7)),
+                    installed: false,
+                },
+            ],
+            database_exists: true,
+        };
+        let publish_profile = PublishProfile::default();
+
+        let mut change_set = Vec::new();
+        let result = (&requested_extension).generate(&mut change_set,
+                                                     &existing_database,
+                                                     &capabilities,
+                                                     &publish_profile,
+                                                     &log);
+        assert_that!(result).is_ok();
+
+        // We should have one instruction to create an extension
+        assert_that!(change_set).has_length(1);
+        match change_set[0] {
+            ChangeInstruction::CreateExtension(ref name, ref _version) => {
+                assert_that!(name).is_equal_to(&"postgis".to_owned());
+            }
+            ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
+        }
+
+        // Check the SQL generation
+        assert_that!(change_set[0].to_sql(&log))
+            .is_equal_to("CREATE EXTENSION postgis".to_owned());
+    }
+
+    #[test]
+    fn it_errors_when_creating_an_extension_that_exists_and_different_version() {
+        let log = empty_logger();
+        let requested_extension = ExtensionDefinition {
+            name: &"postgis".to_owned(),
+            version: &Some(Semver::new(2, 4, Some(7))),
+        };
+
+        // Create a database with a single extension available.
+        let existing_database = Package::new();
+        let capabilities = Capabilities {
+            server_version: Semver::new(9, 6, None),
+            extensions: vec![
+                Extension {
+                    name: "postgis".to_owned(),
+                    version: Semver::new(2, 3, Some(7)),
+                    installed: false,
+                },
+            ],
+            database_exists: true,
+        };
+        let publish_profile = PublishProfile::default();
+
+        let mut change_set = Vec::new();
+        let result = (&requested_extension).generate(&mut change_set,
+                                                     &existing_database,
+                                                     &capabilities,
+                                                     &publish_profile,
+                                                     &log);
+        assert_that!(result).is_err();
+
+        let err = result.err().unwrap();
+        let expect = "Publish error: Extension postgis version 2.4.7 not available to install".to_owned();
+        assert_that!(format!("{}", err)).is_equal_to(&expect);
+    }
+
+    #[test]
+    fn it_errors_when_creating_an_extension_that_does_not_exist() {
+        let log = empty_logger();
+        let requested_extension = ExtensionDefinition {
+            name: &"postgis".to_owned(),
+            version: &Some(Semver::new(2, 3, Some(7))),
+        };
+
+        // Create a database with no extensions available.
+        let existing_database = Package::new();
+        let capabilities = Capabilities {
+            server_version: Semver::new(9, 6, None),
+            extensions: Vec::new(),
+            database_exists: true,
+        };
+        let publish_profile = PublishProfile::default();
+
+        let mut change_set = Vec::new();
+        let result = (&requested_extension).generate(&mut change_set,
+                                                     &existing_database,
+                                                     &capabilities,
+                                                     &publish_profile,
+                                                     &log);
+        assert_that!(result).is_err();
+
+        let err = result.err().unwrap();
+        let expect = "Publish error: Extension postgis version 2.3.7 not available to install".to_owned();
+        assert_that!(format!("{}", err)).is_equal_to(&expect);
+    }
+
+    #[test]
+    fn it_can_upgrade_an_installed_extension_with_newer_version_specified_and_available() {
+        let log = empty_logger();
+        let requested_extension = ExtensionDefinition {
+            name: &"postgis".to_owned(),
+            version: &Some(Semver::new(3, 8, None)),
+        };
+
+        // Create a database with two extensions available.
+        let existing_database = Package::new();
+        let capabilities = Capabilities {
+            server_version: Semver::new(9, 6, None),
+            extensions: vec![
+                Extension {
+                    name: "postgis".to_owned(),
+                    version: Semver::new(2, 3, Some(7)),
+                    installed: true,
+                },
+                Extension {
+                    name: "postgis".to_owned(),
+                    version: Semver::new(3, 8, None),
+                    installed: false,
+                },
+            ],
+            database_exists: true,
+        };
+        let mut publish_profile = PublishProfile::default();
+        publish_profile.generation_options.upgrade_extensions = Toggle::Allow;
+
+        let mut change_set = Vec::new();
+        let result = (&requested_extension).generate(&mut change_set,
+                                                     &existing_database,
+                                                     &capabilities,
+                                                     &publish_profile,
+                                                     &log);
+        assert_that!(result).is_ok();
+
+        // We should have one instruction to upgrade an extension
+        assert_that!(change_set).has_length(1);
+        match change_set[0] {
+            ChangeInstruction::UpgradeExtension(ref name, ref _version) => {
+                assert_that!(name).is_equal_to(&"postgis".to_owned());
+            }
+            ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
+        }
+
+        // Check the SQL generation
+        assert_that!(change_set[0].to_sql(&log))
+            .is_equal_to("ALTER EXTENSION postgis UPDATE TO \"3.8\"".to_owned());
+    }
+
+
+    #[test]
+    fn it_does_not_modify_an_extension_that_is_already_installed() {
+        let log = empty_logger();
+        let requested_extension = ExtensionDefinition {
+            name: &"postgis".to_owned(),
+            version: &None,
+        };
+
+        // Create a database with a single extension available.
+        let existing_database = Package::new();
+        let capabilities = Capabilities {
+            server_version: Semver::new(9, 6, None),
+            extensions: vec![
+                Extension {
+                    name: "postgis".to_owned(),
+                    version: Semver::new(2, 3, Some(7)),
+                    installed: true,
+                },
+            ],
+            database_exists: true,
+        };
+        let mut publish_profile = PublishProfile::default();
+        publish_profile.generation_options.upgrade_extensions = Toggle::Allow;
+
+        let mut change_set = Vec::new();
+        let result = (&requested_extension).generate(&mut change_set,
+                                                     &existing_database,
+                                                     &capabilities,
+                                                     &publish_profile,
+                                                     &log);
+        assert_that!(result).is_ok();
+
+        // We should have no instructions
+        assert_that!(change_set).is_empty();
+    }
+
+    #[test]
+    fn it_can_upgrade_an_installed_extension_with_no_version_specified_and_newer_version_available_when_profile_set_to_allow() {
+        let log = empty_logger();
+        let requested_extension = ExtensionDefinition {
+            name: &"postgis".to_owned(),
+            version: &None,
+        };
+
+        // Create a database with multiple extensions available.
+        let existing_database = Package::new();
+        let capabilities = Capabilities {
+            server_version: Semver::new(9, 6, None),
+            extensions: vec![
+                Extension {
+                    name: "postgis".to_owned(),
+                    version: Semver::new(2, 3, Some(7)),
+                    installed: true,
+                },
+                Extension {
+                    name: "postgis".to_owned(),
+                    version: Semver::new(3, 8, None),
+                    installed: false,
+                }
+            ],
+            database_exists: true,
+        };
+        let mut publish_profile = PublishProfile::default();
+        publish_profile.generation_options.upgrade_extensions = Toggle::Allow;
+
+        let mut change_set = Vec::new();
+        let result = (&requested_extension).generate(&mut change_set,
+                                                     &existing_database,
+                                                     &capabilities,
+                                                     &publish_profile,
+                                                     &log);
+        assert_that!(result).is_ok();
+
+        // We should have one instruction to upgrade an extension
+        assert_that!(change_set).has_length(1);
+        match change_set[0] {
+            ChangeInstruction::UpgradeExtension(ref name, ref _version) => {
+                assert_that!(name).is_equal_to(&"postgis".to_owned());
+            }
+            ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
+        }
+
+        // Check the SQL generation
+        assert_that!(change_set[0].to_sql(&log))
+            .is_equal_to("ALTER EXTENSION postgis UPDATE".to_owned());
+    }
+
+    #[test]
+    fn it_doesnt_upgrade_an_installed_extension_with_no_version_specified_and_newer_version_available_when_profile_set_to_ignore() {
+        let log = empty_logger();
+        let requested_extension = ExtensionDefinition {
+            name: &"postgis".to_owned(),
+            version: &None,
+        };
+
+        // Create a database with multiple extensions available.
+        let existing_database = Package::new();
+        let capabilities = Capabilities {
+            server_version: Semver::new(9, 6, None),
+            extensions: vec![
+                Extension {
+                    name: "postgis".to_owned(),
+                    version: Semver::new(2, 3, Some(7)),
+                    installed: true,
+                },
+                Extension {
+                    name: "postgis".to_owned(),
+                    version: Semver::new(3, 8, None),
+                    installed: false,
+                },
+            ],
+            database_exists: true,
+        };
+        let mut publish_profile = PublishProfile::default();
+        publish_profile.generation_options.upgrade_extensions = Toggle::Ignore;
+
+        let mut change_set = Vec::new();
+        let result = (&requested_extension).generate(&mut change_set,
+                                                     &existing_database,
+                                                     &capabilities,
+                                                     &publish_profile,
+                                                     &log);
+        assert_that!(result).is_ok();
+
+        // We should have no instructions
+        assert_that!(change_set).is_empty();
+    }
+
+    #[test]
+    fn it_doesnt_upgrade_an_installed_extension_with_no_version_specified_and_newer_version_available_when_profile_set_to_error() {
+        let log = empty_logger();
+        let requested_extension = ExtensionDefinition {
+            name: &"postgis".to_owned(),
+            version: &None,
+        };
+
+        // Create a database with a single extension available.
+        let existing_database = Package::new();
+        let capabilities = Capabilities {
+            server_version: Semver::new(9, 6, None),
+            extensions: vec![
+                Extension {
+                    name: "postgis".to_owned(),
+                    version: Semver::new(2, 3, Some(7)),
+                    installed: true,
+                },
+                Extension {
+                    name: "postgis".to_owned(),
+                    version: Semver::new(3, 8, None),
+                    installed: false,
+                },
+            ],
+            database_exists: true,
+        };
+        let mut publish_profile = PublishProfile::default();
+        publish_profile.generation_options.upgrade_extensions = Toggle::Error;
+
+        let mut change_set = Vec::new();
+        let result = (&requested_extension).generate(&mut change_set,
+                                                     &existing_database,
+                                                     &capabilities,
+                                                     &publish_profile,
+                                                     &log);
+        assert_that!(result).is_err();
+
+        let err = result.err().unwrap();
+        let expect = "Couldn't publish database due to an unsafe operation: Extension postgis version 3.8 is available to upgrade".to_owned();
+        assert_that!(format!("{}", err)).is_equal_to(&expect);
     }
 }

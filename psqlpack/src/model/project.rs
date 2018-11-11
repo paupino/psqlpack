@@ -1,12 +1,13 @@
 use std::default::Default;
+use std::fs::{self, File};
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::fs::{self, File};
 
-use slog::Logger;
-use serde_json;
 use glob::glob;
+use serde_json;
+use slog::Logger;
 
+use crate::Semver;
 use sql::ast::*;
 use sql::lexer;
 use sql::parser::StatementListParser;
@@ -36,22 +37,35 @@ pub struct Project {
     pub version: String,
 
     /// The default schema for the database. Typically `public`
-    #[serde(rename = "defaultSchema")] pub default_schema: String,
+    #[serde(rename = "defaultSchema")]
+    pub default_schema: String,
 
     /// An array of scripts to run before anything is deployed
-    #[serde(rename = "preDeployScripts")] pub pre_deploy_scripts: Vec<String>,
+    #[serde(rename = "preDeployScripts")]
+    pub pre_deploy_scripts: Vec<String>,
 
     /// An array of scripts to run after everything has been deployed
-    #[serde(rename = "postDeployScripts")] pub post_deploy_scripts: Vec<String>,
+    #[serde(rename = "postDeployScripts")]
+    pub post_deploy_scripts: Vec<String>,
 
     /// An array of extensions to include within this project
-    #[serde(skip_serializing_if = "Option::is_none")] pub extensions: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extensions: Option<Vec<Dependency>>,
 
     /// An array of globs representing files/folders to be included within your project. Defaults to `["**/*.sql"]`.
-    #[serde(rename = "fileIncludeGlobs", skip_serializing_if = "Option::is_none")] pub include_globs: Option<Vec<String>>,
+    #[serde(rename = "fileIncludeGlobs", skip_serializing_if = "Option::is_none")]
+    pub include_globs: Option<Vec<String>>,
 
     /// An array of globs representing files/folders to be excluded within your project.
-    #[serde(rename = "fileExcludeGlobs", skip_serializing_if = "Option::is_none")] pub exclude_globs: Option<Vec<String>>,
+    #[serde(rename = "fileExcludeGlobs", skip_serializing_if = "Option::is_none")]
+    pub exclude_globs: Option<Vec<String>>,
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub struct Dependency {
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<Semver>,
 }
 
 impl Default for Project {
@@ -138,17 +152,17 @@ impl Project {
 
         // Start the package
         let mut package = Package::new();
+        let mut errors: Vec<PsqlpackError> = Vec::new();
 
-        // Add extensions
+        // Add extensions into package
         if let Some(ref extensions) = self.extensions {
             for extension in extensions {
-                package.push_extension(ExtensionDefinition {
-                    name: extension.clone(),
+                package.push_extension(Dependency {
+                    name: extension.name.clone(),
+                    version: extension.version,
                 });
             }
         }
-
-        let mut errors: Vec<PsqlpackError> = Vec::new();
 
         // Enumerate the glob paths
         for path in self.walk_files(&parent)? {
@@ -207,7 +221,9 @@ impl Project {
                         for statement in statement_list {
                             dump_statement!(log, statement);
                             match statement {
-                                Statement::Extension(_) => warn!(log, "Extension statement found, ignoring"),
+                                Statement::Error(kind) => {
+                                    errors.push(HandledParseError(kind).into());
+                                },
                                 Statement::Function(function_definition) => package.push_function(function_definition),
                                 Statement::Index(index_definition) => package.push_index(index_definition),
                                 Statement::Schema(schema_definition) => package.push_schema(schema_definition),
@@ -323,11 +339,40 @@ mod tests {
         assert_that!(result).is_ok().has_length(3);
         let result = result.unwrap();
         let result : Vec<&str> = result.iter().map(|x| x.to_str().unwrap()).collect();
+        assert_that!(result).does_not_contain(&"../samples/simple/public/tables/public.organisation.sql");
         assert_that!(result).contains_all_of(&vec![
             &"../samples/simple/public/tables/public.expense_status.sql",
             &"../samples/simple/public/tables/public.tax_table.sql",
             &"../samples/simple/public/tables/public.vendor.sql",
         ]);
+    }
+
+    #[test]
+    fn it_can_iterate_custom_exclude_globs_correctly_2() {
+        // This test relies on the `simple` samples directory
+        let parent = Path::new("../samples/complex");
+        let project = Project {
+            project_file_path: None,
+            version: "1.0".into(),
+            default_schema: "public".into(),
+            pre_deploy_scripts: Vec::new(),
+            post_deploy_scripts: Vec::new(),
+            extensions: None,
+            include_globs: None,
+            exclude_globs: Some(vec![
+                "**/geo/**/*.sql".into(),
+                "**/geo.*".into(),
+            ]),
+        };
+        let result = project.walk_files(&parent);
+
+        // Check the expected files were returned
+        assert_that!(result).is_ok();
+        let result = result.unwrap();
+        let result : Vec<&str> = result.iter().map(|x| x.to_str().unwrap()).collect();
+        assert_that!(result).does_not_contain(&"../samples/complex/geo/functions/fn_do_any_coordinates_fall_inside.sql");
+        assert_that!(result).does_not_contain(&"../samples/complex/geo/tables/states.sql");
+        assert_that!(result).does_not_contain(&"../samples/complex/scripts/seed/geo.states.sql");
     }
 
     #[test]

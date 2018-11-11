@@ -13,7 +13,7 @@ use slog::{Discard, Drain, Logger};
 use spectral::prelude::*;
 
 macro_rules! publish_package {
-    ($namespace:ident, $db_name:ident, $connection:ident, $package:ident) => {{
+    ($db_name:ident, $connection:ident, $package:ident) => {{
         // Use the default publish profile
         let mut publish_profile = PublishProfile::default();
         publish_profile.generation_options.drop_tables = Toggle::Ignore; // We reuse the same database
@@ -22,7 +22,8 @@ macro_rules! publish_package {
 
         // Create a target package from connection string
         let log = Logger::root(Discard.fuse(), o!());
-        let target_package = Package::from_connection(&log, &$connection).unwrap();
+        let capabilities = Capabilities::from_connection(&log, &$connection).unwrap();
+        let target_package = Package::from_connection(&log, &$connection, &capabilities).unwrap();
 
         // Generate delta and apply
         let delta = Delta::generate(
@@ -30,12 +31,14 @@ macro_rules! publish_package {
             &$package,
             target_package,
             $db_name.into(),
+            capabilities,
             publish_profile,
         ).unwrap();
         delta.apply(&log, &$connection).unwrap();
 
         // Confirm db exists with data
-        Package::from_connection(&log, &$connection).unwrap().unwrap()
+        let capabilities = Capabilities::from_connection(&log, &$connection).unwrap();
+        Package::from_connection(&log, &$connection, &capabilities).unwrap().unwrap()
     }};
 }
 
@@ -52,7 +55,7 @@ fn it_can_create_a_database_that_doesnt_exist() {
 
     // Publish with basic assert
     let package = generate_simple_package!(NAMESPACE);
-    let final_package = publish_package!(NAMESPACE, DB_NAME, connection, package);
+    let final_package = publish_package!(DB_NAME, connection, package);
     assert_simple_package!(final_package, NAMESPACE);
 }
 
@@ -63,13 +66,14 @@ fn it_can_add_a_new_table_to_an_existing_database() {
 
     // Preliminary: create a database with no tables
     let connection = ConnectionBuilder::new(DB_NAME, "localhost", "postgres").build().unwrap();
+    dump_capabilities!(connection);
     let conn = create_db!(connection);
     drop_table!(conn, NAMESPACE, "contacts");
     conn.finish().unwrap();
 
     // Publish with basic assert
     let package = generate_simple_package!(NAMESPACE);
-    let final_package = publish_package!(NAMESPACE, DB_NAME, connection, package);
+    let final_package = publish_package!(DB_NAME, connection, package);
     assert_simple_package!(final_package, NAMESPACE);
 }
 
@@ -80,6 +84,7 @@ fn it_can_add_a_new_column_to_an_existing_table() {
 
     // Preliminary: create a database with a partial table
     let connection = ConnectionBuilder::new(DB_NAME, "localhost", "postgres").build().unwrap();
+    dump_capabilities!(connection);
     let conn = create_db!(connection);
     drop_table!(conn, NAMESPACE, "contacts");
     conn.batch_execute(&format!("CREATE SCHEMA IF NOT EXISTS {}", NAMESPACE)).unwrap();
@@ -88,7 +93,7 @@ fn it_can_add_a_new_column_to_an_existing_table() {
 
     // Publish with basic assert
     let package = generate_simple_package!(NAMESPACE);
-    let final_package = publish_package!(NAMESPACE, DB_NAME, connection, package);
+    let final_package = publish_package!(DB_NAME, connection, package);
     assert_simple_package!(final_package, NAMESPACE);
 }
 
@@ -99,6 +104,7 @@ fn it_can_modify_an_existing_column_on_a_table() {
 
     // Preliminary: create a database with a partial table
     let connection = ConnectionBuilder::new(DB_NAME, "localhost", "postgres").build().unwrap();
+    dump_capabilities!(connection);
     let conn = create_db!(connection);
     drop_table!(conn, NAMESPACE, "contacts");
     conn.batch_execute(&format!("CREATE SCHEMA IF NOT EXISTS {}", NAMESPACE)).unwrap();
@@ -107,7 +113,7 @@ fn it_can_modify_an_existing_column_on_a_table() {
 
     // Publish with basic assert
     let package = generate_simple_package!(NAMESPACE);
-    let final_package = publish_package!(NAMESPACE, DB_NAME, connection, package);
+    let final_package = publish_package!(DB_NAME, connection, package);
     assert_simple_package!(final_package, NAMESPACE);
 }
 
@@ -118,6 +124,7 @@ fn it_can_drop_an_existing_column_on_a_table() {
 
     // Preliminary: create a database with a partial table
     let connection = ConnectionBuilder::new(DB_NAME, "localhost", "postgres").build().unwrap();
+    dump_capabilities!(connection);
     let conn = create_db!(connection);
     drop_table!(conn, NAMESPACE, "contacts");
     conn.batch_execute(&format!("CREATE SCHEMA IF NOT EXISTS {}", NAMESPACE)).unwrap();
@@ -126,7 +133,7 @@ fn it_can_drop_an_existing_column_on_a_table() {
 
     // Publish with basic assert
     let package = generate_simple_package!(NAMESPACE);
-    let final_package = publish_package!(NAMESPACE, DB_NAME, connection, package);
+    let final_package = publish_package!(DB_NAME, connection, package);
     assert_simple_package!(final_package, NAMESPACE);
 }
 
@@ -137,6 +144,7 @@ fn it_can_add_a_new_index_to_an_existing_table() {
 
     // Preliminary: create a database with a table but no indexes
     let connection = ConnectionBuilder::new(DB_NAME, "localhost", "postgres").build().unwrap();
+    dump_capabilities!(connection);
     let conn = create_db!(connection);
     drop_table!(conn, NAMESPACE, "contacts");
     conn.batch_execute(&format!("CREATE SCHEMA IF NOT EXISTS {}", NAMESPACE)).unwrap();
@@ -145,7 +153,7 @@ fn it_can_add_a_new_index_to_an_existing_table() {
 
     // Publish with basic assert
     let package = generate_simple_package!(NAMESPACE);
-    let final_package = publish_package!(NAMESPACE, DB_NAME, connection, package);
+    let final_package = publish_package!(DB_NAME, connection, package);
     assert_simple_package!(final_package, NAMESPACE);
 }
 
@@ -156,6 +164,7 @@ fn it_can_modify_an_index_on_a_table() {
 
     // Preliminary: create a database with a table but a broad index
     let connection = ConnectionBuilder::new(DB_NAME, "localhost", "postgres").build().unwrap();
+    dump_capabilities!(connection);
     let conn = create_db!(connection);
     drop_table!(conn, NAMESPACE, "contacts");
     conn.batch_execute(&format!("CREATE SCHEMA IF NOT EXISTS {}", NAMESPACE)).unwrap();
@@ -165,7 +174,7 @@ fn it_can_modify_an_index_on_a_table() {
 
     // Publish with basic assert
     let package = generate_simple_package!(NAMESPACE);
-    let final_package = publish_package!(NAMESPACE, DB_NAME, connection, package);
+    let final_package = publish_package!(DB_NAME, connection, package);
     assert_simple_package!(final_package, NAMESPACE);
 }
 
@@ -176,6 +185,7 @@ fn it_can_drop_an_index_on_a_table() {
 
     // Preliminary: create a database with a table and extra index
     let connection = ConnectionBuilder::new(DB_NAME, "localhost", "postgres").build().unwrap();
+    dump_capabilities!(connection);
     let conn = create_db!(connection);
     drop_table!(conn, NAMESPACE, "contacts");
     conn.batch_execute(&format!("CREATE SCHEMA IF NOT EXISTS {}", NAMESPACE)).unwrap();
@@ -186,6 +196,6 @@ fn it_can_drop_an_index_on_a_table() {
 
     // Publish with basic assert
     let package = generate_simple_package!(NAMESPACE);
-    let final_package = publish_package!(NAMESPACE, DB_NAME, connection, package);
+    let final_package = publish_package!(DB_NAME, connection, package);
     assert_simple_package!(final_package, NAMESPACE);
 }

@@ -10,14 +10,17 @@
         "scripts/seed/data.table_coefficients.sql",
         "scripts/seed/data.table_versions.sql",
         "scripts/seed/data.taxes.sql",
-        "scripts/seed/geo.states.sql",
         "scripts/seed/reference_data.countries.sql",
         "scripts/seed/reference_data.states.sql"
     ],
+    "fileExcludeGlobs": [
+        "**/geo/**/*.sql",
+        "**/geo.*"
+    ],
     "extensions": [
-        "postgis",
-        "postgis_topology",
-        "fuzzystrmatch",
-        "postgis_tiger_geocoder"
+        { "name": "postgis" },
+        { "name": "postgis_topology" },
+        { "name": "fuzzystrmatch" },
+        { "name": "postgis_tiger_geocoder" }
     ]
 }

@@ -33,8 +33,18 @@ pub mod ast {
 }
 pub use connection::ConnectionBuilder;
 pub use errors::{PsqlpackErrorKind, PsqlpackResult};
-pub use model::{Delta, GenerationOptions, Package, Project, PublishProfile, Toggle, template};
-pub use semver::{Semver, ServerVersion};
+pub use model::{
+    Capabilities,
+    Delta,
+    Dependency,
+    GenerationOptions,
+    Package,
+    Project,
+    PublishProfile,
+    Toggle,
+    template,
+};
+pub use semver::Semver;
 
 /// Allows usage of no logging, std `log`, or slog.
 pub enum LogConfig {

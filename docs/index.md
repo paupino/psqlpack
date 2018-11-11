@@ -31,9 +31,16 @@ The project file is a JSON formatted file which defines how to interpret the fil
 | `defaultSchema`     | Yes        | `string`   | The default schema to be assumed for the database (if none specified).
 | `preDeployScripts`  | Yes        | `[string]` | An array of relative paths to SQL scripts to be applied before deployment begins.
 | `postDeployScripts` | Yes        | `[string]` | An array of relative paths to SQL scripts to be applied after deployment finishes.
-| `extensions`        | No         | `[string]` | An array of extensions that are required for this project to function. e.g. `postgis`
+| `extensions`        | No         | [`[Extension]`](#extension) | An array of extensions that are required for this project to function. 
 | `fileIncludeGlobs`  | No         | `[string]` | An array of globs representing files/folders to be included within your project. Defaults to `["**/*.sql"]`.
 | `fileExcludeGlobs`  | No         | `[string]` | An array of globs representing files/folders to be excluded within your project.
+
+### Extension
+
+| Property  | Required   | Type     | Description 
+|-----------|------------|----------|-------------
+| `name`    | Yes        | `string` | The name of the extension. e.g. `postgis`
+| `version` | No         | `string` | The semver of the extension that you'd like installed. If absent, it will use the latest version of what is available on the server.
 
 ### Example
 
@@ -46,7 +53,8 @@ The project file is a JSON formatted file which defines how to interpret the fil
         "./scripts/seed/*.sql"
     ],
     "extensions": [
-        "postgis"
+        { "name": "postgis", "version": "2.3.7" },
+        { "name": "postgis_topology" }
     ]
 }
 ```

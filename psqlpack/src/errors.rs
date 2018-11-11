@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 use glob::PatternError;
 
+pub use ast::ErrorKind;
 pub use error_chain::ChainedError;
 pub use lalrpop_util::ParseError;
 pub use model::ValidationKind;
@@ -52,7 +53,7 @@ error_chain! {
             description("Couldn't read part of the package file")
             display("Couldn't read part of the package file: {}", file_name)
         }
-        PackageQueryExtensionsError {
+        QueryExtensionsError {
             description("Couldn't query extensions")
         }
         PackageQuerySchemasError {
@@ -89,7 +90,7 @@ error_chain! {
             display("Couldn't publish database due to an invalid operation: {}", message)
         }
         PublishUnsafeOperationError(message: String) {
-            description("Couldn't publish database due to an unsafe operation")
+            description("Unsafe Operation")
             display("Couldn't publish database due to an unsafe operation: {}", message)
         }
         GlobPatternError(err: PatternError) {
@@ -118,6 +119,10 @@ error_chain! {
         InlineParseError(error: ParseError<(), lexer::Token, &'static str>) {
             description("Parser error")
             display("Parser error: {}", ParseErrorFormatter(error))
+        }
+        HandledParseError(kind: ErrorKind) {
+            description("Parser error")
+            display("Parser error: {}", kind)
         }
         TemplateGenerationError(message: String) {
             description("Error generating template")
@@ -150,6 +155,10 @@ error_chain! {
         ProjectError(message: String) {
             description("Project format error")
             display("Project format error: {}", message)
+        }
+        PublishError(message: String) {
+            description("Publish error")
+            display("Publish error: {}", message)
         }
         MultipleErrors(errors: Vec<PsqlpackError>) {
             description("Multiple errors")
