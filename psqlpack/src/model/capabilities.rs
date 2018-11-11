@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use ast::{SchemaDefinition};
+use ast::*;
 use model::Extension;
 use semver::Semver;
 use connection::Connection;
@@ -86,20 +86,34 @@ pub(crate) struct ExtensionCapabilities<'a> {
 }
 
 pub trait DefinableCatalog {
-    fn schemata(&self, conn: &PostgresConnection, database: &str) -> PsqlpackResult<Vec<SchemaDefinition>>;
+    fn query_schemata(&self, conn: &PostgresConnection, database: &str) -> PsqlpackResult<Vec<SchemaDefinition>>;
+    fn query_types(&self, conn: &PostgresConnection) -> PsqlpackResult<Vec<TypeDefinition>>;
 }
 
 impl DefinableCatalog for Capabilities {
-    fn schemata(&self, conn: &PostgresConnection, database: &str) -> PsqlpackResult<Vec<SchemaDefinition>> {
-        let schemata =
-            conn.query(Q_SCHEMAS, &[&database])
-                   .chain_err(|| PackageQuerySchemasError)?;
+    fn query_schemata(&self, conn: &PostgresConnection, database: &str) -> PsqlpackResult<Vec<SchemaDefinition>> {
+        let schemata = conn
+            .query(Q_SCHEMAS, &[&database])
+            .chain_err(|| PackageQuerySchemasError)?;
         Ok(map!(schemata))
+    }
+
+    fn query_types(&self, conn: &PostgresConnection) -> PsqlpackResult<Vec<TypeDefinition>> {
+        let types = conn
+            .query(Q_ENUMS, &[])
+            .chain_err(|| PackageQueryTypesError)?;
+        Ok(map!(types))
     }
 }
 
 impl<'a> DefinableCatalog for ExtensionCapabilities<'a> {
-    fn schemata(&self, conn: &PostgresConnection, database: &str) -> PsqlpackResult<Vec<SchemaDefinition>> {
+    fn query_schemata(&self, conn: &PostgresConnection, database: &str) -> PsqlpackResult<Vec<SchemaDefinition>> {
+        // Schema is hard to retrieve. Let's assume it's not necessary for extensions for now.
+        Ok(Vec::new())
+    }
+
+    fn query_types(&self, conn: &PostgresConnection) -> PsqlpackResult<Vec<TypeDefinition>> {
+        // TODO
         Ok(Vec::new())
     }
 }
@@ -135,5 +149,28 @@ static Q_SCHEMAS: &'static str = "SELECT schema_name FROM information_schema.sch
 impl<'row> From<Row<'row>> for SchemaDefinition {
     fn from(row: Row) -> Self {
         SchemaDefinition { name: row.get(0) }
+    }
+}
+
+static Q_ENUMS: &'static str = "SELECT typname, array_agg(enumlabel)
+                                FROM pg_catalog.pg_type
+                                INNER JOIN pg_catalog.pg_namespace ON
+                                    pg_namespace.oid=typnamespace
+                                INNER JOIN (
+                                    SELECT enumtypid, enumlabel
+                                    FROM pg_catalog.pg_enum
+                                    ORDER BY enumtypid, enumsortorder
+                                 ) labels ON
+                                    labels.enumtypid=pg_type.oid
+                                WHERE typcategory IN ('E') AND
+                                      nspname='public' AND
+                                      substr(typname, 1, 1) <> '_'
+                                GROUP BY typname";
+impl<'row> From<Row<'row>> for TypeDefinition {
+    fn from(row: Row) -> Self {
+        TypeDefinition {
+            name: row.get(0),
+            kind: TypeDefinitionKind::Enum(row.get(1)),
+        }
     }
 }

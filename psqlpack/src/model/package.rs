@@ -48,29 +48,6 @@ macro_rules! zip_collection {
     }};
 }
 
-static Q_ENUMS: &'static str = "SELECT typname, array_agg(enumlabel)
-                                FROM pg_catalog.pg_type
-                                INNER JOIN pg_catalog.pg_namespace ON
-                                    pg_namespace.oid=typnamespace
-                                INNER JOIN (
-                                    SELECT enumtypid, enumlabel
-                                    FROM pg_catalog.pg_enum
-                                    ORDER BY enumtypid, enumsortorder
-                                 ) labels ON
-                                    labels.enumtypid=pg_type.oid
-                                WHERE typcategory IN ('E') AND
-                                      nspname='public' AND
-                                      substr(typname, 1, 1) <> '_'
-                                GROUP BY typname";
-impl<'row> From<Row<'row>> for TypeDefinition {
-    fn from(row: Row) -> Self {
-        TypeDefinition {
-            name: row.get(0),
-            kind: TypeDefinitionKind::Enum(row.get(1)),
-        }
-    }
-}
-
 static Q_FUNCTIONS: &'static str = "SELECT
                                         nspname,
                                         proname,
@@ -597,11 +574,8 @@ impl Package {
             .map(|e| Dependency { name: e.name.clone(), version: Some(e.version) })
             .collect::<Vec<_>>();
 
-        let schemas = capabilities.schemata(&db_conn, connection.database())?;
-
-        let types = db_conn
-            .query(Q_ENUMS, &[])
-            .chain_err(|| PackageQueryTypesError)?;
+        let schemas = capabilities.query_schemata(&db_conn, connection.database())?;
+        let types = capabilities.query_types(&db_conn)?;
 
         let mut functions = Vec::new();
         for row in &db_conn
@@ -723,7 +697,7 @@ impl Package {
             schemas,
             scripts: Vec::new(), // Scripts can't be known from a connection
             tables: tables.into_iter().map(|(_,b)| b).collect(),
-            types: map!(types),
+            types,
         };
         package.promote_primary_keys_to_table_constraints();
 

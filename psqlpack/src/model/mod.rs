@@ -2,7 +2,7 @@ macro_rules! dbtry {
     ($expr:expr) => {
         match $expr {
             Ok(o) => o,
-            Err(e) => bail!(DatabaseError(format!("{}", e))),
+            Err(e) => bail!(crate::PsqlpackErrorKind::DatabaseError(format!("{}", e))),
         }
     };
 }
@@ -25,5 +25,5 @@ pub use self::capabilities::{Capabilities, DefinableCatalog};
 pub use self::extension::{Extension};
 pub use self::profiles::{GenerationOptions, PublishProfile, Toggle};
 pub use self::project::{Dependency, Project};
-pub use self::package::{Node, Package, ValidationKind};
+pub use self::package::{MetaInfo, Node, Package, SourceInfo, ValidationKind};
 pub use self::delta::Delta;
