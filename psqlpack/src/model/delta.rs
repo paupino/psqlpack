@@ -17,7 +17,7 @@ use sql::ast::*;
 enum DbObject<'a> {
     Column(&'a TableDefinition, &'a ColumnDefinition),
     Constraint(&'a TableDefinition, &'a TableConstraint),
-    Extension(&'a Dependency),          // 2
+    ExtensionRequest(&'a Dependency),          // 2
     Function(&'a FunctionDefinition),   // 6 (ordered)
     Index(&'a IndexDefinition),         // 7
     Schema(&'a SchemaDefinition),       // 3
@@ -36,7 +36,7 @@ impl<'a> fmt::Display for DbObject<'a> {
                 table.name,
                 constraint.name()
             ),
-            DbObject::Extension(extension) => write!(f, "Extension: {}", extension.name),
+            DbObject::ExtensionRequest(extension) => write!(f, "ExtensionRequest: {}", extension.name),
             DbObject::Function(function) => write!(f, "Function: {}", function.name),
             DbObject::Index(index) => write!(f, "Index: {}", index.name),
             DbObject::Schema(schema) => write!(f, "Schema: {}", schema.name),
@@ -70,7 +70,7 @@ impl<'a> Diffable<'a, Package> for DbObject<'a> {
         match *self {
             DbObject::Column(table, column) => LinkedColumn { table: &table, column: &column }.generate(change_set, target, target_capabilities, publish_profile, log),
             DbObject::Constraint(table, constraint) => LinkedTableConstraint { table: &table, constraint: &constraint }.generate(change_set, target, target_capabilities, publish_profile, log),
-            DbObject::Extension(dependency) => Extension { name: &dependency.name, version: &dependency.version }.generate(change_set, target, target_capabilities, publish_profile, log),
+            DbObject::ExtensionRequest(dependency) => ExtensionRequest { name: &dependency.name, version: &dependency.version }.generate(change_set, target, target_capabilities, publish_profile, log),
             DbObject::Function(function) => function.generate(change_set, target, target_capabilities, publish_profile, log),
             DbObject::Index(index) => index.generate(change_set, target, target_capabilities, publish_profile, log),
             DbObject::Schema(schema) => schema.generate(change_set, target, target_capabilities, publish_profile, log),
@@ -81,12 +81,12 @@ impl<'a> Diffable<'a, Package> for DbObject<'a> {
     }
 }
 
-struct Extension<'a> {
+struct ExtensionRequest<'a> {
     name: &'a String,
     version: &'a Option<Semver>,
 }
 
-impl<'a> Diffable<'a, Package> for Extension<'a> {
+impl<'a> Diffable<'a, Package> for ExtensionRequest<'a> {
     fn generate(
         &self,
         change_set: &mut Vec<ChangeInstruction<'a>>,
@@ -117,9 +117,9 @@ impl<'a> Diffable<'a, Package> for Extension<'a> {
                 change_set.push(ChangeInstruction::CreateExtension(self.name.to_string(), *self.version));
             } else {
                 if let Some(ref version) = self.version {
-                    bail!(PublishError(format!("Extension {} version {} not available to install", self.name, version)))
+                    bail!(PublishError(format!("ExtensionRequest {} version {} not available to install", self.name, version)))
                 }
-                bail!(PublishError(format!("Extension {} not available to install", self.name)))
+                bail!(PublishError(format!("ExtensionRequest {} not available to install", self.name)))
             }
         } else {
             // Something is installed - verify if we need to upgrade.
@@ -138,7 +138,7 @@ impl<'a> Diffable<'a, Package> for Extension<'a> {
                             }
                             Toggle::Error => {
                                 bail!(PublishUnsafeOperationError(format!(
-                                    "Extension {} version {} is available to upgrade",
+                                    "ExtensionRequest {} version {} is available to upgrade",
                                     v.name,
                                     v.version,
                                 )));
@@ -159,7 +159,7 @@ impl<'a> Diffable<'a, Package> for Extension<'a> {
                         }
                         Toggle::Error => {
                             bail!(PublishUnsafeOperationError(format!(
-                                "Extension {} version {} is available to upgrade",
+                                "ExtensionRequest {} version {} is available to upgrade",
                                 available[0].name,
                                 available[0].version,
                             )));
@@ -665,7 +665,7 @@ impl<'package> Delta<'package> {
 
         // Extensions
         for extension in &package.extensions {
-            build_order.push(DbObject::Extension(extension));
+            build_order.push(DbObject::ExtensionRequest(extension));
         }
 
         // Schemas
@@ -1000,7 +1000,7 @@ impl<'input> ChangeInstruction<'input> {
             },
             ChangeInstruction::UseDatabase(ref db) => format!("-- Using database `{}`", db),
 
-            // Extension level
+            // ExtensionRequest level
             ChangeInstruction::CreateExtension(ref name, ref version) => {
                 if let Some(ref version) = version {
                     format!("CREATE EXTENSION {} WITH VERSION \"{}\"", name, version)
@@ -2677,7 +2677,7 @@ mod tests {
     #[test]
     fn it_can_create_an_extension_that_exists_and_is_not_installed_with_version() {
         let log = empty_logger();
-        let requested_extension = Extension {
+        let requested_extension = ExtensionRequest {
             name: &"postgis".to_owned(),
             version: &Some(Semver::new(2, 3, Some(7))),
         };
@@ -2722,7 +2722,7 @@ mod tests {
     #[test]
     fn it_can_create_an_extension_that_exists_and_is_not_installed_without_version() {
         let log = empty_logger();
-        let requested_extension = Extension {
+        let requested_extension = ExtensionRequest {
             name: &"postgis".to_owned(),
             version: &None,
         };
@@ -2767,7 +2767,7 @@ mod tests {
     #[test]
     fn it_errors_when_creating_an_extension_that_exists_and_different_version() {
         let log = empty_logger();
-        let requested_extension = Extension {
+        let requested_extension = ExtensionRequest {
             name: &"postgis".to_owned(),
             version: &Some(Semver::new(2, 4, Some(7))),
         };
@@ -2796,14 +2796,14 @@ mod tests {
         assert_that!(result).is_err();
 
         let err = result.err().unwrap();
-        let expect = "Publish error: Extension postgis version 2.4.7 not available to install".to_owned();
+        let expect = "Publish error: ExtensionRequest postgis version 2.4.7 not available to install".to_owned();
         assert_that!(format!("{}", err)).is_equal_to(&expect);
     }
 
     #[test]
     fn it_errors_when_creating_an_extension_that_does_not_exist() {
         let log = empty_logger();
-        let requested_extension = Extension {
+        let requested_extension = ExtensionRequest {
             name: &"postgis".to_owned(),
             version: &Some(Semver::new(2, 3, Some(7))),
         };
@@ -2826,14 +2826,14 @@ mod tests {
         assert_that!(result).is_err();
 
         let err = result.err().unwrap();
-        let expect = "Publish error: Extension postgis version 2.3.7 not available to install".to_owned();
+        let expect = "Publish error: ExtensionRequest postgis version 2.3.7 not available to install".to_owned();
         assert_that!(format!("{}", err)).is_equal_to(&expect);
     }
 
     #[test]
     fn it_can_upgrade_an_installed_extension_with_newer_version_specified_and_available() {
         let log = empty_logger();
-        let requested_extension = Extension {
+        let requested_extension = ExtensionRequest {
             name: &"postgis".to_owned(),
             version: &Some(Semver::new(3, 8, None)),
         };
@@ -2885,7 +2885,7 @@ mod tests {
     #[test]
     fn it_does_not_modify_an_extension_that_is_already_installed() {
         let log = empty_logger();
-        let requested_extension = Extension {
+        let requested_extension = ExtensionRequest {
             name: &"postgis".to_owned(),
             version: &None,
         };
@@ -2921,7 +2921,7 @@ mod tests {
     #[test]
     fn it_can_upgrade_an_installed_extension_with_no_version_specified_and_newer_version_available_when_profile_set_to_allow() {
         let log = empty_logger();
-        let requested_extension = Extension {
+        let requested_extension = ExtensionRequest {
             name: &"postgis".to_owned(),
             version: &None,
         };
@@ -2972,7 +2972,7 @@ mod tests {
     #[test]
     fn it_doesnt_upgrade_an_installed_extension_with_no_version_specified_and_newer_version_available_when_profile_set_to_ignore() {
         let log = empty_logger();
-        let requested_extension = Extension {
+        let requested_extension = ExtensionRequest {
             name: &"postgis".to_owned(),
             version: &None,
         };
@@ -3013,7 +3013,7 @@ mod tests {
     #[test]
     fn it_doesnt_upgrade_an_installed_extension_with_no_version_specified_and_newer_version_available_when_profile_set_to_error() {
         let log = empty_logger();
-        let requested_extension = Extension {
+        let requested_extension = ExtensionRequest {
             name: &"postgis".to_owned(),
             version: &None,
         };
@@ -3048,7 +3048,7 @@ mod tests {
         assert_that!(result).is_err();
 
         let err = result.err().unwrap();
-        let expect = "Couldn't publish database due to an unsafe operation: Extension postgis version 3.8 is available to upgrade".to_owned();
+        let expect = "Couldn't publish database due to an unsafe operation: ExtensionRequest postgis version 3.8 is available to upgrade".to_owned();
         assert_that!(format!("{}", err)).is_equal_to(&expect);
     }
 }

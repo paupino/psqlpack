@@ -71,6 +71,10 @@ impl Capabilities {
     }
 }
 
+pub trait DefinableCatalog {
+
+}
+
 impl<'row> From<Row<'row>> for Extension {
     fn from(row: Row) -> Self {
         Extension {
