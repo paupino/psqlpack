@@ -34,7 +34,7 @@ pub struct Project {
     #[serde(skip_serializing)] project_file_path: Option<PathBuf>,
 
     /// The version of this profile file format
-    pub version: String,
+    pub version: Semver,
 
     /// The default schema for the database. Typically `public`
     #[serde(rename = "defaultSchema")]

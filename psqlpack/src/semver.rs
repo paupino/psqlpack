@@ -109,6 +109,11 @@ impl<'de> serde::de::Visitor<'de> for SemverVisitor {
     }
 }
 
+impl<'a> Into<Semver> for &'a str {
+    fn into(self) -> Semver {
+        Semver::from_str(self).unwrap()
+    }
+}
 
 lazy_static! {
     static ref VERSION : Regex = Regex::new("(\\d+)(\\.(\\d+))?(\\.(\\d+))?").unwrap();
