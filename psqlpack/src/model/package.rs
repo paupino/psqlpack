@@ -798,6 +798,11 @@ impl Package {
                 name: project.default_schema.to_owned(),
             });
         }
+        for typ in &mut self.types {
+            if typ.name.schema.is_none() {
+                typ.name.schema = Some(project.default_schema.clone());
+            }
+        }
 
         fn ensure_not_null_column(column: &mut ColumnDefinition) {
             // Remove null for primary keys
@@ -976,12 +981,12 @@ impl Package {
             .collect::<Vec<_>>();
 
         // 2. Validate custom type are known
-        let custom_types = self.types.iter().map(|ty| &ty.name[..]).collect::<Vec<_>>();
+        let custom_types = self.types.iter().map(|ty| &ty.name).collect::<Vec<_>>();
         errors.extend(self.tables.iter().flat_map(|t| {
             t.columns
                 .iter()
                 .filter_map(|c| match c.sql_type {
-                    SqlType::Custom(ref name, _) => if !custom_types.contains(&&name[..]) {
+                    SqlType::Custom(ref name, _) => if !custom_types.contains(&&name) {
                         Some(ValidationKind::UnknownType {
                             ty: name.to_owned(),
                             table: t.name.to_string(),
@@ -1131,7 +1136,7 @@ pub enum ValidationKind {
         columns: Vec<String>,
     },
     SchemaMissing { schema: String, object: String },
-    UnknownType { ty: String, table: String },
+    UnknownType { ty: ObjectName, table: String },
 }
 
 impl fmt::Display for ValidationKind {
@@ -1655,7 +1660,10 @@ mod tests {
         assert_that!(validation_errors).has_length(1);
         match validation_errors[0] {
             ValidationKind::UnknownType { ref ty, ref table } => {
-                assert_that!(*ty).is_equal_to("mytype".to_owned());
+                assert_that!(*ty).is_equal_to(ast::ObjectName {
+                    schema: Some("public".to_string()),
+                    name: "mytype".to_string()
+                });
                 assert_that!(*table).is_equal_to("my.items".to_owned());
             }
             ref unexpected => panic!("Unexpected validation type: {:?}", unexpected),
@@ -1663,7 +1671,10 @@ mod tests {
 
         // Add the type and try again
         package.types.push(ast::TypeDefinition {
-            name: "mytype".to_owned(),
+            name: ast::ObjectName {
+                schema: Some("public".to_string()),
+                name: "mytype".to_string()
+            },
             kind: ast::TypeDefinitionKind::Enum(Vec::new()),
         });
         assert_that!(package.validate()).is_ok();

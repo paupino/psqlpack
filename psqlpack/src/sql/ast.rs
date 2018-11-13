@@ -28,7 +28,7 @@ pub enum Statement {
 pub enum SqlType {
     Simple(SimpleSqlType),
     Array(SimpleSqlType, u32),
-    Custom(String, Option<String>),
+    Custom(ObjectName, Option<String>),
 }
 
 #[derive(Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
@@ -170,13 +170,16 @@ pub struct SchemaDefinition {
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct TypeDefinition {
-    pub name: String,
+    pub name: ObjectName,
     pub kind: TypeDefinitionKind,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub enum TypeDefinitionKind {
+    Composite,
     Enum(Vec<String>),
+    Range,
+    Base,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]

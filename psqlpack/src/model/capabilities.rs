@@ -100,7 +100,7 @@ impl DefinableCatalog for Capabilities {
 
     fn query_types(&self, conn: &PostgresConnection) -> PsqlpackResult<Vec<TypeDefinition>> {
         let types = conn
-            .query(Q_ENUMS, &[])
+            .query(Q_TYPES, &[])
             .chain_err(|| PackageQueryTypesError)?;
         Ok(map!(types))
     }
@@ -115,16 +115,6 @@ impl<'a> DefinableCatalog for ExtensionCapabilities<'a> {
     fn query_types(&self, conn: &PostgresConnection) -> PsqlpackResult<Vec<TypeDefinition>> {
         // TODO
         Ok(Vec::new())
-    }
-}
-
-impl<'row> From<Row<'row>> for Extension {
-    fn from(row: Row) -> Self {
-        Extension {
-            name: row.get(0),
-            version: row.get(1),
-            installed: row.get(2),
-        }
     }
 }
 
@@ -144,6 +134,16 @@ static Q_DATABASE_EXISTS: &'static str = "SELECT 1 FROM pg_database WHERE datnam
 static Q_EXTENSIONS: &'static str = "SELECT name, version, installed, requires
                                      FROM pg_available_extension_versions ";
 
+impl<'row> From<Row<'row>> for Extension {
+    fn from(row: Row) -> Self {
+        Extension {
+            name: row.get(0),
+            version: row.get(1),
+            installed: row.get(2),
+        }
+    }
+}
+
 static Q_SCHEMAS: &'static str = "SELECT schema_name FROM information_schema.schemata
                                   WHERE catalog_name = $1 AND schema_name !~* 'pg_|information_schema'";
 impl<'row> From<Row<'row>> for SchemaDefinition {
@@ -152,25 +152,46 @@ impl<'row> From<Row<'row>> for SchemaDefinition {
     }
 }
 
-static Q_ENUMS: &'static str = "SELECT typname, array_agg(enumlabel)
-                                FROM pg_catalog.pg_type
-                                INNER JOIN pg_catalog.pg_namespace ON
-                                    pg_namespace.oid=typnamespace
-                                INNER JOIN (
-                                    SELECT enumtypid, enumlabel
-                                    FROM pg_catalog.pg_enum
-                                    ORDER BY enumtypid, enumsortorder
-                                 ) labels ON
-                                    labels.enumtypid=pg_type.oid
-                                WHERE typcategory IN ('E') AND
-                                      nspname='public' AND
-                                      substr(typname, 1, 1) <> '_'
-                                GROUP BY typname";
+// TODO: Needs some further refining to select user types vs extension types across the board
+// Ideally this is one query to get both types as well as enums.
+// Types: https://www.postgresql.org/docs/9.6/sql-createtype.html
+// typcategory: https://www.postgresql.org/docs/9.6/catalog-pg-type.html#CATALOG-TYPCATEGORY-TABLE
+static Q_TYPES: &'static str =
+    "SELECT typcategory, nspname, typname, array_agg(labels.enumlabel)
+    FROM pg_type
+    INNER JOIN pg_namespace ON pg_namespace.oid=typnamespace
+    LEFT JOIN (
+        SELECT enumtypid, enumlabel
+        FROM pg_catalog.pg_enum
+        ORDER BY enumtypid, enumsortorder
+    ) labels ON labels.enumtypid=pg_type.oid
+    WHERE
+        -- exclude pg schemas and info catalo
+        nspname !~* 'pg_|information_schema' AND
+        -- Types beginning with _ are auto created (e.g. arrays)
+        typname !~ '^_' AND
+        -- Try to exclude extensions and internal objects
+        NOT EXISTS (SELECT 1 FROM pg_depend WHERE pg_depend.objid=pg_type.oid AND deptype IN ('e','i'))
+    GROUP BY typcategory, nspname, typname
+    ORDER BY typcategory, nspname, typname;";
+
 impl<'row> From<Row<'row>> for TypeDefinition {
     fn from(row: Row) -> Self {
+        let category = row.get(0);
+        let schema = row.get(1);
+        let name = row.get(2);
+        // TODO: More types
+        let kind = match category {
+            0x45 => TypeDefinitionKind::Enum(row.get(3)),
+            _kind => panic!("Unexpected kind: TODO {}", _kind),
+        };
+
         TypeDefinition {
-            name: row.get(0),
-            kind: TypeDefinitionKind::Enum(row.get(1)),
+            name: ObjectName {
+                schema,
+                name,
+            },
+            kind,
         }
     }
 }

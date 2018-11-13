@@ -121,42 +121,42 @@ pub StatementList: Vec<Statement> = {
 Statement: Statement = {
     CREATE EXTENSION <name:Ident> ";"? => Statement::Error(ErrorKind::ExtensionNotSupported(name)),
     CREATE (OR REPLACE)? FUNCTION <name:ObjectName> "(" ")" RETURNS <return_type:FunctionReturnType> AS <body:Literal> LANGUAGE <lang:FunctionType> ";"? => Statement::Function(FunctionDefinition {
-        name: name,
+        name,
         arguments: Vec::new(),
         return_type: return_type,
-        body: body,
+        body,
         language: lang,
     }),
     CREATE (OR REPLACE)? FUNCTION <name:ObjectName> "(" <args:FunctionArgumentList> ")" RETURNS <return_type:FunctionReturnType> AS <body:Literal> LANGUAGE <lang:FunctionType> ";"? => Statement::Function(FunctionDefinition {
-        name: name,
+        name,
         arguments: args,
-        return_type: return_type,
-        body: body,
+        return_type,
+        body,
         language: lang,
     }),
     CREATE <unique:UNIQUE?> INDEX <name:Ident> ON <table:ObjectName> <index_type:IndexType?> "(" <columns:IndexColumnList> ")" <storage_parameters:WithIndexParameters?> ";"? => Statement::Index(IndexDefinition {
-        name: name,
-        table: table,
-        columns: columns,
+        name,
+        table,
+        columns,
         unique: unique.is_some(),
-        index_type: index_type,
-        storage_parameters: storage_parameters,
+        index_type,
+        storage_parameters,
     }),
     CREATE SCHEMA <name:Ident> ";"? => Statement::Schema(SchemaDefinition {
-        name: name,
+        name,
     }),
     CREATE TABLE <name:ObjectName> "(" <columns:ColumnDefinitionList> "," <table_constraints:TableConstraintList> ")" ";"? => Statement::Table(TableDefinition {
-        name: name,
-        columns: columns,
+        name,
+        columns,
         constraints: table_constraints,
     }),
     CREATE TABLE <name:ObjectName> "(" <columns:ColumnDefinitionList> ")" ";"? => Statement::Table(TableDefinition {
-        name: name,
-        columns: columns,
+        name,
+        columns,
         constraints: Vec::new(),
     }),
-    CREATE TYPE <name:Ident> AS ENUM "(" <values:EnumValueList> ")" ";"? => Statement::Type(TypeDefinition {
-        name: name,
+    CREATE TYPE <name:ObjectName> AS ENUM "(" <values:EnumValueList> ")" ";"? => Statement::Type(TypeDefinition {
+        name,
         kind: TypeDefinitionKind::Enum(values),
     }),
 };
@@ -334,8 +334,8 @@ IndexType: IndexType = {
 pub SqlType: SqlType = {
     <SimpleType> => SqlType::Simple(<>),
     <simple:SimpleType> <dim:ArrayDimension> => SqlType::Array(simple, dim),
-    <Ident> => SqlType::Custom(<>, None),
-    <name:Ident> "(" <options:Ident> ")" => SqlType::Custom(name, Some(options)),
+    <ObjectName> => SqlType::Custom(<>, None),
+    <name:ObjectName> "(" <options:Ident> ")" => SqlType::Custom(name, Some(options)),
 };
 
 SimpleType: SimpleSqlType = {

@@ -606,6 +606,7 @@ impl<'a> Diffable<'a, TypeDefinition> for &'a TypeDefinition {
                     }
                 }
             }
+            unknown => panic!("Unknown kind: {}", unknown), // TODO
         }
         Ok(())
     }
@@ -1041,6 +1042,7 @@ impl<'input> ChangeInstruction<'input> {
                         }
                         def.push_str("\n)");
                     }
+                    unknown => panic!("Unknown kind: {}", unknown), // TODO
                 }
                 def
             }
@@ -1384,7 +1386,10 @@ mod tests {
 
     fn base_type() -> ast::TypeDefinition {
         ast::TypeDefinition {
-            name: "colors".into(),
+            name: ast::ObjectName {
+                schema: Some("public".to_string()),
+                name: "colors".to_string()
+            },
             kind: ast::TypeDefinitionKind::Enum(vec!["red".into(), "green".into(), "blue".into()]),
         }
     }
@@ -1415,9 +1420,13 @@ mod tests {
         assert_that!(change_set).has_length(1);
         match change_set[0] {
             ChangeInstruction::AddType(ref ty) => {
-                assert_that!(ty.name).is_equal_to("colors".to_owned());
+                assert_that!(ty.name).is_equal_to(ast::ObjectName {
+                    schema: Some("public".to_string()),
+                    name: "mytype".to_string()
+                });
                 let values = match ty.kind {
                     TypeDefinitionKind::Enum(ref values) => values.clone(),
+                    unknown => panic!("Unknown kind: {}", unknown), // TODO
                 };
                 assert_that!(values).has_length(3);
                 assert_that!(values[0]).is_equal_to("red".to_owned());
@@ -1463,7 +1472,10 @@ mod tests {
     fn it_can_modify_enum_type_by_adding_a_value_to_the_end() {
         let log = empty_logger();
         let source_type = ast::TypeDefinition {
-            name: "colors".to_owned(),
+            name: ast::ObjectName {
+                schema: Some("public".to_string()),
+                name: "colors".to_string()
+            },
             kind: ast::TypeDefinitionKind::Enum(vec![
                 "red".to_owned(),
                 "green".to_owned(),
@@ -1494,7 +1506,10 @@ mod tests {
         assert_that!(change_set).has_length(1);
         match change_set[0] {
             ChangeInstruction::ModifyType(ty, ref action) => {
-                assert_that!(ty.name).is_equal_to("colors".to_owned());
+                assert_that!(ty.name).is_equal_to(ast::ObjectName {
+                    schema: Some("public".to_string()),
+                    name: "colors".to_string()
+                });
 
                 // Also, match the action
                 match *action {
@@ -1519,7 +1534,10 @@ mod tests {
     fn it_can_modify_enum_type_by_adding_a_value_to_the_start() {
         let log = empty_logger();
         let source_type = ast::TypeDefinition {
-            name: "colors".to_owned(),
+            name: ast::ObjectName {
+                schema: Some("public".to_string()),
+                name: "colors".to_string()
+            },
             kind: ast::TypeDefinitionKind::Enum(vec![
                 "black".to_owned(),
                 "red".to_owned(),
@@ -1550,7 +1568,10 @@ mod tests {
         assert_that!(change_set).has_length(1);
         match change_set[0] {
             ChangeInstruction::ModifyType(ty, ref action) => {
-                assert_that!(ty.name).is_equal_to("colors".to_owned());
+                assert_that!(ty.name).is_equal_to(ast::ObjectName {
+                    schema: Some("public".to_string()),
+                    name: "colors".to_string()
+                });
 
                 // Also, match the action
                 match *action {
@@ -1575,7 +1596,10 @@ mod tests {
     fn it_can_modify_enum_type_by_adding_a_value_to_the_middle() {
         let log = empty_logger();
         let source_type = ast::TypeDefinition {
-            name: "colors".to_owned(),
+            name: ast::ObjectName {
+                schema: Some("public".to_string()),
+                name: "colors".to_string()
+            },
             kind: ast::TypeDefinitionKind::Enum(vec![
                 "red".to_owned(),
                 "green".to_owned(),
@@ -1606,7 +1630,10 @@ mod tests {
         assert_that!(change_set).has_length(1);
         match change_set[0] {
             ChangeInstruction::ModifyType(ty, ref action) => {
-                assert_that!(ty.name).is_equal_to("colors".to_owned());
+                assert_that!(ty.name).is_equal_to(ast::ObjectName {
+                    schema: Some("public".to_string()),
+                    name: "colors".to_string()
+                });
 
                 // Also, match the action
                 match *action {
@@ -1631,7 +1658,10 @@ mod tests {
     fn it_can_modify_enum_type_by_modifying_values_and_unsafe_declared() {
         let log = empty_logger();
         let source_type = ast::TypeDefinition {
-            name: "colors".to_owned(),
+            name: ast::ObjectName {
+                schema: Some("public".to_string()),
+                name: "colors".to_string()
+            },
             kind: ast::TypeDefinitionKind::Enum(vec![
                 "black".to_owned(),
                 "green".to_owned(),
@@ -1664,7 +1694,10 @@ mod tests {
         // Removals first
         match change_set[0] {
             ChangeInstruction::ModifyType(ty, ref action) => {
-                assert_that!(ty.name).is_equal_to("colors".to_owned());
+                assert_that!(ty.name).is_equal_to(ast::ObjectName {
+                    schema: Some("public".to_string()),
+                    name: "colors".to_string()
+                });
 
                 // Also, match the action
                 match *action {
@@ -1680,14 +1713,17 @@ mod tests {
         assert_that!(change_set[0].to_sql(&log)).is_equal_to(
             "DELETE FROM pg_enum \
              WHERE enumlabel = 'red' AND \
-             enumtypid = (SELECT oid FROM pg_type WHERE typname = 'colors')"
+             enumtypid = (SELECT oid FROM pg_type WHERE typname = 'colors' AND nspname = 'public')"
                 .to_owned(),
         );
 
         // Additions second
         match change_set[1] {
             ChangeInstruction::ModifyType(ty, ref action) => {
-                assert_that!(ty.name).is_equal_to("colors".to_owned());
+                assert_that!(ty.name).is_equal_to(ast::ObjectName {
+                    schema: Some("public".to_string()),
+                    name: "colors".to_string()
+                });
 
                 // Also, match the action
                 match *action {
@@ -1711,7 +1747,10 @@ mod tests {
     fn it_rejects_modifying_enum_type_when_modifying_values_by_default() {
         let log = empty_logger();
         let source_type = ast::TypeDefinition {
-            name: "colors".to_owned(),
+            name: ast::ObjectName {
+                schema: Some("public".to_string()),
+                name: "colors".to_string()
+            },
             kind: ast::TypeDefinitionKind::Enum(vec![
                 "black".to_owned(),
                 "green".to_owned(),
@@ -1749,7 +1788,10 @@ mod tests {
     fn it_can_modify_enum_type_by_removing_values_and_unsafe_declared() {
         let log = empty_logger();
         let source_type = ast::TypeDefinition {
-            name: "colors".to_owned(),
+            name: ast::ObjectName {
+                schema: Some("public".to_string()),
+                name: "colors".to_string()
+            },
             kind: ast::TypeDefinitionKind::Enum(vec!["green".to_owned(), "blue".to_owned()]),
         };
 
@@ -1778,7 +1820,10 @@ mod tests {
         // Removals first
         match change_set[0] {
             ChangeInstruction::ModifyType(ty, ref action) => {
-                assert_that!(ty.name).is_equal_to("colors".to_owned());
+                assert_that!(ty.name).is_equal_to(ast::ObjectName {
+                    schema: Some("public".to_string()),
+                    name: "colors".to_string()
+                });
 
                 // Also, match the action
                 match *action {
@@ -1794,7 +1839,7 @@ mod tests {
         assert_that!(change_set[0].to_sql(&log)).is_equal_to(
             "DELETE FROM pg_enum \
              WHERE enumlabel = 'red' AND \
-             enumtypid = (SELECT oid FROM pg_type WHERE typname = 'colors')"
+             enumtypid = (SELECT oid FROM pg_type WHERE typname = 'colors' AND nspname = 'public')"
                 .to_owned(),
         );
     }
