@@ -849,6 +849,13 @@ impl Package {
                     // Make sure it is not null
                     ensure_not_null_column(column);
                 }
+
+                // Also, if the type is custom, then assume the default search path
+                if let SqlType::Custom(ref mut custom_type, ref _opts) = column.sql_type {
+                    if custom_type.schema.is_none() {
+                        custom_type.schema = Some(project.default_schema.clone());
+                    }
+                }
             }
         }
 

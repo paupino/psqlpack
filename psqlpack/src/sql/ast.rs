@@ -337,6 +337,17 @@ impl fmt::Display for SqlType {
     }
 }
 
+impl fmt::Display for TypeDefinitionKind {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            TypeDefinitionKind::Enum(_) => write!(f, "Enum"),
+            TypeDefinitionKind::Composite => write!(f, "Composite"),
+            TypeDefinitionKind::Range => write!(f, "Range"),
+            TypeDefinitionKind::Base => write!(f, "Base"),
+        }
+    }
+}
+
 impl fmt::Display for SimpleSqlType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {

@@ -604,9 +604,10 @@ impl<'a> Diffable<'a, TypeDefinition> for &'a TypeDefinition {
                             index += 1;
                         }
                     }
+                    ref unknown_target_kind => panic!("Unknown target kind: {}", unknown_target_kind), // TODO
                 }
             }
-            unknown => panic!("Unknown kind: {}", unknown), // TODO
+            ref unknown_source_kind => panic!("Unknown source kind: {}", unknown_source_kind), // TODO
         }
         Ok(())
     }
@@ -1042,7 +1043,7 @@ impl<'input> ChangeInstruction<'input> {
                         }
                         def.push_str("\n)");
                     }
-                    unknown => panic!("Unknown kind: {}", unknown), // TODO
+                    ref unknown => panic!("Unknown kind: {}", unknown), // TODO
                 }
                 def
             }

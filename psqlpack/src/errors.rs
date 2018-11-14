@@ -134,7 +134,10 @@ error_chain! {
         }
         ValidationError(errors: Vec<ValidationKind>) {
             description("Package validation error")
-            display("Error validating package: {}", ValidationErrorFormatter(errors))
+            display("Package validation error{}:\n{}",
+                if errors.len() > 1 { "s" } else { "" },
+                ValidationErrorFormatter(errors)
+            )
         }
         FormatError(file: String, message: String) {
             description("Format error when reading a file")
@@ -227,7 +230,7 @@ struct ValidationErrorFormatter<'fmt>(&'fmt Vec<ValidationKind>);
 impl<'fmt> Display for ValidationErrorFormatter<'fmt> {
     fn fmt(&self, f: &mut Formatter) -> Result {
         for error in self.0.iter() {
-            write!(f, "{}", error)?;
+            write!(f, " - {}\n", error)?;
         }
         Ok(())
     }

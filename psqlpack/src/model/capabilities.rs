@@ -166,7 +166,7 @@ static Q_TYPES: &'static str =
         ORDER BY enumtypid, enumsortorder
     ) labels ON labels.enumtypid=pg_type.oid
     WHERE
-        -- exclude pg schemas and info catalo
+        -- exclude pg schemas and information catalog
         nspname !~* 'pg_|information_schema' AND
         -- Types beginning with _ are auto created (e.g. arrays)
         typname !~ '^_' AND
