@@ -1427,7 +1427,7 @@ mod tests {
                 });
                 let values = match ty.kind {
                     TypeDefinitionKind::Enum(ref values) => values.clone(),
-                    unknown => panic!("Unknown kind: {}", unknown), // TODO
+                    ref unknown => panic!("Unknown kind: {}", unknown), // TODO
                 };
                 assert_that!(values).has_length(3);
                 assert_that!(values[0]).is_equal_to("red".to_owned());
