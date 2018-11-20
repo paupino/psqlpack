@@ -1068,10 +1068,14 @@ impl<'input> ChangeInstruction<'input> {
                 ),
                 TypeModificationAction::RemoveEnumValue { ref value } => format!(
                     "DELETE FROM pg_enum \
-                     WHERE enumlabel = '{}' AND \
-                     enumtypid = (SELECT oid FROM pg_type WHERE typname = '{}')",
+                     WHERE enumlabel='{}' AND \
+                     enumtypid=(SELECT oid FROM pg_type WHERE {})",
                     value,
-                    ty.name
+                    if let Some(ref schema) = ty.name.schema {
+                        format!("nspname='{}' AND typname='{}'", schema, ty.name.name)
+                    } else {
+                        format!("typname='{}'", ty.name.name)
+                    },
                 ),
             }
             ChangeInstruction::DropType(ref type_name) => {
@@ -1423,7 +1427,7 @@ mod tests {
             ChangeInstruction::AddType(ref ty) => {
                 assert_that!(ty.name).is_equal_to(ast::ObjectName {
                     schema: Some("public".to_string()),
-                    name: "mytype".to_string()
+                    name: "colors".to_string()
                 });
                 let values = match ty.kind {
                     TypeDefinitionKind::Enum(ref values) => values.clone(),
@@ -1439,7 +1443,7 @@ mod tests {
 
         // Check the SQL generation
         assert_that!(change_set[0].to_sql(&log))
-            .is_equal_to("CREATE TYPE colors AS ENUM (\n  'red',\n  'green',\n  'blue'\n)".to_owned());
+            .is_equal_to("CREATE TYPE public.colors AS ENUM (\n  'red',\n  'green',\n  'blue'\n)".to_owned());
     }
 
     #[test]
@@ -1528,7 +1532,7 @@ mod tests {
         }
 
         // Check the SQL generation
-        assert_that!(change_set[0].to_sql(&log)).is_equal_to("ALTER TYPE colors ADD VALUE 'black' AFTER 'blue'".to_owned());
+        assert_that!(change_set[0].to_sql(&log)).is_equal_to("ALTER TYPE public.colors ADD VALUE 'black' AFTER 'blue'".to_owned());
     }
 
     #[test]
@@ -1590,7 +1594,7 @@ mod tests {
         }
 
         // Check the SQL generation
-        assert_that!(change_set[0].to_sql(&log)).is_equal_to("ALTER TYPE colors ADD VALUE 'black' BEFORE 'red'".to_owned());
+        assert_that!(change_set[0].to_sql(&log)).is_equal_to("ALTER TYPE public.colors ADD VALUE 'black' BEFORE 'red'".to_owned());
     }
 
     #[test]
@@ -1652,7 +1656,7 @@ mod tests {
         }
 
         // Check the SQL generation
-        assert_that!(change_set[0].to_sql(&log)).is_equal_to("ALTER TYPE colors ADD VALUE 'black' AFTER 'green'".to_owned());
+        assert_that!(change_set[0].to_sql(&log)).is_equal_to("ALTER TYPE public.colors ADD VALUE 'black' AFTER 'green'".to_owned());
     }
 
     #[test]
@@ -1713,8 +1717,8 @@ mod tests {
         // Check the SQL generation
         assert_that!(change_set[0].to_sql(&log)).is_equal_to(
             "DELETE FROM pg_enum \
-             WHERE enumlabel = 'red' AND \
-             enumtypid = (SELECT oid FROM pg_type WHERE typname = 'colors' AND nspname = 'public')"
+             WHERE enumlabel='red' AND \
+             enumtypid=(SELECT oid FROM pg_type WHERE nspname='public' AND typname='colors')"
                 .to_owned(),
         );
 
@@ -1741,7 +1745,7 @@ mod tests {
             ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
         }
         // Check the SQL generation
-        assert_that!(change_set[1].to_sql(&log)).is_equal_to("ALTER TYPE colors ADD VALUE 'black' BEFORE 'green'".to_owned());
+        assert_that!(change_set[1].to_sql(&log)).is_equal_to("ALTER TYPE public.colors ADD VALUE 'black' BEFORE 'green'".to_owned());
     }
 
     #[test]
@@ -1839,8 +1843,8 @@ mod tests {
         // Check the SQL generation
         assert_that!(change_set[0].to_sql(&log)).is_equal_to(
             "DELETE FROM pg_enum \
-             WHERE enumlabel = 'red' AND \
-             enumtypid = (SELECT oid FROM pg_type WHERE typname = 'colors' AND nspname = 'public')"
+             WHERE enumlabel='red' AND \
+             enumtypid=(SELECT oid FROM pg_type WHERE nspname='public' AND typname='colors')"
                 .to_owned(),
         );
     }

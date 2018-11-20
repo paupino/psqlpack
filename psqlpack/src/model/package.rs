@@ -1656,6 +1656,8 @@ mod tests {
             "CREATE SCHEMA my;
              CREATE TABLE my.items(id mytype);",
         );
+        let project = Project::default();
+        package.set_defaults(&project);
         let result = package.validate();
 
         // `mytype` is missing
