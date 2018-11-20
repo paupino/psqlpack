@@ -179,7 +179,7 @@ pub enum TypeDefinitionKind {
     Composite,
     Enum(Vec<String>),
     Range,
-    Base,
+    UserDefined,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -343,7 +343,7 @@ impl fmt::Display for TypeDefinitionKind {
             TypeDefinitionKind::Enum(_) => write!(f, "Enum"),
             TypeDefinitionKind::Composite => write!(f, "Composite"),
             TypeDefinitionKind::Range => write!(f, "Range"),
-            TypeDefinitionKind::Base => write!(f, "Base"),
+            TypeDefinitionKind::UserDefined => write!(f, "User Defined"),
         }
     }
 }

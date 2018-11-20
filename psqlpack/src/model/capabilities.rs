@@ -188,13 +188,17 @@ static Q_TYPES_EXTENSION: &'static str = "
 
 impl<'row> From<Row<'row>> for TypeDefinition {
     fn from(row: Row) -> Self {
-        let category = row.get(0);
+        let category: i8 = row.get(0);
+        let category = category as u8;
         let schema = row.get(1);
         let name = row.get(2);
-        let kind = match category {
+        let kind = match category as char {
             // TODO: All types
-            0x45 => TypeDefinitionKind::Enum(row.get(3)),
-            _kind => panic!("Unexpected kind: TODO {}", _kind),
+            'C' => TypeDefinitionKind::Composite, // TODO add composite details
+            'E' => TypeDefinitionKind::Enum(row.get(3)),
+            'R' => TypeDefinitionKind::Range, // TODO add range details
+            'U' => TypeDefinitionKind::UserDefined,
+            kind => panic!("Unexpected kind: {}", kind),
         };
 
         TypeDefinition {
