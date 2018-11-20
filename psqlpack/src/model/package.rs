@@ -909,7 +909,7 @@ impl Package {
                     if found.is_none() {
                         let name = format!("{}_pkey", table.name.name);
                         table.constraints.push(TableConstraint::Primary {
-                            name: name,
+                            name,
                             columns: vec![column.name.to_owned()],
                             parameters: None,
                         });
