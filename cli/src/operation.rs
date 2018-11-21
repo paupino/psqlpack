@@ -68,6 +68,7 @@ pub fn extract_extension<L: Into<Logger>>(log: L,
     let extension = extensions[0];
     let package = extension.build_package_from_connection(&log, &connection, &capabilities)?;
     let mut output_path = target_path.to_path_buf();
+    // TODO: Add this only when necessary
     output_path.push(format!("{}-{}.psqlpack", extension.name, extension.version));
     trace!(log, "Writing Package"; "output" => output_path.to_str().unwrap());
     package.write_to(&output_path)
