@@ -208,7 +208,11 @@ pub FunctionArgumentList: Vec<FunctionArgument> = {
 
 FunctionArgument: FunctionArgument = {
     <name:Ident> <t:SqlType> => FunctionArgument {
-        name: name,
+        name: Some(name),
+        sql_type: t,
+    },
+    <t:SqlType> => FunctionArgument {
+        name: None,
         sql_type: t,
     }
 };

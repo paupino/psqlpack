@@ -1094,7 +1094,11 @@ impl<'input> ChangeInstruction<'input> {
                         arg_comma_required = true;
                     }
 
-                    func.push_str(&format!("{} {}", arg.name, arg.sql_type)[..]);
+                    if let Some(ref name) = arg.name {
+                        func.push_str(&format!("{} {}", name, arg.sql_type)[..]);
+                    } else {
+                        func.push_str(&arg.sql_type.to_string());
+                    }
                 }
                 func.push_str(")\n");
                 func.push_str("RETURNS ");

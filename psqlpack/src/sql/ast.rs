@@ -207,7 +207,7 @@ pub struct FunctionDefinition {
 
 #[derive(Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
 pub struct FunctionArgument {
-    pub name: String,
+    pub name: Option<String>,
     pub sql_type: SqlType,
 }
 

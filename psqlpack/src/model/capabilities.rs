@@ -265,7 +265,8 @@ static CTE_FUNCTIONS: &'static str = "
             pg_namespace.oid = pg_proc.pronamespace
         JOIN pg_language ON
             pg_language.oid = pg_proc.prolang
-        WHERE nspname !~* 'pg_|information_schema'
+        WHERE nspname !~* 'pg_|information_schema' AND
+            proname !~ '^_'
     )";
 
 fn parse_function(row: &Row) -> PsqlpackResult<FunctionDefinition> {
