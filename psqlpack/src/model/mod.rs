@@ -7,12 +7,6 @@ macro_rules! dbtry {
     };
 }
 
-macro_rules! map {
-    ($expr:expr) => {{
-        $expr.iter().map(|row| row.into()).collect()
-    }};
-}
-
 mod capabilities;
 mod extension;
 mod profiles;

@@ -22,14 +22,15 @@ impl Extension {
         let db_conn = connection.connect_database()?;
         let meta = MetaInfo::new(SourceInfo::Extension);
         let context = capabilities.with_context(self);
-        let schemas = context.query_schemata(&db_conn, connection.database())?;
-        let types = context.query_types(&db_conn)?;
+        let schemas = context.schemata(&db_conn, connection.database())?;
+        let types = context.types(&db_conn)?;
+        let functions = context.functions(&db_conn)?;
         dbtry!(db_conn.finish());
 
         let mut package = Package {
             meta,
             extensions: Vec::new(),
-            functions: Vec::new(), // TODO
+            functions,
             indexes: Vec::new(), // TODO
             schemas,
             scripts: Vec::new(),

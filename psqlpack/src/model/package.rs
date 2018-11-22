@@ -18,7 +18,7 @@ use zip::write::FileOptions;
 use connection::Connection;
 use sql::lexer;
 use sql::ast::*;
-use sql::parser::{SqlTypeParser, FunctionArgumentListParser, FunctionReturnTypeParser};
+use sql::parser::SqlTypeParser;
 use model::{Capabilities, DefinableCatalog, Dependency, Project};
 use semver::Semver;
 use errors::{PsqlpackError, PsqlpackResult, PsqlpackResultExt};
@@ -47,23 +47,6 @@ macro_rules! zip_collection {
         }
     }};
 }
-
-static Q_FUNCTIONS: &'static str = "SELECT
-                                        nspname,
-                                        proname,
-                                        prosrc,
-                                        pg_get_function_arguments(pg_proc.oid),
-                                        lanname,
-                                        pg_get_function_result(pg_proc.oid)
-                                    FROM pg_proc
-                                    JOIN pg_namespace ON
-                                        pg_namespace.oid = pg_proc.pronamespace
-                                    JOIN pg_language ON
-                                        pg_language.oid = pg_proc.prolang
-                                    LEFT JOIN pg_depend ON
-                                        pg_depend.objid = pg_proc.oid AND pg_depend.deptype = 'e'
-                                    WHERE pg_depend.objid IS NULL AND
-                                          nspname !~* 'pg_|information_schema';";
 
 static Q_TABLES: &'static str = "SELECT
                                     pg_class.oid,
@@ -574,70 +557,10 @@ impl Package {
             .map(|e| Dependency { name: e.name.clone(), version: Some(e.version) })
             .collect::<Vec<_>>();
 
-        let schemas = capabilities.query_schemata(&db_conn, connection.database())?;
-        let types = capabilities.query_types(&db_conn)?;
-
-        let mut functions = Vec::new();
-        for row in &db_conn
-            .query(Q_FUNCTIONS, &[])
-            .chain_err(|| PackageQueryFunctionsError)?
-        {
-            let schema_name: String = row.get(0);
-            let function_name: String = row.get(1);
-            let function_src: String = row.get(2);
-            let raw_args: String = row.get(3);
-            let lan_name: String = row.get(4);
-            let raw_result: String = row.get(5);
-
-            // Parse some of the results
-            let language = match &lan_name[..] {
-                "internal" => FunctionLanguage::Internal,
-                "c" => FunctionLanguage::C,
-                "sql" => FunctionLanguage::SQL,
-                _ => FunctionLanguage::PostgreSQL,
-            };
-
-            fn lexical(err: lexer::LexicalError) -> PsqlpackError {
-                LexicalError(
-                    err.line.to_owned(),
-                    err.line_number,
-                    err.start_pos,
-                    err.end_pos,
-                ).into()
-            };
-            fn parse(err: lalrpop_util::ParseError<(), lexer::Token, &'static str>) -> PsqlpackError {
-                InlineParseError(err).into()
-            };
-
-            let function_args = if raw_args.is_empty() {
-                Vec::new()
-            } else {
-                lexer::tokenize(&raw_args)
-                    .map_err(lexical)
-                    .and_then(|tokens| {
-                        FunctionArgumentListParser::new().parse(tokens).map_err(parse)
-                    })
-                    .chain_err(|| PackageFunctionArgsInspectError(raw_args))?
-            };
-            let return_type = lexer::tokenize(&raw_result)
-                .map_err(&lexical)
-                .and_then(|tokens| {
-                    FunctionReturnTypeParser::new().parse(tokens).map_err(parse)
-                })
-                .chain_err(|| PackageFunctionReturnTypeInspectError(raw_result))?;
-
-            // Set up the function definition
-            functions.push(FunctionDefinition {
-                name: ObjectName {
-                    schema: Some(schema_name),
-                    name: function_name,
-                },
-                arguments: function_args,
-                return_type,
-                body: function_src,
-                language,
-            });
-        }
+        // TODO: Refactor connection so we only need to pass through that
+        let schemas = capabilities.schemata(&db_conn, connection.database())?;
+        let types = capabilities.types(&db_conn)?;
+        let functions = capabilities.functions(&db_conn)?;
 
         let mut tables = HashMap::new();
         for row in &db_conn.query(Q_TABLES, &[])
