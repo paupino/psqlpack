@@ -131,7 +131,7 @@ pub struct LexicalError<'input> {
 }
 
 lazy_static! {
-    static ref IDENTIFIER: Regex = Regex::new("^[a-zA-Z][a-zA-Z0-9_]+$").unwrap();
+    static ref IDENTIFIER: Regex = Regex::new("^[a-zA-Z][a-zA-Z0-9_]*$").unwrap();
     static ref DECIMAL: Regex = Regex::new("^\\d+\\.\\d+$").unwrap();
     static ref DIGIT: Regex = Regex::new("^\\d+$").unwrap();
 }
