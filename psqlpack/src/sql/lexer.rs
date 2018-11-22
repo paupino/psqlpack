@@ -1,4 +1,6 @@
 use regex::Regex;
+use rust_decimal::Decimal;
+
 use std::iter::FromIterator;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -32,7 +34,9 @@ pub enum Token {
     GIN,
     GIST,
     HASH,
+    IN,
     INDEX,
+    INOUT,
     INT,
     INT2,
     INT4,
@@ -50,6 +54,7 @@ pub enum Token {
     NUMERIC,
     ON,
     OR,
+    OUT,
     PARTIAL,
     PRECISION,
     PRIMARY,
@@ -64,6 +69,7 @@ pub enum Token {
     SERIAL4,
     SERIAL8,
     SET,
+    SETOF,
     SIMPLE,
     SMALLINT,
     SMALLSERIAL,
@@ -80,6 +86,7 @@ pub enum Token {
     UUID,
     VARBIT,
     VARCHAR,
+    VARIADIC,
     VARYING,
     WITH,
     WITHOUT,
@@ -87,6 +94,7 @@ pub enum Token {
 
     Identifier(String),
     Digit(i32),
+    Decimal(Decimal),
     Boolean(bool),
     StringValue(String),
     Literal(String),
@@ -96,6 +104,7 @@ pub enum Token {
     LeftSquare,
     RightSquare,
 
+    Colon,
     Comma,
     Period,
     Semicolon,
@@ -122,8 +131,8 @@ pub struct LexicalError<'input> {
 }
 
 lazy_static! {
-
     static ref IDENTIFIER: Regex = Regex::new("^[a-zA-Z][a-zA-Z0-9_]+$").unwrap();
+    static ref DECIMAL: Regex = Regex::new("^\\d+\\.\\d+$").unwrap();
     static ref DIGIT: Regex = Regex::new("^\\d+$").unwrap();
 }
 
@@ -196,7 +205,9 @@ fn create_token(value: String) -> Option<Token> {
     match_keyword!(value, GIN);
     match_keyword!(value, GIST);
     match_keyword!(value, HASH);
+    match_keyword!(value, IN);
     match_keyword!(value, INDEX);
+    match_keyword!(value, INOUT);
     match_keyword!(value, INT);
     match_keyword!(value, INT2);
     match_keyword!(value, INT4);
@@ -214,6 +225,7 @@ fn create_token(value: String) -> Option<Token> {
     match_keyword!(value, NUMERIC);
     match_keyword!(value, ON);
     match_keyword!(value, OR);
+    match_keyword!(value, OUT);
     match_keyword!(value, PARTIAL);
     match_keyword!(value, PRECISION);
     match_keyword!(value, PRIMARY);
@@ -228,6 +240,7 @@ fn create_token(value: String) -> Option<Token> {
     match_keyword!(value, SERIAL4);
     match_keyword!(value, SERIAL8);
     match_keyword!(value, SET);
+    match_keyword!(value, SETOF);
     match_keyword!(value, SIMPLE);
     match_keyword!(value, SMALLINT);
     match_keyword!(value, SMALLSERIAL);
@@ -244,6 +257,7 @@ fn create_token(value: String) -> Option<Token> {
     match_keyword!(value, UUID);
     match_keyword!(value, VARBIT);
     match_keyword!(value, VARCHAR);
+    match_keyword!(value, VARIADIC);
     match_keyword!(value, VARYING);
     match_keyword!(value, WITH);
     match_keyword!(value, WITHOUT);
@@ -252,6 +266,9 @@ fn create_token(value: String) -> Option<Token> {
     // Regex
     if IDENTIFIER.is_match(&value[..]) {
         return Some(Token::Identifier(value));
+    }
+    if DECIMAL.is_match(&value[..]) {
+        return Some(Token::Decimal(value.parse::<Decimal>().unwrap()));
     }
     if DIGIT.is_match(&value[..]) {
         return Some(Token::Digit(value.parse::<i32>().unwrap()));
@@ -338,6 +355,10 @@ pub fn tokenize(text: &str) -> Result<Vec<Token>, LexicalError> {
                                 tokenize_buffer!(tokens, buffer, line, current_line, current_position);
                                 tokens.push(Token::Comma);
                             }
+                            ':' => {
+                                tokenize_buffer!(tokens, buffer, line, current_line, current_position);
+                                tokens.push(Token::Colon);
+                            }
                             ';' => {
                                 tokenize_buffer!(tokens, buffer, line, current_line, current_position);
                                 tokens.push(Token::Semicolon);
@@ -347,8 +368,13 @@ pub fn tokenize(text: &str) -> Result<Vec<Token>, LexicalError> {
                                 tokens.push(Token::Equals);
                             }
                             '.' => {
-                                tokenize_buffer!(tokens, buffer, line, current_line, current_position);
-                                tokens.push(Token::Period);
+                                // If it is just a plain digit in the buffer, then allow it to continue.
+                                if buffer.iter().all(|c: &char| c.is_digit(10)) {
+                                    buffer.push(c);
+                                } else {
+                                    tokenize_buffer!(tokens, buffer, line, current_line, current_position);
+                                    tokens.push(Token::Period);
+                                }
                             }
                             '[' => {
                                 tokenize_buffer!(tokens, buffer, line, current_line, current_position);

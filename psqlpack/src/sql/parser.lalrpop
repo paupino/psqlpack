@@ -1,3 +1,5 @@
+use rust_decimal::Decimal;
+
 use sql::ast::*;
 use sql::lexer::{self};
 
@@ -11,6 +13,7 @@ extern {
         "]" => lexer::Token::RightSquare,
 
         "," => lexer::Token::Comma,
+        ":" => lexer::Token::Colon,
         ";" => lexer::Token::Semicolon,
         "=" => lexer::Token::Equals,
         "." => lexer::Token::Period,
@@ -44,7 +47,9 @@ extern {
         GIN => lexer::Token::GIN,
         GIST => lexer::Token::GIST,
         HASH => lexer::Token::HASH,
+        IN => lexer::Token::IN,
         INDEX => lexer::Token::INDEX,
+        INOUT => lexer::Token::INOUT,
         INT => lexer::Token::INT,
         INT2 => lexer::Token::INT2,
         INT4 => lexer::Token::INT4,
@@ -62,6 +67,7 @@ extern {
         NUMERIC => lexer::Token::NUMERIC,
         ON => lexer::Token::ON,
         OR => lexer::Token::OR,
+        OUT => lexer::Token::OUT,
         PARTIAL => lexer::Token::PARTIAL,
         PRECISION => lexer::Token::PRECISION,
         PRIMARY => lexer::Token::PRIMARY,
@@ -76,6 +82,7 @@ extern {
         SERIAL4 => lexer::Token::SERIAL4,
         SERIAL8 => lexer::Token::SERIAL8,
         SET => lexer::Token::SET,
+        SETOF => lexer::Token::SETOF,
         SIMPLE => lexer::Token::SIMPLE,
         SMALLINT => lexer::Token::SMALLINT,
         SMALLSERIAL => lexer::Token::SMALLSERIAL,
@@ -93,11 +100,13 @@ extern {
         VARBIT => lexer::Token::VARBIT,
         VARCHAR => lexer::Token::VARCHAR,
         VARYING => lexer::Token::VARYING,
+        VARIADIC => lexer::Token::VARIADIC,
         WITH => lexer::Token::WITH,
         WITHOUT => lexer::Token::WITHOUT,
         ZONE => lexer::Token::ZONE,
 
         Ident => lexer::Token::Identifier(<String>),
+        Decimal => lexer::Token::Decimal(<Decimal>),
         Digit => lexer::Token::Digit(<i32>),
         Boolean => lexer::Token::Boolean(<bool>),
         String => lexer::Token::StringValue(<String>),
@@ -203,19 +212,41 @@ pub FunctionArgumentList: Vec<FunctionArgument> = {
 };
 
 FunctionArgument: FunctionArgument = {
-    <name:Ident> <t:SqlType> => FunctionArgument {
+    <mode:FunctionArgumentMode?>
+    <name:Ident>
+    <sql_type:SqlType>
+    <default:FunctionArgumentDefault?> => FunctionArgument {
+        mode,
         name: Some(name),
-        sql_type: t,
+        sql_type,
+        default,
     },
-    <t:SqlType> => FunctionArgument {
+    <mode:FunctionArgumentMode?>
+    <sql_type:SqlType>
+    <default:FunctionArgumentDefault?> => FunctionArgument {
+        mode,
         name: None,
-        sql_type: t,
+        sql_type,
+        default,
     }
+};
+
+FunctionArgumentMode: FunctionArgumentMode = {
+    IN => FunctionArgumentMode::In,
+    OUT => FunctionArgumentMode::Out,
+    INOUT => FunctionArgumentMode::InOut,
+    VARIADIC => FunctionArgumentMode::Variadic,
+};
+
+FunctionArgumentDefault: AnyValue = {
+    DEFAULT <AnyValue> => <>,
+    DEFAULT "(" <AnyValue> ")" => <>,
 };
 
 pub FunctionReturnType: FunctionReturnType = {
     TABLE "(" <columns:ColumnDefinitionList> ")" => FunctionReturnType::Table(columns),
-    <t:SqlType> => FunctionReturnType::SqlType(t),
+    SETOF <SqlType> => FunctionReturnType::SetOf(<>),
+    <SqlType> => FunctionReturnType::SqlType(<>),
 };
 
 FunctionType: FunctionLanguage = {
@@ -421,9 +452,15 @@ ColumnConstraint: ColumnConstraint = {
 };
 
 AnyValue: AnyValue = {
-    <Boolean> => AnyValue::Boolean(<>),
-    <Digit> => AnyValue::Integer(<>),
-    <String> => AnyValue::String(<>),
+    <Boolean> <Cast?> => AnyValue::Boolean(<>),
+    <Digit> <Cast?> => AnyValue::Integer(<>),
+    <Decimal> <Cast?> => AnyValue::Decimal(<>),
+    <String> <Cast?> => AnyValue::String(<>),
+    NULL <Cast?> => AnyValue::Null(<>),
+};
+
+Cast: SqlType = {
+    ":" ":" <SqlType> => <>,
 };
 
 EnumValueList: Vec<String> = {

@@ -1094,11 +1094,7 @@ impl<'input> ChangeInstruction<'input> {
                         arg_comma_required = true;
                     }
 
-                    if let Some(ref name) = arg.name {
-                        func.push_str(&format!("{} {}", name, arg.sql_type)[..]);
-                    } else {
-                        func.push_str(&arg.sql_type.to_string());
-                    }
+                    func.push_str(&arg.to_string());
                 }
                 func.push_str(")\n");
                 func.push_str("RETURNS ");
@@ -1115,6 +1111,9 @@ impl<'input> ChangeInstruction<'input> {
                             func.push_str(&format!("  {} {}", column.name, column.sql_type)[..]);
                         }
                         func.push_str("\n)\n");
+                    }
+                    FunctionReturnType::SetOf(ref sql_type) => {
+                        func.push_str(&format!("SETOF {}", sql_type)[..]);
                     }
                     FunctionReturnType::SqlType(ref sql_type) => {
                         func.push_str(&format!("{} ", sql_type)[..]);

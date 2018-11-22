@@ -1,3 +1,5 @@
+use rust_decimal::Decimal;
+
 use std::fmt;
 
 #[derive(Debug)]
@@ -24,13 +26,13 @@ pub enum Statement {
     Type(TypeDefinition),
 }
 
-#[derive(Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
 pub enum SqlType {
     Simple(SimpleSqlType, Option<u32>), // type, dim
     Custom(ObjectName, Option<String>, Option<u32>), // type, options, dim
 }
 
-#[derive(Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
 pub enum SimpleSqlType {
     FixedLengthString(u32),    // char(size)
     VariableLengthString(u32), // varchar(size)
@@ -75,9 +77,11 @@ pub enum ColumnConstraint {
 
 #[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
 pub enum AnyValue {
-    Boolean(bool),
-    Integer(i32),
-    String(String),
+    Boolean(bool, Option<SqlType>), // Optional cast
+    Decimal(Decimal, Option<SqlType>), // Optional cast
+    Integer(i32, Option<SqlType>),  // Optional cast
+    String(String, Option<SqlType>),  // Optional cast
+    Null(Option<SqlType>),  // Optional cast
 }
 
 #[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
@@ -206,13 +210,24 @@ pub struct FunctionDefinition {
 
 #[derive(Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
 pub struct FunctionArgument {
+    pub mode: Option<FunctionArgumentMode>,
     pub name: Option<String>,
     pub sql_type: SqlType,
+    pub default: Option<AnyValue>,
+}
+
+#[derive(Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
+pub enum FunctionArgumentMode {
+    In,
+    InOut,
+    Out,
+    Variadic,
 }
 
 #[derive(Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
 pub enum FunctionReturnType {
     Table(Vec<ColumnDefinition>),
+    SetOf(SqlType),
     SqlType(SqlType),
 }
 
@@ -279,11 +294,32 @@ pub enum IndexPosition {
 
 impl fmt::Display for AnyValue {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            AnyValue::Boolean(ref b) => write!(f, "{}", b),
-            AnyValue::Integer(ref i) => write!(f, "{}", i),
-            AnyValue::String(ref s) => write!(f, "'{}'", s),
+        let sql_type = match *self {
+            AnyValue::Boolean(ref b, ref sql_type) => {
+                write!(f, "{}", b)?;
+                sql_type
+            }
+            AnyValue::Decimal(ref d, ref sql_type) => {
+                write!(f, "{}", d)?;
+                sql_type
+            }
+            AnyValue::Integer(ref i, ref sql_type) => {
+                write!(f, "{}", i)?;
+                sql_type
+            }
+            AnyValue::String(ref s, ref sql_type) => {
+                write!(f, "'{}'", s)?;
+                sql_type
+            }
+            AnyValue::Null(ref sql_type) => {
+                write!(f, "NULL")?;
+                sql_type
+            }
+        };
+        if let Some(sql_type) = sql_type {
+            write!(f, "::{}", sql_type)?;
         }
+        Ok(())
     }
 }
 
@@ -305,6 +341,34 @@ impl fmt::Display for ForeignConstraintAction {
             ForeignConstraintAction::Cascade => write!(f, "CASCADE"),
             ForeignConstraintAction::SetNull => write!(f, "SET NULL"),
             ForeignConstraintAction::SetDefault => write!(f, "SET DEFAULT"),
+        }
+    }
+}
+
+impl fmt::Display for FunctionArgument {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        if let Some(ref mode) = self.mode {
+            write!(f, "{}", mode)?;
+        }
+        if let Some(ref name) = self.name {
+            write!(f, "{} {}", name, self.sql_type)?;
+        } else {
+            write!(f, "{}", self.sql_type)?;
+        }
+        if let Some(ref default) = self.default {
+            write!(f, "{}", default)?;
+        }
+        Ok(())
+    }
+}
+
+impl fmt::Display for FunctionArgumentMode {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            FunctionArgumentMode::In => write!(f, "IN"),
+            FunctionArgumentMode::InOut => write!(f, "INOUT"),
+            FunctionArgumentMode::Out => write!(f, "OUT"),
+            FunctionArgumentMode::Variadic => write!(f, "VARIADIC"),
         }
     }
 }
