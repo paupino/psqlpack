@@ -774,7 +774,7 @@ impl Package {
                 }
 
                 // Also, if the type is custom, then assume the default search path
-                if let SqlType::Custom(ref mut custom_type, ref _opts) = column.sql_type {
+                if let SqlType::Custom(ref mut custom_type, ref _opts, _dim) = column.sql_type {
                     if custom_type.schema.is_none() {
                         custom_type.schema = Some(project.default_schema.clone());
                     }
@@ -916,7 +916,7 @@ impl Package {
             t.columns
                 .iter()
                 .filter_map(|c| match c.sql_type {
-                    SqlType::Custom(ref name, _) => if !custom_types.contains(&&name) {
+                    SqlType::Custom(ref name, ref _opts, _dim) => if !custom_types.contains(&&name) {
                         Some(ValidationKind::UnknownType {
                             ty: name.to_owned(),
                             table: t.name.to_string(),
@@ -1042,6 +1042,24 @@ impl Package {
                 }),
         );
 
+        // 5. Validate function languages. For now, custom languages aren't supported
+        // until we can validate them.
+        errors.extend(
+            self.functions
+                .iter()
+                .filter(|&function| {
+                    if let FunctionLanguage::Custom(_) = function.language {
+                        true
+                    } else {
+                        false
+                    }
+                })
+                .map(|ref function| ValidationKind::UnsupportedFunctionLanguage {
+                    language: function.language.clone(),
+                    name: function.name.clone(),
+                }),
+        );
+
         // If there are no errors then we're "ok"
         if errors.is_empty() {
             Ok(())
@@ -1067,6 +1085,7 @@ pub enum ValidationKind {
     },
     SchemaMissing { schema: String, object: String },
     UnknownType { ty: ObjectName, table: String },
+    UnsupportedFunctionLanguage{ language: FunctionLanguage, name: ObjectName },
 }
 
 impl fmt::Display for ValidationKind {
@@ -1121,7 +1140,19 @@ impl fmt::Display for ValidationKind {
                 ref schema,
                 ref object,
             } => write!(f, "Schema `{}` missing for object `{}`", schema, object),
-            ValidationKind::UnknownType { ref ty, ref table } => write!(f, "Unknown type `{}` used on table `{}`", ty, table),
+            ValidationKind::UnknownType {
+                ref ty,
+                ref table
+            } => write!(f, "Unknown type `{}` used on table `{}`", ty, table),
+            ValidationKind::UnsupportedFunctionLanguage {
+                ref language,
+                ref name
+            } => write!(
+                f,
+                "Unsupported function language `{}` used on function `{}`",
+                language,
+                name,
+            )
         }
     }
 }
@@ -1650,7 +1681,7 @@ mod tests {
             columns: vec![
                 ast::ColumnDefinition {
                     name: "id".to_owned(),
-                    sql_type: ast::SqlType::Simple(ast::SimpleSqlType::Serial),
+                    sql_type: ast::SqlType::Simple(ast::SimpleSqlType::Serial, None),
                     constraints: Vec::new(),
                 },
             ],
@@ -1701,7 +1732,7 @@ mod tests {
                 .unwrap();
             parent.columns.push(ast::ColumnDefinition {
                 name: "parent_id".to_owned(),
-                sql_type: ast::SqlType::Simple(ast::SimpleSqlType::Integer),
+                sql_type: ast::SqlType::Simple(ast::SimpleSqlType::Integer, None),
                 constraints: Vec::new(),
             });
         }
@@ -1748,7 +1779,7 @@ mod tests {
                 .unwrap();
             child.columns.push(ast::ColumnDefinition {
                 name: "par_id".to_owned(),
-                sql_type: ast::SqlType::Simple(ast::SimpleSqlType::Integer),
+                sql_type: ast::SqlType::Simple(ast::SimpleSqlType::Integer, None),
                 constraints: Vec::new(),
             });
         }
@@ -1792,12 +1823,12 @@ mod tests {
             columns: vec![
                 ast::ColumnDefinition {
                     name: "id".to_owned(),
-                    sql_type: ast::SqlType::Simple(ast::SimpleSqlType::Serial),
+                    sql_type: ast::SqlType::Simple(ast::SimpleSqlType::Serial, None),
                     constraints: Vec::new(),
                 },
                 ast::ColumnDefinition {
                     name: "name".to_owned(),
-                    sql_type: ast::SqlType::Simple(ast::SimpleSqlType::VariableLengthString(50)),
+                    sql_type: ast::SqlType::Simple(ast::SimpleSqlType::VariableLengthString(50), None),
                     constraints: Vec::new(),
                 },
             ],
@@ -1845,7 +1876,7 @@ mod tests {
                 .unwrap();
             person.columns.push(ast::ColumnDefinition {
                 name: "number".to_owned(),
-                sql_type: ast::SqlType::Simple(ast::SimpleSqlType::Integer),
+                sql_type: ast::SqlType::Simple(ast::SimpleSqlType::Integer, None),
                 constraints: Vec::new(),
             });
         }

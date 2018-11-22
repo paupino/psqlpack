@@ -12,7 +12,6 @@ pub enum Token {
     BOOL,
     BOOLEAN,
     BTREE,
-    C,
     CASCADE,
     CONSTRAINT,
     CHAR,
@@ -39,7 +38,6 @@ pub enum Token {
     INT4,
     INT8,
     INTEGER,
-    INTERNAL,
     KEY,
     LANGUAGE,
     LAST,
@@ -53,7 +51,6 @@ pub enum Token {
     ON,
     OR,
     PARTIAL,
-    PLPGSQL,
     PRECISION,
     PRIMARY,
     REAL,
@@ -70,7 +67,6 @@ pub enum Token {
     SIMPLE,
     SMALLINT,
     SMALLSERIAL,
-    SQL,
     TABLE,
     TEXT,
     TIME,
@@ -180,7 +176,6 @@ fn create_token(value: String) -> Option<Token> {
     match_keyword!(value, BOOL);
     match_keyword!(value, BOOLEAN);
     match_keyword!(value, BTREE);
-    match_keyword!(value, C);
     match_keyword!(value, CASCADE);
     match_keyword!(value, CONSTRAINT);
     match_keyword!(value, CHAR);
@@ -207,7 +202,6 @@ fn create_token(value: String) -> Option<Token> {
     match_keyword!(value, INT4);
     match_keyword!(value, INT8);
     match_keyword!(value, INTEGER);
-    match_keyword!(value, INTERNAL);
     match_keyword!(value, KEY);
     match_keyword!(value, LANGUAGE);
     match_keyword!(value, LAST);
@@ -221,7 +215,6 @@ fn create_token(value: String) -> Option<Token> {
     match_keyword!(value, ON);
     match_keyword!(value, OR);
     match_keyword!(value, PARTIAL);
-    match_keyword!(value, PLPGSQL);
     match_keyword!(value, PRECISION);
     match_keyword!(value, PRIMARY);
     match_keyword!(value, REAL);
@@ -238,7 +231,6 @@ fn create_token(value: String) -> Option<Token> {
     match_keyword!(value, SIMPLE);
     match_keyword!(value, SMALLINT);
     match_keyword!(value, SMALLSERIAL);
-    match_keyword!(value, SQL);
     match_keyword!(value, TABLE);
     match_keyword!(value, TEXT);
     match_keyword!(value, TIME);

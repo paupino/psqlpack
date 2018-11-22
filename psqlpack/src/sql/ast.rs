@@ -26,9 +26,8 @@ pub enum Statement {
 
 #[derive(Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
 pub enum SqlType {
-    Simple(SimpleSqlType),
-    Array(SimpleSqlType, u32),
-    Custom(ObjectName, Option<String>),
+    Simple(SimpleSqlType, Option<u32>), // type, dim
+    Custom(ObjectName, Option<String>, Option<u32>), // type, options, dim
 }
 
 #[derive(Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
@@ -217,12 +216,13 @@ pub enum FunctionReturnType {
     SqlType(SqlType),
 }
 
-#[derive(Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
 pub enum FunctionLanguage {
     C,
     Internal,
     PostgreSQL,
     SQL,
+    Custom(String),
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -309,6 +309,18 @@ impl fmt::Display for ForeignConstraintAction {
     }
 }
 
+impl fmt::Display for FunctionLanguage {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            FunctionLanguage::C => write!(f, "C"),
+            FunctionLanguage::Internal => write!(f, "INTERNAL"),
+            FunctionLanguage::PostgreSQL => write!(f, "PLPGSQL"),
+            FunctionLanguage::SQL => write!(f, "SQL"),
+            FunctionLanguage::Custom(ref name) => write!(f, "{}", name),
+        }
+    }
+}
+
 impl fmt::Display for ObjectName {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.schema {
@@ -320,18 +332,23 @@ impl fmt::Display for ObjectName {
 
 impl fmt::Display for SqlType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            SqlType::Simple(ref simple_type) => write!(f, "{}", simple_type),
-            SqlType::Array(ref simple_type, dim) => write!(
-                f,
-                "{}{}",
-                simple_type,
+        fn dimensions(dim: Option<u32>) -> String {
+            if let Some(dim) = dim {
                 (0..dim).map(|_| "[]").collect::<String>()
-            ),
-            SqlType::Custom(ref custom_type, ref options) => if let Some(ref opt) = *options {
-                write!(f, "{}({})", custom_type, opt)
             } else {
-                write!(f, "{}", custom_type)
+                String::new()
+            }
+        }
+        match *self {
+            SqlType::Simple(ref simple_type, dim) => {
+                write!(f, "{}{}", simple_type, dimensions(dim))
+            },
+            SqlType::Custom(ref custom_type, ref options, dim) => {
+                if let Some(ref opt) = *options {
+                    write!(f, "{}({}){}", custom_type, opt, dimensions(dim))
+                } else {
+                    write!(f, "{}{}", custom_type, dimensions(dim))
+                }
             },
         }
     }

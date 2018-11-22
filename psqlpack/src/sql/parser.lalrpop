@@ -24,7 +24,6 @@ extern {
         BOOL => lexer::Token::BOOL,
         BOOLEAN => lexer::Token::BOOLEAN,
         BTREE => lexer::Token::BTREE,
-        C => lexer::Token::C,
         CASCADE => lexer::Token::CASCADE,
         CONSTRAINT => lexer::Token::CONSTRAINT,
         CHAR => lexer::Token::CHAR,
@@ -51,7 +50,6 @@ extern {
         INT4 => lexer::Token::INT4,
         INT8 => lexer::Token::INT8,
         INTEGER => lexer::Token::INTEGER,
-        INTERNAL => lexer::Token::INTERNAL,
         KEY => lexer::Token::KEY,
         LANGUAGE => lexer::Token::LANGUAGE,
         LAST => lexer::Token::LAST,
@@ -65,7 +63,6 @@ extern {
         ON => lexer::Token::ON,
         OR => lexer::Token::OR,
         PARTIAL => lexer::Token::PARTIAL,
-        PLPGSQL => lexer::Token::PLPGSQL,
         PRECISION => lexer::Token::PRECISION,
         PRIMARY => lexer::Token::PRIMARY,
         REAL => lexer::Token::REAL,
@@ -82,7 +79,6 @@ extern {
         SIMPLE => lexer::Token::SIMPLE,
         SMALLINT => lexer::Token::SMALLINT,
         SMALLSERIAL => lexer::Token::SMALLSERIAL,
-        SQL => lexer::Token::SQL,
         TABLE => lexer::Token::TABLE,
         TEXT => lexer::Token::TEXT,
         TIME => lexer::Token::TIME,
@@ -223,10 +219,15 @@ pub FunctionReturnType: FunctionReturnType = {
 };
 
 FunctionType: FunctionLanguage = {
-    C => FunctionLanguage::C,
-    INTERNAL => FunctionLanguage::Internal,
-    PLPGSQL => FunctionLanguage::PostgreSQL,
-    SQL => FunctionLanguage::SQL,
+    <name:Ident> => {
+        match &name.to_lowercase()[..] {
+            "c" => FunctionLanguage::C,
+            "internal" => FunctionLanguage::Internal,
+            "plpgsql" => FunctionLanguage::PostgreSQL,
+            "sql" => FunctionLanguage::SQL,
+            _ => FunctionLanguage::Custom(name), // Use the raw name
+        }
+    }
 };
 
 TableConstraintList: Vec<TableConstraint> = {
@@ -336,10 +337,15 @@ IndexType: IndexType = {
 };
 
 pub SqlType: SqlType = {
-    <SimpleType> => SqlType::Simple(<>),
-    <simple:SimpleType> <dim:ArrayDimension> => SqlType::Array(simple, dim),
-    <ObjectName> => SqlType::Custom(<>, None),
-    <name:ObjectName> "(" <options:Ident> ")" => SqlType::Custom(name, Some(options)),
+    <SimpleType> => SqlType::Simple(<>, None),
+    <simple:SimpleType> <dim:ArrayDimension> => SqlType::Simple(simple, Some(dim)),
+
+    <name:ObjectName> => SqlType::Custom(name, None, None),
+    <name:ObjectName> <dim:ArrayDimension> => SqlType::Custom(name, None, Some(dim)),
+    <name:ObjectName> "(" <options:Ident> ")" =>
+        SqlType::Custom(name, Some(options), None),
+    <name:ObjectName> "(" <options:Ident> ")" <dim:ArrayDimension> =>
+        SqlType::Custom(name, Some(options), Some(dim)),
 };
 
 SimpleType: SimpleSqlType = {

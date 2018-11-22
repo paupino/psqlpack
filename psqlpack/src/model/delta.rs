@@ -1124,12 +1124,7 @@ impl<'input> ChangeInstruction<'input> {
                 func.push_str(&function.body[..]);
                 func.push_str("$$\n");
                 func.push_str("LANGUAGE ");
-                match function.language {
-                    FunctionLanguage::C => func.push_str("C"),
-                    FunctionLanguage::Internal => func.push_str("INTERNAL"),
-                    FunctionLanguage::PostgreSQL => func.push_str("PGSQL"),
-                    FunctionLanguage::SQL => func.push_str("SQL"),
-                }
+                func.push_str(&function.language.to_string());
                 func
             }
             ChangeInstruction::DropFunction(ref function_name) => {
@@ -1862,7 +1857,7 @@ mod tests {
             columns: vec![
                 ColumnDefinition {
                     name: "id".to_owned(),
-                    sql_type: SqlType::Simple(SimpleSqlType::Serial),
+                    sql_type: SqlType::Simple(SimpleSqlType::Serial, None),
                     constraints: vec![
                         ColumnConstraint::NotNull,
                         ColumnConstraint::PrimaryKey,
@@ -1870,14 +1865,14 @@ mod tests {
                 },
                 ColumnDefinition {
                     name: "company_id".to_owned(),
-                    sql_type: SqlType::Simple(SimpleSqlType::BigInteger),
+                    sql_type: SqlType::Simple(SimpleSqlType::BigInteger, None),
                     constraints: vec![
                         ColumnConstraint::NotNull,
                     ],
                 },
                 ColumnDefinition {
                     name: "first_name".to_owned(),
-                    sql_type: SqlType::Simple(SimpleSqlType::VariableLengthString(100)),
+                    sql_type: SqlType::Simple(SimpleSqlType::VariableLengthString(100), None),
                     constraints: vec![
                         ColumnConstraint::NotNull,
                     ],
@@ -1938,7 +1933,7 @@ mod tests {
         let mut source_table = base_table();
         source_table.columns.push(ColumnDefinition {
                 name: "last_name".to_owned(),
-                sql_type: SqlType::Simple(SimpleSqlType::VariableLengthString(100)),
+                sql_type: SqlType::Simple(SimpleSqlType::VariableLengthString(100), None),
                 constraints: vec![
                     ColumnConstraint::NotNull,
                 ],
@@ -1978,7 +1973,7 @@ mod tests {
             ChangeInstruction::AddColumn(ref table, ref column) => {
                 assert_that!(table.name.to_string()).is_equal_to("my.contacts".to_owned());
                 assert_that!(column.name).is_equal_to("last_name".to_owned());
-                assert_that!(column.sql_type).is_equal_to(SqlType::Simple(SimpleSqlType::VariableLengthString(100)));
+                assert_that!(column.sql_type).is_equal_to(SqlType::Simple(SimpleSqlType::VariableLengthString(100), None));
                 assert_that!(column.constraints).has_length(1);
             }
             ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
@@ -1996,7 +1991,7 @@ mod tests {
         source_table.columns.push(
             ColumnDefinition {
                 name: "last_name".to_owned(),
-                sql_type: SqlType::Simple(SimpleSqlType::VariableLengthString(200)),
+                sql_type: SqlType::Simple(SimpleSqlType::VariableLengthString(200), None),
                 constraints: vec![
                     ColumnConstraint::NotNull,
                 ],
@@ -2008,7 +2003,7 @@ mod tests {
         existing_table.columns.push(
             ColumnDefinition {
                 name: "last_name".to_owned(),
-                sql_type: SqlType::Simple(SimpleSqlType::VariableLengthString(100)),
+                sql_type: SqlType::Simple(SimpleSqlType::VariableLengthString(100), None),
                 constraints: vec![
                     ColumnConstraint::NotNull,
                 ],
@@ -2046,7 +2041,7 @@ mod tests {
             ChangeInstruction::ModifyColumnType(ref table, ref column) => {
                 assert_that!(table.name.to_string()).is_equal_to("my.contacts".to_owned());
                 assert_that!(column.name).is_equal_to("last_name".to_owned());
-                assert_that!(column.sql_type).is_equal_to(SqlType::Simple(SimpleSqlType::VariableLengthString(200)));
+                assert_that!(column.sql_type).is_equal_to(SqlType::Simple(SimpleSqlType::VariableLengthString(200), None));
                 assert_that!(column.constraints).has_length(1);
             }
             ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
@@ -2068,7 +2063,7 @@ mod tests {
         existing_table.columns.push(
             ColumnDefinition {
                 name: "last_name".to_owned(),
-                sql_type: SqlType::Simple(SimpleSqlType::VariableLengthString(100)),
+                sql_type: SqlType::Simple(SimpleSqlType::VariableLengthString(100), None),
                 constraints: vec![
                     ColumnConstraint::NotNull,
                 ],
