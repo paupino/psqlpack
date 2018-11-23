@@ -118,10 +118,12 @@ enum LexerState {
     Comment2,
     String,
 
-    MaybeLiteral,
-    Literal,
+    LiteralStart,
+    LiteralEnd,
+    LiteralBody,
 }
 
+// TODO: Add in some sort of message or reason.
 #[derive(Debug)]
 pub struct LexicalError<'input> {
     pub line: &'input str,
@@ -280,10 +282,12 @@ fn create_token(value: String) -> Option<Token> {
 
 pub fn tokenize(text: &str) -> Result<Vec<Token>, LexicalError> {
     // This tokenizer is whitespace dependent by default, i.e. whitespace is relevant.
+    // TODO: Consider creating a Context struct to keep state.
     let mut tokens = Vec::new();
     let mut current_line = 0;
     let mut current_position;
     let mut buffer = Vec::new();
+    let mut literal = Vec::new();
     let mut state = LexerState::Normal;
     let mut last_char: char;
 
@@ -319,7 +323,7 @@ pub fn tokenize(text: &str) -> Result<Vec<Token>, LexicalError> {
                         } else {
                             // Invalid state! Must be something like xx'dd
                             return Err(LexicalError {
-                                line: line,
+                                line,
                                 line_number: current_line,
                                 start_pos: current_position,
                                 end_pos: current_position,
@@ -327,11 +331,11 @@ pub fn tokenize(text: &str) -> Result<Vec<Token>, LexicalError> {
                         }
                     } else if c == '$' {
                         if buffer.is_empty() {
-                            state = LexerState::MaybeLiteral;
+                            state = LexerState::LiteralStart;
                         } else {
                             // Unsupported state in our lexer
                             return Err(LexicalError {
-                                line: line,
+                                line,
                                 line_number: current_line,
                                 start_pos: current_position,
                                 end_pos: current_position,
@@ -404,27 +408,56 @@ pub fn tokenize(text: &str) -> Result<Vec<Token>, LexicalError> {
                 } else {
                     buffer.push(c);
                 },
-                LexerState::MaybeLiteral => {
+                LexerState::LiteralStart => {
                     if c == '$' {
-                        state = LexerState::Literal;
+                        state = LexerState::LiteralBody;
                     } else {
-                        // There may be a future case where a single dollar sign is valid but for now let's
-                        // just assume it's an error
+                        literal.push(c);
+                    }
+                }
+                LexerState::LiteralEnd => {
+                    if c == '$' {
+                        if literal.is_empty() {
+                            state = LexerState::Normal;
+                        } else {
+                            // Error: literal name mismatch
+                            return Err(LexicalError {
+                                line,
+                                line_number: current_line,
+                                start_pos: current_position,
+                                end_pos: current_position,
+                            });
+                        }
+                    } else if literal.is_empty() {
+                        // Error: literal name mismatch
                         return Err(LexicalError {
-                            line: line,
+                            line,
                             line_number: current_line,
                             start_pos: current_position,
                             end_pos: current_position,
                         });
+                    } else {
+                        let l = literal.pop().unwrap();
+                        if l != c {
+                            // Error: literal name mismatch
+                            return Err(LexicalError {
+                                line,
+                                line_number: current_line,
+                                start_pos: current_position,
+                                end_pos: current_position,
+                            });
+                        }
                     }
                 }
-                LexerState::Literal => {
-                    if last_char == '$' && c == '$' {
-                        // We should pop off the buffer as it was a $ sign
-                        buffer.pop();
-                        tokens.push(Token::Literal(String::from_iter(buffer.clone())));
+                LexerState::LiteralBody => {
+                    if c == '$' {
+                        let data = String::from_iter(buffer.clone());
+                        tokens.push(Token::Literal(data.trim().into()));
                         buffer.clear();
-                        state = LexerState::Normal;
+                        if !literal.is_empty() {
+                            literal.reverse();
+                        }
+                        state = LexerState::LiteralEnd;
                     } else {
                         buffer.push(c);
                     }
@@ -449,17 +482,17 @@ pub fn tokenize(text: &str) -> Result<Vec<Token>, LexicalError> {
             LexerState::Comment2 => {
                 // Do nothing at the end of a line - it's a multi-line comment
             }
-            LexerState::String | LexerState::MaybeLiteral => {
+            LexerState::String | LexerState::LiteralStart | LexerState::LiteralEnd => {
                 // If we're in these states at the end of a line it's an error
                 // (e.g. at the moment we don't support multi-line strings)
                 return Err(LexicalError {
-                    line: line,
+                    line,
                     line_number: current_line,
                     start_pos: current_position,
                     end_pos: current_position,
                 });
             }
-            LexerState::Literal => {
+            LexerState::LiteralBody => {
                 // Add a new line onto the buffer
                 buffer.push('\n');
             }

@@ -1345,7 +1345,6 @@ impl Graphable for TableConstraint {
 
 #[cfg(test)]
 mod tests {
-
     use errors::PsqlpackError;
     use errors::PsqlpackErrorKind::*;
     use model::*;
@@ -1882,5 +1881,4 @@ mod tests {
         }
         assert_that!(package.validate()).is_ok();
     }
-
 }

@@ -2,7 +2,7 @@ use rust_decimal::Decimal;
 
 use std::fmt;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum ErrorKind {
     ExtensionNotSupported(String),
 }
@@ -11,12 +11,12 @@ impl fmt::Display for ErrorKind {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             ErrorKind::ExtensionNotSupported(ref name) =>
-                write!(f, "Extensions definined in SQL not supported (found {}). Please define extensions within the project file.", name),
+                write!(f, "Extensions defined in SQL not supported (found {}). Please define extensions within the project file.", name),
         }
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Statement {
     Error(ErrorKind),
     Function(FunctionDefinition),
