@@ -1,7 +1,13 @@
+/*
+TODO: This isn't all that efficient. We could gain some efficiencies using a generated lexer.
+*/
+
 use regex::Regex;
 use rust_decimal::Decimal;
 
 use std::iter::FromIterator;
+
+use self::context::*;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Token {
@@ -111,18 +117,6 @@ pub enum Token {
     Equals,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-enum LexerState {
-    Normal,
-    Comment1,
-    Comment2,
-    String,
-
-    LiteralStart,
-    LiteralEnd,
-    LiteralBody,
-}
-
 // TODO: Add in some sort of message or reason.
 #[derive(Debug)]
 pub struct LexicalError<'input> {
@@ -139,22 +133,15 @@ lazy_static! {
 }
 
 
-macro_rules! tokenize_buffer {
-    ($tokens:ident, $buffer:ident, $line:ident, $current_line:ident, $current_position:ident) => {{
-        if $buffer.len() > 0 {
-            let token = match self::create_token(String::from_iter($buffer.clone())) {
+macro_rules! tokenize_normal_buffer {
+    ($context:ident, $line:ident, $tokens:ident) => {{
+        if $context.buffer.len() > 0 {
+            let token = match self::create_token(&mut $context) {
                 Some(t) => t,
-                None => {
-                    return Err(LexicalError {
-                        line: $line,
-                        line_number: $current_line,
-                        start_pos: $current_position - $buffer.len(),
-                        end_pos: $current_position
-                    });
-                },
+                None => return Err($context.create_error($line)),
             };
             $tokens.push(token);
-            $buffer.clear();
+            $context.buffer.clear();
         }
     }};
 }
@@ -169,7 +156,8 @@ macro_rules! match_keyword {
     }};
 }
 
-fn create_token(value: String) -> Option<Token> {
+fn create_token(context: &mut Context) -> Option<Token> {
+    let value = String::from_iter(context.buffer.clone());
     if "true".eq_ignore_ascii_case(&value[..]) {
         return Some(Token::Boolean(true));
     }
@@ -280,115 +268,185 @@ fn create_token(value: String) -> Option<Token> {
     None
 }
 
+mod context {
+    use super::LexicalError;
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum LexerState {
+        Normal(NormalVariant),
+
+        Comment1,
+        Comment2,
+        String,
+
+        LiteralStart,
+        LiteralEnd,
+        LiteralBody,
+    }
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum NormalVariant {
+        Any,
+        DefinitionOnly,
+        Body
+    }
+
+    pub struct Context {
+        current_line: usize,
+        current_position: usize,
+        pub last_char: char,
+
+        pub buffer: Vec<char>,
+        pub literal: Vec<char>,
+
+        state: Vec<LexerState>,
+    }
+
+    impl Context {
+        pub fn new() -> Self {
+            Context {
+                current_line: 0,
+                current_position: 0,
+                last_char: '\0',
+
+                buffer: Vec::new(),
+                literal: Vec::new(),
+
+                state: vec![LexerState::Normal(NormalVariant::Any)],
+            }
+        }
+
+        pub fn new_line(&mut self) {
+            self.current_line += 1;
+            self.current_position = 0;
+            self.last_char = '\0'; // Start fresh
+        }
+
+        pub fn next_char(&mut self, c: char) {
+            self.current_position += 1;
+            self.last_char = c;
+        }
+
+        pub fn create_error<'input>(&self, line: &'input str) -> LexicalError<'input> {
+            LexicalError {
+                line,
+                line_number: self.current_line,
+                start_pos: self.current_position,
+                end_pos: self.current_position - self.buffer.len(),
+            }
+        }
+
+        pub fn push_state(&mut self, state: LexerState) {
+            self.state.push(state);
+        }
+
+        pub fn pop_state(&mut self) {
+            self.state.pop();
+        }
+
+        pub fn replace_state(&mut self, state: LexerState) {
+            self.state.pop();
+            self.state.push(state);
+        }
+
+        pub fn peek_state(&self) -> LexerState {
+            if let Some(item) = self.state.last() {
+                return *item;
+            } else {
+                panic!("Nothing left in the stack");
+            }
+        }
+    }
+}
+
 pub fn tokenize(text: &str) -> Result<Vec<Token>, LexicalError> {
+
     // This tokenizer is whitespace dependent by default, i.e. whitespace is relevant.
-    // TODO: Consider creating a Context struct to keep state.
     let mut tokens = Vec::new();
-    let mut current_line = 0;
-    let mut current_position;
-    let mut buffer = Vec::new();
-    let mut literal = Vec::new();
-    let mut state = LexerState::Normal;
-    let mut last_char: char;
+    let mut context = Context::new();
 
     // Loop through each character, halting on whitespace
     // Our outer loop works by newline
     let lines: Vec<&str> = text.split('\n').collect();
     for line in lines {
-        current_line += 1;
-        current_position = 0;
-        last_char = '\0'; // Start fresh
+        context.new_line();
 
         for c in line.chars() {
-            match state {
-                LexerState::Normal => {
+            match context.peek_state() {
+                LexerState::Normal(_) => {
                     // Check if we should be entering the comment state
-                    if last_char == '-' && c == '-' {
+                    if context.last_char == '-' && c == '-' {
                         // take off the previous item as it was a comment character and push the buffer
-                        if !buffer.is_empty() {
-                            buffer.pop();
-                        }
-                        tokenize_buffer!(tokens, buffer, line, current_line, current_position);
-                        state = LexerState::Comment1;
-                    } else if last_char == '/' && c == '*' {
+                        context.buffer.pop();
+                        tokenize_normal_buffer!(context, line, tokens);
+                        context.push_state(LexerState::Comment1);
+                    } else if context.last_char == '/' && c == '*' {
                         // take off the previous item as it was a comment character and push the buffer
-                        if !buffer.is_empty() {
-                            buffer.pop();
-                        }
-                        tokenize_buffer!(tokens, buffer, line, current_line, current_position);
-                        state = LexerState::Comment2;
+                        context.buffer.pop();
+                        tokenize_normal_buffer!(context, line, tokens);
+                        context.push_state(LexerState::Comment2);
                     } else if c == '\'' {
-                        if buffer.is_empty() {
-                            state = LexerState::String;
+                        if context.buffer.is_empty() {
+                            context.push_state(LexerState::String);
                         } else {
                             // Invalid state! Must be something like xx'dd
-                            return Err(LexicalError {
-                                line,
-                                line_number: current_line,
-                                start_pos: current_position,
-                                end_pos: current_position,
-                            });
+                            return Err(context.create_error(line));
                         }
                     } else if c == '$' {
-                        if buffer.is_empty() {
-                            state = LexerState::LiteralStart;
+                        if context.buffer.is_empty() {
+                            context.push_state(LexerState::LiteralStart);
                         } else {
                             // Unsupported state in our lexer
-                            return Err(LexicalError {
-                                line,
-                                line_number: current_line,
-                                start_pos: current_position,
-                                end_pos: current_position,
-                            });
+                            return Err(context.create_error(line));
                         }
                     } else if c.is_whitespace() {
                         // Simple check for whitespace
-                        tokenize_buffer!(tokens, buffer, line, current_line, current_position);
+                        tokenize_normal_buffer!(context, line, tokens);
                     } else {
                         // If it is a symbol then don't bother with the buffer
                         match c {
                             '(' => {
-                                tokenize_buffer!(tokens, buffer, line, current_line, current_position);
+                                tokenize_normal_buffer!(context, line, tokens);
                                 tokens.push(Token::LeftBracket);
                             }
                             ')' => {
-                                tokenize_buffer!(tokens, buffer, line, current_line, current_position);
+                                tokenize_normal_buffer!(context, line, tokens);
                                 tokens.push(Token::RightBracket);
                             }
                             ',' => {
-                                tokenize_buffer!(tokens, buffer, line, current_line, current_position);
+                                tokenize_normal_buffer!(context, line, tokens);
                                 tokens.push(Token::Comma);
                             }
                             ':' => {
-                                tokenize_buffer!(tokens, buffer, line, current_line, current_position);
+                                tokenize_normal_buffer!(context, line, tokens);
                                 tokens.push(Token::Colon);
                             }
                             ';' => {
-                                tokenize_buffer!(tokens, buffer, line, current_line, current_position);
+                                tokenize_normal_buffer!(context, line, tokens);
                                 tokens.push(Token::Semicolon);
                             }
                             '=' => {
-                                tokenize_buffer!(tokens, buffer, line, current_line, current_position);
+                                tokenize_normal_buffer!(context, line, tokens);
                                 tokens.push(Token::Equals);
                             }
                             '.' => {
                                 // If it is just a plain digit in the buffer, then allow it to continue.
-                                if buffer.iter().all(|c: &char| c.is_digit(10)) {
-                                    buffer.push(c);
+                                if context.buffer.iter().all(|c: &char| c.is_digit(10)) {
+                                    context.buffer.push(c);
                                 } else {
-                                    tokenize_buffer!(tokens, buffer, line, current_line, current_position);
+                                    tokenize_normal_buffer!(context, line, tokens);
                                     tokens.push(Token::Period);
                                 }
                             }
                             '[' => {
-                                tokenize_buffer!(tokens, buffer, line, current_line, current_position);
+                                tokenize_normal_buffer!(context, line, tokens);
                                 tokens.push(Token::LeftSquare);
                             }
                             ']' => {
-                                tokenize_buffer!(tokens, buffer, line, current_line, current_position);
+                                tokenize_normal_buffer!(context, line, tokens);
                                 tokens.push(Token::RightSquare);
                             }
-                            _ => buffer.push(c),
+                            _ => context.buffer.push(c),
                         }
                     }
                 }
@@ -396,88 +454,72 @@ pub fn tokenize(text: &str) -> Result<Vec<Token>, LexicalError> {
                     // Ignore comments
                 }
                 LexerState::Comment2 => {
-                    if last_char == '*' && c == '/' {
-                        state = LexerState::Normal;
+                    if context.last_char == '*' && c == '/' {
+                        context.pop_state();
                     }
                     // Ignore comments
                 }
                 LexerState::String => if c == '\'' {
-                    tokens.push(Token::StringValue(String::from_iter(buffer.clone())));
-                    buffer.clear();
-                    state = LexerState::Normal;
+                    tokens.push(Token::StringValue(String::from_iter(context.buffer.clone())));
+                    context.buffer.clear();
+                    context.pop_state();
                 } else {
-                    buffer.push(c);
+                    context.buffer.push(c);
                 },
                 LexerState::LiteralStart => {
                     if c == '$' {
-                        state = LexerState::LiteralBody;
+                        context.replace_state(LexerState::LiteralBody);
                     } else {
-                        literal.push(c);
+                        context.literal.push(c);
                     }
                 }
                 LexerState::LiteralEnd => {
                     if c == '$' {
-                        if literal.is_empty() {
-                            state = LexerState::Normal;
+                        if context.literal.is_empty() {
+                            context.pop_state();
                         } else {
                             // Error: literal name mismatch
-                            return Err(LexicalError {
-                                line,
-                                line_number: current_line,
-                                start_pos: current_position,
-                                end_pos: current_position,
-                            });
+                            return Err(context.create_error(line));
                         }
-                    } else if literal.is_empty() {
+                    } else if context.literal.is_empty() {
                         // Error: literal name mismatch
-                        return Err(LexicalError {
-                            line,
-                            line_number: current_line,
-                            start_pos: current_position,
-                            end_pos: current_position,
-                        });
+                        return Err(context.create_error(line));
                     } else {
-                        let l = literal.pop().unwrap();
+                        let l = context.literal.pop().unwrap();
                         if l != c {
                             // Error: literal name mismatch
-                            return Err(LexicalError {
-                                line,
-                                line_number: current_line,
-                                start_pos: current_position,
-                                end_pos: current_position,
-                            });
+                            return Err(context.create_error(line));
                         }
                     }
                 }
                 LexerState::LiteralBody => {
                     if c == '$' {
-                        let data = String::from_iter(buffer.clone());
+                        let data = String::from_iter(context.buffer.clone());
                         tokens.push(Token::Literal(data.trim().into()));
-                        buffer.clear();
-                        if !literal.is_empty() {
-                            literal.reverse();
+                        context.buffer.clear();
+                        if !context.literal.is_empty() {
+                            context.literal.reverse();
                         }
-                        state = LexerState::LiteralEnd;
+                        context.replace_state(LexerState::LiteralEnd);
                     } else {
-                        buffer.push(c);
+                        context.buffer.push(c);
                     }
                 }
             }
 
             // Move the current_position
-            current_position += 1;
-            last_char = c;
+            context.next_char(c);
         }
 
         // If we were a single line comment, we go back to a normal state on a new line
-        match state {
-            LexerState::Normal => {
+        match context.peek_state() {
+            LexerState::Normal(_) => {
                 // We may also have a full buffer
-                tokenize_buffer!(tokens, buffer, line, current_line, current_position);
+                tokenize_normal_buffer!(context, line, tokens);
             }
             LexerState::Comment1 => {
                 // End of a line finishes the comment
-                state = LexerState::Normal;
+                context.pop_state();
             }
             LexerState::Comment2 => {
                 // Do nothing at the end of a line - it's a multi-line comment
@@ -485,16 +527,11 @@ pub fn tokenize(text: &str) -> Result<Vec<Token>, LexicalError> {
             LexerState::String | LexerState::LiteralStart | LexerState::LiteralEnd => {
                 // If we're in these states at the end of a line it's an error
                 // (e.g. at the moment we don't support multi-line strings)
-                return Err(LexicalError {
-                    line,
-                    line_number: current_line,
-                    start_pos: current_position,
-                    end_pos: current_position,
-                });
+                return Err(context.create_error(line));
             }
             LexerState::LiteralBody => {
                 // Add a new line onto the buffer
-                buffer.push('\n');
+                context.buffer.push('\n');
             }
         }
     }
