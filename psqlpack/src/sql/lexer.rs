@@ -9,6 +9,98 @@ use std::iter::FromIterator;
 
 use self::context::*;
 
+
+mod context {
+    use super::LexicalError;
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum LexerState {
+        Normal(NormalVariant),
+
+        Comment1,
+        Comment2,
+        String,
+
+        LiteralStart,
+        LiteralEnd,
+        LiteralBody,
+    }
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum NormalVariant {
+        Any,
+        Definition,
+        Body
+    }
+
+    pub struct Context {
+        current_line: usize,
+        current_position: usize,
+        pub last_char: char,
+
+        pub buffer: Vec<char>,
+        pub literal: Vec<char>,
+
+        state: Vec<LexerState>,
+    }
+
+    impl Context {
+        pub fn new() -> Self {
+            Context {
+                current_line: 0,
+                current_position: 0,
+                last_char: '\0',
+
+                buffer: Vec::new(),
+                literal: Vec::new(),
+
+                state: vec![LexerState::Normal(NormalVariant::Any)],
+            }
+        }
+
+        pub fn new_line(&mut self) {
+            self.current_line += 1;
+            self.current_position = 0;
+            self.last_char = '\0'; // Start fresh
+        }
+
+        pub fn next_char(&mut self, c: char) {
+            self.current_position += 1;
+            self.last_char = c;
+        }
+
+        pub fn create_error<'input>(&self, line: &'input str) -> LexicalError<'input> {
+            LexicalError {
+                line,
+                line_number: self.current_line,
+                start_pos: self.current_position,
+                end_pos: self.current_position - self.buffer.len(),
+            }
+        }
+
+        pub fn push_state(&mut self, state: LexerState) {
+            self.state.push(state);
+        }
+
+        pub fn pop_state(&mut self) {
+            self.state.pop();
+        }
+
+        pub fn replace_state(&mut self, state: LexerState) {
+            self.state.pop();
+            self.state.push(state);
+        }
+
+        pub fn peek_state(&self) -> LexerState {
+            if let Some(item) = self.state.last() {
+                return *item;
+            } else {
+                panic!("Nothing left in the stack");
+            }
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Token {
     ACTION,
@@ -136,7 +228,7 @@ lazy_static! {
 macro_rules! tokenize_normal_buffer {
     ($context:ident, $line:ident, $tokens:ident) => {{
         if $context.buffer.len() > 0 {
-            let token = match self::create_token(&mut $context) {
+            let token = match self::create_normal_token(&mut $context) {
                 Some(t) => t,
                 None => return Err($context.create_error($line)),
             };
@@ -156,7 +248,24 @@ macro_rules! match_keyword {
     }};
 }
 
-fn create_token(context: &mut Context) -> Option<Token> {
+macro_rules! match_keyword_replace_state {
+    ($context:ident, $variant:expr, $value:ident, $enum_value:ident) => {{
+        let raw = stringify!($enum_value);
+        if raw.eq_ignore_ascii_case(&$value[..]) {
+            $context.replace_state(LexerState::Normal($variant));
+            return Some(Token::$enum_value);
+        }
+    }};
+}
+
+
+fn create_normal_token(context: &mut Context) -> Option<Token> {
+    let variant = if let LexerState::Normal(variant) = context.peek_state() {
+        variant
+    } else {
+        return None;
+    };
+
     let value = String::from_iter(context.buffer.clone());
     if "true".eq_ignore_ascii_case(&value[..]) {
         return Some(Token::Boolean(true));
@@ -165,93 +274,106 @@ fn create_token(context: &mut Context) -> Option<Token> {
         return Some(Token::Boolean(false));
     }
 
-    // Keywords
-    match_keyword!(value, ACTION);
-    match_keyword!(value, AS);
-    match_keyword!(value, ASC);
-    match_keyword!(value, BIGINT);
-    match_keyword!(value, BIGSERIAL);
-    match_keyword!(value, BIT);
-    match_keyword!(value, BOOL);
-    match_keyword!(value, BOOLEAN);
-    match_keyword!(value, BTREE);
-    match_keyword!(value, CASCADE);
-    match_keyword!(value, CONSTRAINT);
-    match_keyword!(value, CHAR);
-    match_keyword!(value, CHARACTER);
-    match_keyword!(value, CREATE);
-    match_keyword!(value, DATE);
-    match_keyword!(value, DEFAULT);
-    match_keyword!(value, DELETE);
-    match_keyword!(value, DESC);
-    match_keyword!(value, DOUBLE);
-    match_keyword!(value, ENUM);
-    match_keyword!(value, EXTENSION);
-    match_keyword!(value, FILLFACTOR);
-    match_keyword!(value, FIRST);
-    match_keyword!(value, FOREIGN);
-    match_keyword!(value, FULL);
-    match_keyword!(value, FUNCTION);
-    match_keyword!(value, GIN);
-    match_keyword!(value, GIST);
-    match_keyword!(value, HASH);
-    match_keyword!(value, IN);
-    match_keyword!(value, INDEX);
-    match_keyword!(value, INOUT);
-    match_keyword!(value, INT);
-    match_keyword!(value, INT2);
-    match_keyword!(value, INT4);
-    match_keyword!(value, INT8);
-    match_keyword!(value, INTEGER);
-    match_keyword!(value, KEY);
-    match_keyword!(value, LANGUAGE);
-    match_keyword!(value, LAST);
-    match_keyword!(value, MATCH);
-    match_keyword!(value, MONEY);
-    match_keyword!(value, NO);
-    match_keyword!(value, NOT);
-    match_keyword!(value, NULL);
-    match_keyword!(value, NULLS);
-    match_keyword!(value, NUMERIC);
-    match_keyword!(value, ON);
-    match_keyword!(value, OR);
-    match_keyword!(value, OUT);
-    match_keyword!(value, PARTIAL);
-    match_keyword!(value, PRECISION);
-    match_keyword!(value, PRIMARY);
-    match_keyword!(value, REAL);
-    match_keyword!(value, REFERENCES);
-    match_keyword!(value, REPLACE);
-    match_keyword!(value, RESTRICT);
-    match_keyword!(value, RETURNS);
-    match_keyword!(value, SCHEMA);
-    match_keyword!(value, SERIAL);
-    match_keyword!(value, SERIAL2);
-    match_keyword!(value, SERIAL4);
-    match_keyword!(value, SERIAL8);
-    match_keyword!(value, SET);
-    match_keyword!(value, SETOF);
-    match_keyword!(value, SIMPLE);
-    match_keyword!(value, SMALLINT);
-    match_keyword!(value, SMALLSERIAL);
-    match_keyword!(value, TABLE);
-    match_keyword!(value, TEXT);
-    match_keyword!(value, TIME);
-    match_keyword!(value, TIMESTAMP);
-    match_keyword!(value, TIMESTAMPTZ);
-    match_keyword!(value, TIMETZ);
-    match_keyword!(value, TYPE);
-    match_keyword!(value, UNIQUE);
-    match_keyword!(value, UPDATE);
-    match_keyword!(value, USING);
-    match_keyword!(value, UUID);
-    match_keyword!(value, VARBIT);
-    match_keyword!(value, VARCHAR);
-    match_keyword!(value, VARIADIC);
-    match_keyword!(value, VARYING);
-    match_keyword!(value, WITH);
-    match_keyword!(value, WITHOUT);
-    match_keyword!(value, ZONE);
+    // Keywords - this is very naive and should be generated.
+    match variant {
+        NormalVariant::Any | NormalVariant::Definition => {
+            match_keyword!(value, CREATE);
+            match_keyword!(value, OR);
+            match_keyword!(value, REPLACE);
+
+            // Any of the below will switch state. This only gets reset on statement end.
+            match_keyword_replace_state!(context, NormalVariant::Body, value, EXTENSION);
+            match_keyword_replace_state!(context, NormalVariant::Body, value, FUNCTION);
+            match_keyword_replace_state!(context, NormalVariant::Body, value, INDEX);
+            match_keyword_replace_state!(context, NormalVariant::Body, value, SCHEMA);
+            match_keyword_replace_state!(context, NormalVariant::Body, value, TABLE);
+        }
+        _ => {}
+    }
+    match variant {
+        NormalVariant::Any | NormalVariant::Body => {
+            match_keyword!(value, ACTION);
+            match_keyword!(value, AS);
+            match_keyword!(value, ASC);
+            match_keyword!(value, BIGINT);
+            match_keyword!(value, BIGSERIAL);
+            match_keyword!(value, BIT);
+            match_keyword!(value, BOOL);
+            match_keyword!(value, BOOLEAN);
+            match_keyword!(value, BTREE);
+            match_keyword!(value, CASCADE);
+            match_keyword!(value, CONSTRAINT);
+            match_keyword!(value, CHAR);
+            match_keyword!(value, CHARACTER);
+            match_keyword!(value, DATE);
+            match_keyword!(value, DEFAULT);
+            match_keyword!(value, DELETE);
+            match_keyword!(value, DESC);
+            match_keyword!(value, DOUBLE);
+            match_keyword!(value, ENUM);
+            match_keyword!(value, FILLFACTOR);
+            match_keyword!(value, FIRST);
+            match_keyword!(value, FOREIGN);
+            match_keyword!(value, FULL);
+            match_keyword!(value, GIN);
+            match_keyword!(value, GIST);
+            match_keyword!(value, HASH);
+            match_keyword!(value, IN);
+            match_keyword!(value, INOUT);
+            match_keyword!(value, INT);
+            match_keyword!(value, INT2);
+            match_keyword!(value, INT4);
+            match_keyword!(value, INT8);
+            match_keyword!(value, INTEGER);
+            match_keyword!(value, KEY);
+            match_keyword!(value, LANGUAGE);
+            match_keyword!(value, LAST);
+            match_keyword!(value, MATCH);
+            match_keyword!(value, MONEY);
+            match_keyword!(value, NO);
+            match_keyword!(value, NOT);
+            match_keyword!(value, NULL);
+            match_keyword!(value, NULLS);
+            match_keyword!(value, NUMERIC);
+            match_keyword!(value, ON);
+            match_keyword!(value, OR);
+            match_keyword!(value, OUT);
+            match_keyword!(value, PARTIAL);
+            match_keyword!(value, PRECISION);
+            match_keyword!(value, PRIMARY);
+            match_keyword!(value, REAL);
+            match_keyword!(value, REFERENCES);
+            match_keyword!(value, RESTRICT);
+            match_keyword!(value, RETURNS);
+            match_keyword!(value, SERIAL);
+            match_keyword!(value, SERIAL2);
+            match_keyword!(value, SERIAL4);
+            match_keyword!(value, SERIAL8);
+            match_keyword!(value, SET);
+            match_keyword!(value, SETOF);
+            match_keyword!(value, SIMPLE);
+            match_keyword!(value, SMALLINT);
+            match_keyword!(value, SMALLSERIAL);
+            match_keyword!(value, TEXT);
+            match_keyword!(value, TIME);
+            match_keyword!(value, TIMESTAMP);
+            match_keyword!(value, TIMESTAMPTZ);
+            match_keyword!(value, TIMETZ);
+            match_keyword!(value, TYPE);
+            match_keyword!(value, UNIQUE);
+            match_keyword!(value, UPDATE);
+            match_keyword!(value, USING);
+            match_keyword!(value, UUID);
+            match_keyword!(value, VARBIT);
+            match_keyword!(value, VARCHAR);
+            match_keyword!(value, VARIADIC);
+            match_keyword!(value, VARYING);
+            match_keyword!(value, WITH);
+            match_keyword!(value, WITHOUT);
+            match_keyword!(value, ZONE);
+        }
+        _ => {}
+    }
 
     // Regex
     if IDENTIFIER.is_match(&value[..]) {
@@ -266,97 +388,6 @@ fn create_token(context: &mut Context) -> Option<Token> {
 
     // Error
     None
-}
-
-mod context {
-    use super::LexicalError;
-
-    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-    pub enum LexerState {
-        Normal(NormalVariant),
-
-        Comment1,
-        Comment2,
-        String,
-
-        LiteralStart,
-        LiteralEnd,
-        LiteralBody,
-    }
-
-    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-    pub enum NormalVariant {
-        Any,
-        DefinitionOnly,
-        Body
-    }
-
-    pub struct Context {
-        current_line: usize,
-        current_position: usize,
-        pub last_char: char,
-
-        pub buffer: Vec<char>,
-        pub literal: Vec<char>,
-
-        state: Vec<LexerState>,
-    }
-
-    impl Context {
-        pub fn new() -> Self {
-            Context {
-                current_line: 0,
-                current_position: 0,
-                last_char: '\0',
-
-                buffer: Vec::new(),
-                literal: Vec::new(),
-
-                state: vec![LexerState::Normal(NormalVariant::Any)],
-            }
-        }
-
-        pub fn new_line(&mut self) {
-            self.current_line += 1;
-            self.current_position = 0;
-            self.last_char = '\0'; // Start fresh
-        }
-
-        pub fn next_char(&mut self, c: char) {
-            self.current_position += 1;
-            self.last_char = c;
-        }
-
-        pub fn create_error<'input>(&self, line: &'input str) -> LexicalError<'input> {
-            LexicalError {
-                line,
-                line_number: self.current_line,
-                start_pos: self.current_position,
-                end_pos: self.current_position - self.buffer.len(),
-            }
-        }
-
-        pub fn push_state(&mut self, state: LexerState) {
-            self.state.push(state);
-        }
-
-        pub fn pop_state(&mut self) {
-            self.state.pop();
-        }
-
-        pub fn replace_state(&mut self, state: LexerState) {
-            self.state.pop();
-            self.state.push(state);
-        }
-
-        pub fn peek_state(&self) -> LexerState {
-            if let Some(item) = self.state.last() {
-                return *item;
-            } else {
-                panic!("Nothing left in the stack");
-            }
-        }
-    }
 }
 
 pub fn tokenize(text: &str) -> Result<Vec<Token>, LexicalError> {
@@ -424,6 +455,7 @@ pub fn tokenize(text: &str) -> Result<Vec<Token>, LexicalError> {
                             ';' => {
                                 tokenize_normal_buffer!(context, line, tokens);
                                 tokens.push(Token::Semicolon);
+                                context.replace_state(LexerState::Normal(NormalVariant::Any));
                             }
                             '=' => {
                                 tokenize_normal_buffer!(context, line, tokens);
