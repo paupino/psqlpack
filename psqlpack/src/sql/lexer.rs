@@ -1,5 +1,6 @@
 /*
 TODO: This isn't all that efficient. We could gain some efficiencies using a generated lexer.
+TODO: Proper lookahead.
 */
 
 use regex::Regex;
@@ -9,6 +10,15 @@ use std::iter::FromIterator;
 
 use self::context::*;
 
+// TODO: Add in some sort of message or reason.
+#[derive(Debug)]
+pub struct LexicalError<'input> {
+    pub line: &'input str,
+    pub line_number: usize,
+    pub start_pos: usize,
+    pub end_pos: usize,
+    pub lexer_state: String,
+}
 
 mod context {
     use super::LexicalError;
@@ -75,6 +85,23 @@ mod context {
                 line_number: self.current_line,
                 start_pos: self.current_position,
                 end_pos: self.current_position - self.buffer.len(),
+                lexer_state: self.state
+                    .iter()
+                    .map(|s| match s {
+                        LexerState::Normal(variant) => match variant {
+                            NormalVariant::Any => "Normal(Any)",
+                            NormalVariant::Definition => "Normal(Definition)",
+                            NormalVariant::Body => "Normal(Body)",
+                        },
+                        LexerState::Comment1 => "CommentLine",
+                        LexerState::Comment2 => "CommentBlock",
+                        LexerState::String => "String",
+                        LexerState::LiteralStart => "LiteralBegin",
+                        LexerState::LiteralBody => "Literal",
+                        LexerState::LiteralEnd => "LiteralEnd",
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" -> "),
             }
         }
 
@@ -207,15 +234,6 @@ pub enum Token {
     Period,
     Semicolon,
     Equals,
-}
-
-// TODO: Add in some sort of message or reason.
-#[derive(Debug)]
-pub struct LexicalError<'input> {
-    pub line: &'input str,
-    pub line_number: usize,
-    pub start_pos: usize,
-    pub end_pos: usize,
 }
 
 lazy_static! {
@@ -525,7 +543,15 @@ pub fn tokenize(text: &str) -> Result<Vec<Token>, LexicalError> {
                     }
                 }
                 LexerState::LiteralBody => {
+                    // We only escape from a literal body if the next few characters are
+                    // in fact part of the literal. For example, we may be using $1 as a positional
+                    // argument.
                     if c == '$' {
+                        // We're in a maybe state... we don't want to do anything with the buffer
+                        // yet. This is where look ahead is useful.
+                        // Since we don't have a lookahead system implemented (yet) we do a soft
+                        // change to MaybeLiteralEnd
+                        // TODO
                         let data = String::from_iter(context.buffer.clone());
                         tokens.push(Token::Literal(data.trim().into()));
                         context.buffer.clear();
