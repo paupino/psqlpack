@@ -241,7 +241,6 @@ FunctionArgumentMode: FunctionArgumentMode = {
 
 FunctionArgumentDefault: AnyValue = {
     DEFAULT <AnyValue> => <>,
-    DEFAULT "(" <AnyValue> ")" => <>,
 };
 
 pub FunctionReturnType: FunctionReturnType = {
@@ -447,7 +446,6 @@ ColumnConstraintList: Vec<ColumnConstraint> = {
 
 ColumnConstraint: ColumnConstraint = {
     DEFAULT <AnyValue> => ColumnConstraint::Default(<>),
-    DEFAULT "(" <AnyValue> ")" => ColumnConstraint::Default(<>),
     NULL => ColumnConstraint::Null,
     NOT NULL => ColumnConstraint::NotNull,
     UNIQUE => ColumnConstraint::Unique,
@@ -465,6 +463,12 @@ PrimitiveValue: AnyValue = {
     <Decimal> <Cast?> => AnyValue::Decimal(<>),
     <String> <Cast?> => AnyValue::String(<>),
     NULL <Cast?> => AnyValue::Null(<>),
+
+    "(" <Boolean> ")" <Cast?> => AnyValue::Boolean(<>),
+    "(" <Digit> ")" <Cast?> => AnyValue::Integer(<>),
+    "(" <Decimal> ")" <Cast?> => AnyValue::Decimal(<>),
+    "(" <String> ")" <Cast?> => AnyValue::String(<>),
+    "(" NULL ")" <Cast?> => AnyValue::Null(<>),
 };
 
 Cast: SqlType = {

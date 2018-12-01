@@ -1,6 +1,6 @@
 use sql::ast::*;
 use sql::lexer;
-use sql::parser::StatementListParser;
+use sql::parser::{FunctionArgumentListParser, StatementListParser};
 
 use spectral::prelude::*;
 
@@ -178,6 +178,109 @@ fn it_can_parse_a_function_definition_with_parameters() {
                    ORDER BY states.iso".into(),
             language: FunctionLanguage::SQL,
         }),
+    );
+}
+
+#[test]
+fn it_can_parse_function_arguments() {
+    let sql = "geom geometry,
+               scalex double precision,
+               scaley double precision,
+               gridx double precision DEFAULT NULL::double precision,
+               gridy double precision DEFAULT NULL::double precision,
+               pixeltype text[] DEFAULT ARRAY['8BUI'::text],
+               value double precision[] DEFAULT ARRAY[(1)::double precision],
+               nodataval double precision[] DEFAULT ARRAY[(0)::double precision],
+               skewx double precision DEFAULT 0,
+               skewy double precision DEFAULT 0,
+               touched boolean DEFAULT false";
+
+    let tokens = lexer::tokenize_body(sql);
+    assert_that!(tokens).is_ok();
+    let tokens = tokens.unwrap();
+
+    let arguments = FunctionArgumentListParser::new().parse(tokens);
+    assert_that!(arguments).is_ok();
+    let arguments = arguments.unwrap();
+    assert_that!(arguments).has_length(11);
+    assert_that!(arguments).is_equal_to(
+        vec![
+            FunctionArgument {
+                mode: None,
+                name: Some("geom".into()),
+                sql_type: SqlType::Custom(ObjectName {
+                    schema: None,
+                    name: "geometry".to_string()
+                }, None, None),
+                default: None,
+            },
+            FunctionArgument {
+                mode: None,
+                name: Some("scalex".into()),
+                sql_type: SqlType::Simple(SimpleSqlType::Double, None),
+                default: None,
+            },
+            FunctionArgument {
+                mode: None,
+                name: Some("scaley".into()),
+                sql_type: SqlType::Simple(SimpleSqlType::Double, None),
+                default: None,
+            },
+            FunctionArgument {
+                mode: None,
+                name: Some("gridx".into()),
+                sql_type: SqlType::Simple(SimpleSqlType::Double, None),
+                default: Some(AnyValue::Null(Some(SqlType::Simple(SimpleSqlType::Double, None)))),
+            },
+            FunctionArgument {
+                mode: None,
+                name: Some("gridy".into()),
+                sql_type: SqlType::Simple(SimpleSqlType::Double, None),
+                default: Some(AnyValue::Null(Some(SqlType::Simple(SimpleSqlType::Double, None)))),
+            },
+            FunctionArgument {
+                mode: None,
+                name: Some("pixeltype".into()),
+                sql_type: SqlType::Simple(SimpleSqlType::Text, Some(1)),
+                default: Some(AnyValue::Array(vec![
+                    AnyValue::String("8BUI".into(), Some(SqlType::Simple(SimpleSqlType::Text, None)))
+                ], None)),
+            },
+            FunctionArgument {
+                mode: None,
+                name: Some("value".into()),
+                sql_type: SqlType::Simple(SimpleSqlType::Double, Some(1)),
+                default: Some(AnyValue::Array(vec![
+                    AnyValue::Integer(1, Some(SqlType::Simple(SimpleSqlType::Double, None)))
+                ], None)),
+            },
+            FunctionArgument {
+                mode: None,
+                name: Some("nodataval".into()),
+                sql_type: SqlType::Simple(SimpleSqlType::Double, Some(1)),
+                default: Some(AnyValue::Array(vec![
+                    AnyValue::Integer(0, Some(SqlType::Simple(SimpleSqlType::Double, None)))
+                ], None)),
+            },
+            FunctionArgument {
+                mode: None,
+                name: Some("skewx".into()),
+                sql_type: SqlType::Simple(SimpleSqlType::Double, None),
+                default: Some(AnyValue::Integer(0, None)),
+            },
+            FunctionArgument {
+                mode: None,
+                name: Some("skewy".into()),
+                sql_type: SqlType::Simple(SimpleSqlType::Double, None),
+                default: Some(AnyValue::Integer(0, None)),
+            },
+            FunctionArgument {
+                mode: None,
+                name: Some("touched".into()),
+                sql_type: SqlType::Simple(SimpleSqlType::Boolean, None),
+                default: Some(AnyValue::Boolean(false, None)),
+            },
+        ]
     );
 }
 
