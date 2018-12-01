@@ -19,6 +19,7 @@ extern {
         "." => lexer::Token::Period,
 
         ACTION => lexer::Token::ACTION,
+        ARRAY => lexer::Token::ARRAY,
         AS => lexer::Token::AS,
         ASC => lexer::Token::ASC,
         BIGINT => lexer::Token::BIGINT,
@@ -452,6 +453,11 @@ ColumnConstraint: ColumnConstraint = {
 };
 
 AnyValue: AnyValue = {
+    <PrimitiveValue> => <>,
+    ARRAY <ArrayValue> => <>,
+};
+
+PrimitiveValue: AnyValue = {
     <Boolean> <Cast?> => AnyValue::Boolean(<>),
     <Digit> <Cast?> => AnyValue::Integer(<>),
     <Decimal> <Cast?> => AnyValue::Decimal(<>),
@@ -461,6 +467,26 @@ AnyValue: AnyValue = {
 
 Cast: SqlType = {
     ":" ":" <SqlType> => <>,
+};
+
+ArrayValue: AnyValue = {
+    "[" <ArrayValueList> "]" <Cast?> => AnyValue::Array(<>),
+};
+
+// A little naive so we'll need to validate this within the AST
+ArrayValueList: Vec<AnyValue> = {
+    <v:ArrayValueList> "," <p:PrimitiveValue> => {
+        let mut v = v;
+        v.push(p);
+        v
+    },
+    <v:ArrayValueList> "," <p:ArrayValue> => {
+        let mut v = v;
+        v.push(p);
+        v
+    },
+    <PrimitiveValue> => vec!(<>),
+    <ArrayValue> => vec!(<>),
 };
 
 EnumValueList: Vec<String> = {

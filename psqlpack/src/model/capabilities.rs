@@ -300,14 +300,14 @@ fn parse_function(row: &Row) -> PsqlpackResult<FunctionDefinition> {
     let function_args = if raw_args.is_empty() {
         Vec::new()
     } else {
-        lexer::tokenize(&raw_args)
+        lexer::tokenize_body(&raw_args)
             .map_err(lexical)
             .and_then(|tokens| {
                 FunctionArgumentListParser::new().parse(tokens).map_err(parse)
             })
             .chain_err(|| PackageFunctionArgsInspectError(raw_args))?
     };
-    let return_type = lexer::tokenize(&raw_result)
+    let return_type = lexer::tokenize_body(&raw_result)
         .map_err(&lexical)
         .and_then(|tokens| {
             FunctionReturnTypeParser::new().parse(tokens).map_err(parse)

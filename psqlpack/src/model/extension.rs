@@ -1,5 +1,5 @@
 use connection::Connection;
-use errors::{PsqlpackResult, PsqlpackErrorKind};
+use errors::PsqlpackResult;
 use model::{Capabilities, DefinableCatalog, MetaInfo, Package, SourceInfo};
 use semver::Semver;
 

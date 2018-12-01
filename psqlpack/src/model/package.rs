@@ -6,7 +6,6 @@ use std::path::Path;
 use std::str::FromStr;
 
 use chrono::prelude::*;
-use lalrpop_util;
 use petgraph;
 use postgres::rows::Row;
 use regex::Regex;
@@ -21,7 +20,7 @@ use sql::ast::*;
 use sql::parser::SqlTypeParser;
 use model::{Capabilities, DefinableCatalog, Dependency, Project};
 use semver::Semver;
-use errors::{PsqlpackError, PsqlpackResult, PsqlpackResultExt};
+use errors::{PsqlpackResult, PsqlpackResultExt};
 use errors::PsqlpackErrorKind::*;
 
 macro_rules! ztry {
@@ -375,7 +374,7 @@ impl<'row> From<Row<'row>> for IndexDefinition {
 impl From<String> for SqlType {
     fn from(s: String) -> Self {
         // TODO: Error handling for this
-        let tokens = lexer::tokenize(&s).unwrap();
+        let tokens = lexer::tokenize_body(&s).unwrap();
         SqlTypeParser::new().parse(tokens).unwrap()
     }
 }

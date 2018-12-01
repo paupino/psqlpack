@@ -55,7 +55,7 @@ mod context {
     }
 
     impl Context {
-        pub fn new() -> Self {
+        pub fn new(start: NormalVariant) -> Self {
             Context {
                 current_line: 0,
                 current_position: 0,
@@ -64,7 +64,7 @@ mod context {
                 buffer: Vec::new(),
                 literal: Vec::new(),
 
-                state: vec![LexerState::Normal(NormalVariant::Any)],
+                state: vec![LexerState::Normal(start)],
             }
         }
 
@@ -131,6 +131,7 @@ mod context {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Token {
     ACTION,
+    ARRAY,
     AS,
     ASC,
     BIGINT,
@@ -240,6 +241,7 @@ impl fmt::Display for Token {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             Token::ACTION => write!(f, "ACTION"),
+            Token::ARRAY => write!(f, "ARRAY"),
             Token::AS => write!(f, "AS"),
             Token::ASC => write!(f, "ASC"),
             Token::BIGINT => write!(f, "BIGINT"),
@@ -353,7 +355,6 @@ lazy_static! {
     static ref DIGIT: Regex = Regex::new("^\\d+$").unwrap();
 }
 
-
 macro_rules! tokenize_normal_buffer {
     ($context:ident, $line:ident, $tokens:ident) => {{
         if $context.buffer.len() > 0 {
@@ -366,7 +367,6 @@ macro_rules! tokenize_normal_buffer {
         }
     }};
 }
-
 
 macro_rules! match_keyword {
     ($value:ident, $enum_value:ident) => {{
@@ -428,6 +428,7 @@ fn create_normal_token(context: &mut Context) -> Option<Token> {
     match variant {
         NormalVariant::Any | NormalVariant::Body => {
             match_keyword!(value, ACTION);
+            match_keyword!(value, ARRAY);
             match_keyword!(value, AS);
             match_keyword!(value, ASC);
             match_keyword!(value, BIGINT);
@@ -526,10 +527,18 @@ fn create_normal_token(context: &mut Context) -> Option<Token> {
     None
 }
 
-pub fn tokenize(text: &str) -> Result<Vec<Token>, LexicalError> {
+pub fn tokenize_body(text: &str) -> Result<Vec<Token>, LexicalError> {
+    tokenize(text, NormalVariant::Body)
+}
+
+pub fn tokenize_stmt(text: &str) -> Result<Vec<Token>, LexicalError> {
+    tokenize(text, NormalVariant::Any)
+}
+
+fn tokenize(text: &str, start: NormalVariant) -> Result<Vec<Token>, LexicalError> {
     // This tokenizer is whitespace dependent by default, i.e. whitespace is relevant.
     let mut tokens = Vec::new();
-    let mut context = Context::new();
+    let mut context = Context::new(start);
 
     // Loop through each character, halting on whitespace
     // Our outer loop works by newline

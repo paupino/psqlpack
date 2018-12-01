@@ -77,11 +77,13 @@ pub enum ColumnConstraint {
 
 #[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
 pub enum AnyValue {
-    Boolean(bool, Option<SqlType>), // Optional cast
-    Decimal(Decimal, Option<SqlType>), // Optional cast
-    Integer(i32, Option<SqlType>),  // Optional cast
-    String(String, Option<SqlType>),  // Optional cast
-    Null(Option<SqlType>),  // Optional cast
+    // Optional cast on each of these
+    Array(Vec<AnyValue>, Option<SqlType>),
+    Boolean(bool, Option<SqlType>),
+    Decimal(Decimal, Option<SqlType>),
+    Integer(i32, Option<SqlType>),
+    String(String, Option<SqlType>),
+    Null(Option<SqlType>),
 }
 
 #[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
@@ -295,6 +297,20 @@ pub enum IndexPosition {
 impl fmt::Display for AnyValue {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let sql_type = match *self {
+            AnyValue::Array(ref items, ref sql_type) => {
+                write!(f, "ARRAY [")?;
+                let mut comma = false;
+                for item in items {
+                    if comma {
+                        write!(f, ", ");
+                    } else {
+                        comma = true;
+                    }
+                    write!(f, "{}", item)?;
+                }
+                write!(f, "]")?;
+                sql_type
+            }
             AnyValue::Boolean(ref b, ref sql_type) => {
                 write!(f, "{}", b)?;
                 sql_type

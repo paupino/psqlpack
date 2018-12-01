@@ -176,7 +176,7 @@ impl Project {
                 });
             } else {
                 trace!(log, "Tokenizing file");
-                let tokens = match lexer::tokenize(&contents[..]) {
+                let tokens = match lexer::tokenize_stmt(&contents[..]) {
                     Ok(t) => t,
                     Err(e) => {
                         errors.push(
