@@ -287,6 +287,7 @@ fn parse_function(row: &Row) -> PsqlpackResult<FunctionDefinition> {
 
     fn lexical(err: lexer::LexicalError) -> PsqlpackError {
         LexicalError(
+            err.reason.to_owned(),
             err.line.to_owned(),
             err.line_number,
             err.start_pos,

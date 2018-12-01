@@ -13,7 +13,7 @@ fn it_can_parse_a_basic_function_definition() {
                $body$
                LANGUAGE SQL;";
 
-    let tokens = lexer::tokenize(sql);
+    let tokens = lexer::tokenize_stmt(sql);
     assert_that!(tokens).is_ok();
     let tokens = tokens.unwrap();
 
@@ -50,7 +50,7 @@ fn it_can_parse_a_function_definition_with_simple_literals() {
                $$
                LANGUAGE SQL;";
 
-    let tokens = lexer::tokenize(sql);
+    let tokens = lexer::tokenize_stmt(sql);
     assert_that!(tokens).is_ok();
     let tokens = tokens.unwrap();
 
@@ -87,7 +87,7 @@ fn it_can_parse_a_function_definition_returning_table() {
                $$
                LANGUAGE SQL;";
 
-    let tokens = lexer::tokenize(sql);
+    let tokens = lexer::tokenize_stmt(sql);
     assert_that!(tokens).is_ok();
     let tokens = tokens.unwrap();
 
@@ -138,7 +138,7 @@ fn it_can_parse_a_function_definition_with_parameters() {
                $$
                LANGUAGE SQL;";
 
-    let tokens = lexer::tokenize(sql);
+    let tokens = lexer::tokenize_stmt(sql);
     assert_that!(tokens).is_ok();
     let tokens = tokens.unwrap();
 

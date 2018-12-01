@@ -1354,7 +1354,7 @@ mod tests {
     use spectral::prelude::*;
 
     fn package_sql(sql: &str) -> Package {
-        let tokens = match lexer::tokenize(sql) {
+        let tokens = match lexer::tokenize_stmt(sql) {
             Ok(t) => t,
             Err(e) => panic!("Syntax error: {}", e.line),
         };

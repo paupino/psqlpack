@@ -101,16 +101,16 @@ error_chain! {
             description("IO error when reading a file")
             display("IO error when reading {}: {}", file, message)
         }
-        LexicalError(line: String, line_number: usize, start: usize, end: usize) {
+        LexicalError(reason: String, line: String, line_number: usize, start: usize, end: usize) {
             description("Lexical error encountered")
-            display("Lexical error encountered on line {}:\n  {}\n  {}{}",
-                line_number, line, " ".repeat(*start), "^".repeat(end - start))
+            display("Lexical error encountered on line {},{}: {}\n{}",
+                line_number, reason, *start, LineFormatter(line, *start, *end))
         }
         SyntaxError(file: String, line: String, line_number: usize, start: usize, end: usize) {
             description("SQL syntax error encountered")
             display(
-                "SQL syntax error encountered in {} on line {}:\n  {}\n  {}{}",
-                file, line_number, line, " ".repeat(*start), "^".repeat(end - start))
+                "SQL syntax error encountered in {} on line {},{}:\n{}",
+                file, line_number, *start, LineFormatter(line, *start, *end))
         }
         ParseError(file: String, errors: Vec<ParseError<(), lexer::Token, &'static str>>) {
             description("Parser error")
@@ -191,6 +191,33 @@ fn write_err(f: &mut Formatter, error: &ParseError<(), lexer::Token, &'static st
         }
         ParseError::ExtraToken { ref token } => write!(f, "Extra token detected: {:?}", token),
         ParseError::User { ref error } => write!(f, "{:?}", error),
+    }
+}
+
+
+struct LineFormatter<'fmt>(&'fmt str, usize, usize);
+const MAX_LINE_LENGTH : usize = 78;
+
+impl<'fmt> Display for LineFormatter<'fmt> {
+    fn fmt(&self, f: &mut Formatter) -> Result {
+        let mut line = self.0;
+        let mut start = self.1;
+        let mut end = self.2;
+        if line.len() > MAX_LINE_LENGTH {
+            if start > 20 {
+                let adj = start - 20;
+                let (_, l) = line.split_at(adj);
+                line = l;
+                start -= adj;
+                end -= adj;
+            }
+            if line.len() > MAX_LINE_LENGTH && end < MAX_LINE_LENGTH {
+                let (l, _) = line.split_at(MAX_LINE_LENGTH);
+                line = l;
+            }
+        }
+        write!(f, "  {}\n  {}{}", line, " ".repeat(start), "^".repeat(end - start))?;
+        Ok(())
     }
 }
 

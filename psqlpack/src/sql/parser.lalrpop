@@ -382,7 +382,9 @@ pub SqlType: SqlType = {
 
 SimpleType: SimpleSqlType = {
     CHAR "(" <Digit> ")" => SimpleSqlType::FixedLengthString(<> as u32),
+    CHAR => SimpleSqlType::FixedLengthString(1u32),
     CHARACTER "(" <Digit> ")" => SimpleSqlType::FixedLengthString(<> as u32),
+    CHARACTER => SimpleSqlType::FixedLengthString(1u32),
     VARCHAR "(" <Digit> ")" => SimpleSqlType::VariableLengthString(<> as u32),
     VARCHAR => SimpleSqlType::UnsizedVariableLengthString,
     CHARACTER VARYING "(" <Digit> ")" => SimpleSqlType::VariableLengthString(<> as u32),

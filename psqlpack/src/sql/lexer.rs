@@ -18,6 +18,7 @@ pub struct LexicalError<'input> {
     pub start_pos: usize,
     pub end_pos: usize,
     pub lexer_state: String,
+    pub reason: String,
 }
 
 mod context {
@@ -30,6 +31,7 @@ mod context {
         Comment1,
         Comment2,
         String,
+        QuotedIdentifier,
 
         LiteralStart,
         LiteralEnd,
@@ -79,12 +81,12 @@ mod context {
             self.last_char = c;
         }
 
-        pub fn create_error<'input>(&self, line: &'input str) -> LexicalError<'input> {
+        pub fn create_error<'input, T: Into<String>>(&self, line: &'input str, reason: T) -> LexicalError<'input> {
             LexicalError {
                 line,
                 line_number: self.current_line,
-                start_pos: self.current_position,
-                end_pos: self.current_position - self.buffer.len(),
+                start_pos: self.current_position - self.buffer.len(),
+                end_pos: self.current_position,
                 lexer_state: self.state
                     .iter()
                     .map(|s| match s {
@@ -96,12 +98,14 @@ mod context {
                         LexerState::Comment1 => "CommentLine",
                         LexerState::Comment2 => "CommentBlock",
                         LexerState::String => "String",
+                        LexerState::QuotedIdentifier => "QuotedIdentifier",
                         LexerState::LiteralStart => "LiteralBegin",
                         LexerState::LiteralBody => "Literal",
                         LexerState::LiteralEnd => "LiteralEnd",
                     })
                     .collect::<Vec<_>>()
                     .join(" -> "),
+                reason: reason.into(),
             }
         }
 
@@ -328,7 +332,7 @@ impl fmt::Display for Token {
             Token::WITHOUT => write!(f, "WITHOUT"),
             Token::ZONE => write!(f, "ZONE"),
 
-            Token::Identifier(ref ident) => write!(f, "{}", ident),
+            Token::Identifier(ref ident) => write!(f, "Ident({})", ident),
             Token::Digit(i) => write!(f, "{}", i),
             Token::Decimal(d) => write!(f, "{}", d),
             Token::Boolean(b) => write!(f, "{}", if b { "TRUE" } else { "FALSE" }),
@@ -360,7 +364,7 @@ macro_rules! tokenize_normal_buffer {
         if $context.buffer.len() > 0 {
             let token = match self::create_normal_token(&mut $context) {
                 Some(t) => t,
-                None => return Err($context.create_error($line)),
+                None => return Err($context.create_error($line, "unexpected token")),
             };
             push_token!($tokens, token);
             $context.buffer.clear();
@@ -564,15 +568,22 @@ fn tokenize(text: &str, start: NormalVariant) -> Result<Vec<Token>, LexicalError
                         if context.buffer.is_empty() {
                             context.push_state(LexerState::String);
                         } else {
-                            // Invalid state! Must be something like xx'dd
-                            return Err(context.create_error(line));
+                            // Invalid state - must be something like xx'dd
+                            return Err(context.create_error(line, "' was unexpected"));
+                        }
+                    } else if c == '"' {
+                        if context.buffer.is_empty() {
+                            context.push_state(LexerState::QuotedIdentifier);
+                        } else {
+                            // Invalid state - Must be something like xx"dd
+                            return Err(context.create_error(line, "\" was unexpected"));
                         }
                     } else if c == '$' {
                         if context.buffer.is_empty() {
                             context.push_state(LexerState::LiteralStart);
                         } else {
                             // Unsupported state in our lexer
-                            return Err(context.create_error(line));
+                            return Err(context.create_error(line, "$ was unexpected"));
                         }
                     } else if c.is_whitespace() {
                         // Simple check for whitespace
@@ -642,6 +653,13 @@ fn tokenize(text: &str, start: NormalVariant) -> Result<Vec<Token>, LexicalError
                 } else {
                     context.buffer.push(c);
                 },
+                LexerState::QuotedIdentifier => if c == '"' {
+                    push_token!(tokens, Token::Identifier(String::from_iter(context.buffer.clone())));
+                    context.buffer.clear();
+                    context.pop_state();
+                } else {
+                    context.buffer.push(c);
+                },
                 LexerState::LiteralStart => {
                     if c == '$' {
                         context.replace_state(LexerState::LiteralBody);
@@ -655,16 +673,25 @@ fn tokenize(text: &str, start: NormalVariant) -> Result<Vec<Token>, LexicalError
                             context.pop_state();
                         } else {
                             // Error: literal name mismatch
-                            return Err(context.create_error(line));
+                            return Err(
+                                context.create_error(line,
+                                                     "literal name mismatch - leftover characters")
+                            );
                         }
                     } else if context.literal.is_empty() {
                         // Error: literal name mismatch
-                        return Err(context.create_error(line));
+                        return Err(
+                            context.create_error(line,
+                                                 "literal name mismatch - exhausted characters")
+                        );
                     } else {
                         let l = context.literal.pop().unwrap();
                         if l != c {
                             // Error: literal name mismatch
-                            return Err(context.create_error(line));
+                            return Err(
+                                context.create_error(line,
+                                                     "literal name mismatch - unexpected character")
+                            );
                         }
                     }
                 }
@@ -726,10 +753,10 @@ fn tokenize(text: &str, start: NormalVariant) -> Result<Vec<Token>, LexicalError
             LexerState::Comment2 => {
                 // Do nothing at the end of a line - it's a multi-line comment
             }
-            LexerState::String | LexerState::LiteralStart | LexerState::LiteralEnd => {
+            LexerState::String | LexerState::QuotedIdentifier | LexerState::LiteralStart | LexerState::LiteralEnd => {
                 // If we're in these states at the end of a line it's an error
                 // (e.g. at the moment we don't support multi-line strings)
-                return Err(context.create_error(line));
+                return Err(context.create_error(line, "end of line was unexpected"));
             }
             LexerState::LiteralBody => {
                 // Add a new line onto the buffer
