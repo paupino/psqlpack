@@ -5,7 +5,7 @@ use sql::parser::StatementListParser;
 use spectral::prelude::*;
 
 #[test]
-fn it_can_parse_basic_function_definition() {
+fn it_can_parse_a_basic_function_definition() {
     let sql = "CREATE OR REPLACE FUNCTION index(index int)
                RETURNS int
                AS $body$
@@ -42,7 +42,7 @@ fn it_can_parse_basic_function_definition() {
 }
 
 #[test]
-fn it_can_parse_function_definition_with_simple_literals() {
+fn it_can_parse_a_function_definition_with_simple_literals() {
     let sql = "CREATE OR REPLACE FUNCTION public.x()
                RETURNS int
                AS $$
@@ -73,7 +73,7 @@ fn it_can_parse_function_definition_with_simple_literals() {
 
 
 #[test]
-fn it_can_parse_function_definition_returning_table() {
+fn it_can_parse_a_function_definition_returning_table() {
     let sql = "CREATE OR REPLACE FUNCTION reference_data.fn_countries()
                RETURNS TABLE (
                    name character varying(80),
@@ -123,7 +123,7 @@ fn it_can_parse_function_definition_returning_table() {
 }
 
 #[test]
-fn it_can_parse_function_definition_with_parameters() {
+fn it_can_parse_a_function_definition_with_parameters() {
     let sql = "CREATE OR REPLACE FUNCTION reference_data.fn_states(country character varying(2))
                RETURNS TABLE (
                    name character varying(80),
@@ -167,7 +167,7 @@ fn it_can_parse_function_definition_with_parameters() {
                 },
                 ColumnDefinition {
                     name: "iso".into(),
-                    sql_type: SqlType::Simple(SimpleSqlType::VariableLengthString(2), None),
+                    sql_type: SqlType::Simple(SimpleSqlType::VariableLengthString(10), None),
                     constraints: Vec::new(),
                 },
             ]),

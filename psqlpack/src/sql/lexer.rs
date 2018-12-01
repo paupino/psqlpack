@@ -2,10 +2,10 @@
 TODO: This isn't all that efficient. We could gain some efficiencies using a generated lexer.
 TODO: Proper lookahead.
 */
-
 use regex::Regex;
 use rust_decimal::Decimal;
 
+use std::fmt;
 use std::iter::FromIterator;
 
 use self::context::*;
@@ -236,6 +236,117 @@ pub enum Token {
     Equals,
 }
 
+impl fmt::Display for Token {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            Token::ACTION => write!(f, "ACTION"),
+            Token::AS => write!(f, "AS"),
+            Token::ASC => write!(f, "ASC"),
+            Token::BIGINT => write!(f, "BIGINT"),
+            Token::BIGSERIAL => write!(f, "BIGSERIAL"),
+            Token::BIT => write!(f, "BIT"),
+            Token::BOOL => write!(f, "BOOL"),
+            Token::BOOLEAN => write!(f, "BOOLEAN"),
+            Token::BTREE => write!(f, "BTREE"),
+            Token::CASCADE => write!(f, "CASCADE"),
+            Token::CONSTRAINT => write!(f, "CONSTRAINT"),
+            Token::CHAR => write!(f, "CHAR"),
+            Token::CHARACTER => write!(f, "CHARACTER"),
+            Token::CREATE => write!(f, "CREATE"),
+            Token::DATE => write!(f, "DATE"),
+            Token::DEFAULT => write!(f, "DEFAULT"),
+            Token::DELETE => write!(f, "DELETE"),
+            Token::DESC => write!(f, "DESC"),
+            Token::DOUBLE => write!(f, "DOUBLE"),
+            Token::ENUM => write!(f, "ENUM"),
+            Token::EXTENSION => write!(f, "EXTENSION"),
+            Token::FILLFACTOR => write!(f, "FILLFACTOR"),
+            Token::FIRST => write!(f, "FIRST"),
+            Token::FOREIGN => write!(f, "FOREIGN"),
+            Token::FULL => write!(f, "FULL"),
+            Token::FUNCTION => write!(f, "FUNCTION"),
+            Token::GIN => write!(f, "GIN"),
+            Token::GIST => write!(f, "GIST"),
+            Token::HASH => write!(f, "HASH"),
+            Token::IN => write!(f, "IN"),
+            Token::INDEX => write!(f, "INDEX"),
+            Token::INOUT => write!(f, "INOUT"),
+            Token::INT => write!(f, "INT"),
+            Token::INT2 => write!(f, "INT2"),
+            Token::INT4 => write!(f, "INT4"),
+            Token::INT8 => write!(f, "INT8"),
+            Token::INTEGER => write!(f, "INTEGER"),
+            Token::KEY => write!(f, "KEY"),
+            Token::LANGUAGE => write!(f, "LANGUAGE"),
+            Token::LAST => write!(f, "LAST"),
+            Token::MATCH => write!(f, "MATCH"),
+            Token::MONEY => write!(f, "MONEY"),
+            Token::NO => write!(f, "NO"),
+            Token::NOT => write!(f, "NOT"),
+            Token::NULL => write!(f, "NULL"),
+            Token::NULLS => write!(f, "NULLS"),
+            Token::NUMERIC => write!(f, "NUMERIC"),
+            Token::ON => write!(f, "ON"),
+            Token::OR => write!(f, "OR"),
+            Token::OUT => write!(f, "OUT"),
+            Token::PARTIAL => write!(f, "PARTIAL"),
+            Token::PRECISION => write!(f, "PRECISION"),
+            Token::PRIMARY => write!(f, "PRIMARY"),
+            Token::REAL => write!(f, "REAL"),
+            Token::REFERENCES => write!(f, "REFERENCES"),
+            Token::REPLACE => write!(f, "REPLACE"),
+            Token::RESTRICT => write!(f, "RESTRICT"),
+            Token::RETURNS => write!(f, "RETURNS"),
+            Token::SCHEMA => write!(f, "SCHEMA"),
+            Token::SERIAL => write!(f, "SERIAL"),
+            Token::SERIAL2 => write!(f, "SERIAL2"),
+            Token::SERIAL4 => write!(f, "SERIAL4"),
+            Token::SERIAL8 => write!(f, "SERIAL8"),
+            Token::SET => write!(f, "SET"),
+            Token::SETOF => write!(f, "SETOF"),
+            Token::SIMPLE => write!(f, "SIMPLE"),
+            Token::SMALLINT => write!(f, "SMALLINT"),
+            Token::SMALLSERIAL => write!(f, "SMALLSERIAL"),
+            Token::TABLE => write!(f, "TABLE"),
+            Token::TEXT => write!(f, "TEXT"),
+            Token::TIME => write!(f, "TIME"),
+            Token::TIMESTAMP => write!(f, "TIMESTAMP"),
+            Token::TIMESTAMPTZ => write!(f, "TIMESTAMPTZ"),
+            Token::TIMETZ => write!(f, "TIMETZ"),
+            Token::TYPE => write!(f, "TYPE"),
+            Token::UNIQUE => write!(f, "UNIQUE"),
+            Token::UPDATE => write!(f, "UPDATE"),
+            Token::USING => write!(f, "USING"),
+            Token::UUID => write!(f, "UUID"),
+            Token::VARBIT => write!(f, "VARBIT"),
+            Token::VARCHAR => write!(f, "VARCHAR"),
+            Token::VARIADIC => write!(f, "VARIADIC"),
+            Token::VARYING => write!(f, "VARYING"),
+            Token::WITH => write!(f, "WITH"),
+            Token::WITHOUT => write!(f, "WITHOUT"),
+            Token::ZONE => write!(f, "ZONE"),
+
+            Token::Identifier(ref ident) => write!(f, "{}", ident),
+            Token::Digit(i) => write!(f, "{}", i),
+            Token::Decimal(d) => write!(f, "{}", d),
+            Token::Boolean(b) => write!(f, "{}", if b { "TRUE" } else { "FALSE" }),
+            Token::StringValue(ref s) => write!(f, "'{}'", s),
+            Token::Literal(ref s) => write!(f, "$$ {} $$", s),
+
+            Token::LeftBracket => write!(f, "("),
+            Token::RightBracket => write!(f, ")"),
+            Token::LeftSquare => write!(f, "["),
+            Token::RightSquare => write!(f, "]"),
+
+            Token::Colon => write!(f, ":"),
+            Token::Comma => write!(f, ","),
+            Token::Period => write!(f, "."),
+            Token::Semicolon => write!(f, ";"),
+            Token::Equals => write!(f, "="),
+        }
+    }
+}
+
 lazy_static! {
     static ref IDENTIFIER: Regex = Regex::new("^[a-zA-Z][a-zA-Z0-9_]*$").unwrap();
     static ref DECIMAL: Regex = Regex::new("^\\d+\\.\\d+$").unwrap();
@@ -250,7 +361,7 @@ macro_rules! tokenize_normal_buffer {
                 Some(t) => t,
                 None => return Err($context.create_error($line)),
             };
-            $tokens.push(token);
+            push_token!($tokens, token);
             $context.buffer.clear();
         }
     }};
@@ -276,6 +387,12 @@ macro_rules! match_keyword_replace_state {
     }};
 }
 
+macro_rules! push_token {
+    ($tokens:ident, $symbol:expr) => {
+        println!("{}", $symbol);
+        $tokens.push($symbol);
+    };
+}
 
 fn create_normal_token(context: &mut Context) -> Option<Token> {
     let variant = if let LexerState::Normal(variant) = context.peek_state() {
@@ -372,6 +489,7 @@ fn create_normal_token(context: &mut Context) -> Option<Token> {
             match_keyword!(value, SIMPLE);
             match_keyword!(value, SMALLINT);
             match_keyword!(value, SMALLSERIAL);
+            match_keyword!(value, TABLE); // The one exception
             match_keyword!(value, TEXT);
             match_keyword!(value, TIME);
             match_keyword!(value, TIMESTAMP);
@@ -409,7 +527,6 @@ fn create_normal_token(context: &mut Context) -> Option<Token> {
 }
 
 pub fn tokenize(text: &str) -> Result<Vec<Token>, LexicalError> {
-
     // This tokenizer is whitespace dependent by default, i.e. whitespace is relevant.
     let mut tokens = Vec::new();
     let mut context = Context::new();
@@ -456,28 +573,28 @@ pub fn tokenize(text: &str) -> Result<Vec<Token>, LexicalError> {
                         match c {
                             '(' => {
                                 tokenize_normal_buffer!(context, line, tokens);
-                                tokens.push(Token::LeftBracket);
+                                push_token!(tokens, Token::LeftBracket);
                             }
                             ')' => {
                                 tokenize_normal_buffer!(context, line, tokens);
-                                tokens.push(Token::RightBracket);
+                                push_token!(tokens, Token::RightBracket);
                             }
                             ',' => {
                                 tokenize_normal_buffer!(context, line, tokens);
-                                tokens.push(Token::Comma);
+                                push_token!(tokens, Token::Comma);
                             }
                             ':' => {
                                 tokenize_normal_buffer!(context, line, tokens);
-                                tokens.push(Token::Colon);
+                                push_token!(tokens, Token::Colon);
                             }
                             ';' => {
                                 tokenize_normal_buffer!(context, line, tokens);
-                                tokens.push(Token::Semicolon);
+                                push_token!(tokens, Token::Semicolon);
                                 context.replace_state(LexerState::Normal(NormalVariant::Any));
                             }
                             '=' => {
                                 tokenize_normal_buffer!(context, line, tokens);
-                                tokens.push(Token::Equals);
+                                push_token!(tokens, Token::Equals);
                             }
                             '.' => {
                                 // If it is just a plain digit in the buffer, then allow it to continue.
@@ -485,16 +602,16 @@ pub fn tokenize(text: &str) -> Result<Vec<Token>, LexicalError> {
                                     context.buffer.push(c);
                                 } else {
                                     tokenize_normal_buffer!(context, line, tokens);
-                                    tokens.push(Token::Period);
+                                    push_token!(tokens, Token::Period);
                                 }
                             }
                             '[' => {
                                 tokenize_normal_buffer!(context, line, tokens);
-                                tokens.push(Token::LeftSquare);
+                                push_token!(tokens, Token::LeftSquare);
                             }
                             ']' => {
                                 tokenize_normal_buffer!(context, line, tokens);
-                                tokens.push(Token::RightSquare);
+                                push_token!(tokens, Token::RightSquare);
                             }
                             _ => context.buffer.push(c),
                         }
@@ -510,7 +627,7 @@ pub fn tokenize(text: &str) -> Result<Vec<Token>, LexicalError> {
                     // Ignore comments
                 }
                 LexerState::String => if c == '\'' {
-                    tokens.push(Token::StringValue(String::from_iter(context.buffer.clone())));
+                    push_token!(tokens, Token::StringValue(String::from_iter(context.buffer.clone())));
                     context.buffer.clear();
                     context.pop_state();
                 } else {
@@ -546,19 +663,37 @@ pub fn tokenize(text: &str) -> Result<Vec<Token>, LexicalError> {
                     // We only escape from a literal body if the next few characters are
                     // in fact part of the literal. For example, we may be using $1 as a positional
                     // argument.
-                    if c == '$' {
-                        // We're in a maybe state... we don't want to do anything with the buffer
-                        // yet. This is where look ahead is useful.
-                        // Since we don't have a lookahead system implemented (yet) we do a soft
-                        // change to MaybeLiteralEnd
-                        // TODO
-                        let data = String::from_iter(context.buffer.clone());
-                        tokens.push(Token::Literal(data.trim().into()));
-                        context.buffer.clear();
-                        if !context.literal.is_empty() {
-                            context.literal.reverse();
+                    // Since we don't have a lookahead system implemented (yet) we do some naive checks
+                    // here.
+                    if context.last_char == '$' {
+                        if context.literal.is_empty() {
+                            if c == '$' {
+                                // We've parsed a complete literal
+                                context.buffer.pop(); // Pop off the previous $
+                                // Add the token
+                                let data = String::from_iter(context.buffer.clone());
+                                push_token!(tokens, Token::Literal(data.trim().into()));
+                                context.buffer.clear();
+                                context.pop_state();
+                            } else {
+                                // We're still in the buffer
+                                context.buffer.push(c);
+                            }
+                        } else {
+                            // This is a naive check only looking at the first character
+                            if context.literal[0] == c {
+                                context.buffer.pop(); // Pop off the previous $
+                                let data = String::from_iter(context.buffer.clone());
+                                push_token!(tokens, Token::Literal(data.trim().into()));
+                                context.buffer.clear();
+                                context.literal.reverse();
+                                context.literal.pop(); // we've already confirmed the first char
+                                context.replace_state(LexerState::LiteralEnd);
+                            } else {
+                                // We're still in the buffer
+                                context.buffer.push(c);
+                            }
                         }
-                        context.replace_state(LexerState::LiteralEnd);
                     } else {
                         context.buffer.push(c);
                     }
