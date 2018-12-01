@@ -389,7 +389,7 @@ macro_rules! match_keyword_replace_state {
 
 macro_rules! push_token {
     ($tokens:ident, $symbol:expr) => {
-        println!("{}", $symbol);
+        //println!("{}", $symbol);
         $tokens.push($symbol);
     };
 }
