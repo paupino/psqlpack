@@ -53,7 +53,7 @@ macro_rules! generate_simple_package {
                 columns: vec![
                     ColumnDefinition {
                         name: "id".into(),
-                        sql_type: SqlType::Simple(SimpleSqlType::Serial),
+                        sql_type: SqlType::Simple(SimpleSqlType::Serial, None),
                         constraints: vec![
                             ColumnConstraint::PrimaryKey,
                             ColumnConstraint::NotNull
@@ -61,7 +61,7 @@ macro_rules! generate_simple_package {
                     },
                     ColumnDefinition {
                         name: "name".into(),
-                        sql_type: SqlType::Simple(SimpleSqlType::VariableLengthString(50)),
+                        sql_type: SqlType::Simple(SimpleSqlType::VariableLengthString(50), None),
                         constraints: vec![ColumnConstraint::NotNull]
                     },
                 ],
@@ -109,7 +109,7 @@ macro_rules! assert_simple_package {
         // Validate the id column
         let col_id = &table.columns[0];
         assert_that!(col_id.name).is_equal_to("id".to_string());
-        assert_that!(col_id.sql_type).is_equal_to(SqlType::Simple(SimpleSqlType::Serial));
+        assert_that!(col_id.sql_type).is_equal_to(SqlType::Simple(SimpleSqlType::Serial, None));
         assert_that!(col_id.constraints).named(&"col_id.constraints").has_length(1);
         let constraints = col_id.constraints.iter();
         assert_that!(constraints).contains(ColumnConstraint::NotNull);
@@ -117,7 +117,7 @@ macro_rules! assert_simple_package {
         // Validate the name column
         let col_name = &table.columns[1];
         assert_that!(col_name.name).is_equal_to("name".to_string());
-        assert_that!(col_name.sql_type).is_equal_to(SqlType::Simple(SimpleSqlType::VariableLengthString(50)));
+        assert_that!(col_name.sql_type).is_equal_to(SqlType::Simple(SimpleSqlType::VariableLengthString(50), None));
         assert_that!(col_name.constraints).named(&"col_name.constraints").has_length(1);
         assert_that!(col_name.constraints[0]).is_equal_to(ColumnConstraint::NotNull);
 

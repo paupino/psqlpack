@@ -17,7 +17,7 @@ use sql::ast::*;
 enum DbObject<'a> {
     Column(&'a TableDefinition, &'a ColumnDefinition),
     Constraint(&'a TableDefinition, &'a TableConstraint),
-    Extension(&'a Dependency),          // 2
+    ExtensionRequest(&'a Dependency),          // 2
     Function(&'a FunctionDefinition),   // 6 (ordered)
     Index(&'a IndexDefinition),         // 7
     Schema(&'a SchemaDefinition),       // 3
@@ -36,7 +36,7 @@ impl<'a> fmt::Display for DbObject<'a> {
                 table.name,
                 constraint.name()
             ),
-            DbObject::Extension(extension) => write!(f, "Extension: {}", extension.name),
+            DbObject::ExtensionRequest(extension) => write!(f, "ExtensionRequest: {}", extension.name),
             DbObject::Function(function) => write!(f, "Function: {}", function.name),
             DbObject::Index(index) => write!(f, "Index: {}", index.name),
             DbObject::Schema(schema) => write!(f, "Schema: {}", schema.name),
@@ -70,7 +70,7 @@ impl<'a> Diffable<'a, Package> for DbObject<'a> {
         match *self {
             DbObject::Column(table, column) => LinkedColumn { table: &table, column: &column }.generate(change_set, target, target_capabilities, publish_profile, log),
             DbObject::Constraint(table, constraint) => LinkedTableConstraint { table: &table, constraint: &constraint }.generate(change_set, target, target_capabilities, publish_profile, log),
-            DbObject::Extension(dependency) => ExtensionDefinition { name: &dependency.name, version: &dependency.version }.generate(change_set, target, target_capabilities, publish_profile, log),
+            DbObject::ExtensionRequest(dependency) => ExtensionRequest { name: &dependency.name, version: &dependency.version }.generate(change_set, target, target_capabilities, publish_profile, log),
             DbObject::Function(function) => function.generate(change_set, target, target_capabilities, publish_profile, log),
             DbObject::Index(index) => index.generate(change_set, target, target_capabilities, publish_profile, log),
             DbObject::Schema(schema) => schema.generate(change_set, target, target_capabilities, publish_profile, log),
@@ -81,12 +81,12 @@ impl<'a> Diffable<'a, Package> for DbObject<'a> {
     }
 }
 
-struct ExtensionDefinition<'a> {
+struct ExtensionRequest<'a> {
     name: &'a String,
     version: &'a Option<Semver>,
 }
 
-impl<'a> Diffable<'a, Package> for ExtensionDefinition<'a> {
+impl<'a> Diffable<'a, Package> for ExtensionRequest<'a> {
     fn generate(
         &self,
         change_set: &mut Vec<ChangeInstruction<'a>>,
@@ -95,12 +95,7 @@ impl<'a> Diffable<'a, Package> for ExtensionDefinition<'a> {
         profile: &PublishProfile,
         _log: &Logger,
     ) -> PsqlpackResult<()> {
-        let mut available =
-                    target_capabilities.extensions
-                        .iter()
-                        .filter(|e| e.name.eq(self.name))
-                        .collect::<Vec<_>>();
-        available.sort_by(|a, b| b.version.cmp(&a.version));
+        let available = target_capabilities.available_extensions(self.name, None);
 
         // First of all, check to see what is installed
         let installed = available
@@ -122,9 +117,9 @@ impl<'a> Diffable<'a, Package> for ExtensionDefinition<'a> {
                 change_set.push(ChangeInstruction::CreateExtension(self.name.to_string(), *self.version));
             } else {
                 if let Some(ref version) = self.version {
-                    bail!(PublishError(format!("Extension {} version {} not available to install", self.name, version)))
+                    bail!(PublishError(format!("ExtensionRequest {} version {} not available to install", self.name, version)))
                 }
-                bail!(PublishError(format!("Extension {} not available to install", self.name)))
+                bail!(PublishError(format!("ExtensionRequest {} not available to install", self.name)))
             }
         } else {
             // Something is installed - verify if we need to upgrade.
@@ -143,7 +138,7 @@ impl<'a> Diffable<'a, Package> for ExtensionDefinition<'a> {
                             }
                             Toggle::Error => {
                                 bail!(PublishUnsafeOperationError(format!(
-                                    "Extension {} version {} is available to upgrade",
+                                    "ExtensionRequest {} version {} is available to upgrade",
                                     v.name,
                                     v.version,
                                 )));
@@ -164,7 +159,7 @@ impl<'a> Diffable<'a, Package> for ExtensionDefinition<'a> {
                         }
                         Toggle::Error => {
                             bail!(PublishUnsafeOperationError(format!(
-                                "Extension {} version {} is available to upgrade",
+                                "ExtensionRequest {} version {} is available to upgrade",
                                 available[0].name,
                                 available[0].version,
                             )));
@@ -609,8 +604,10 @@ impl<'a> Diffable<'a, TypeDefinition> for &'a TypeDefinition {
                             index += 1;
                         }
                     }
+                    ref unknown_target_kind => panic!("Unknown target kind: {}", unknown_target_kind), // TODO
                 }
             }
+            ref unknown_source_kind => panic!("Unknown source kind: {}", unknown_source_kind), // TODO
         }
         Ok(())
     }
@@ -670,7 +667,7 @@ impl<'package> Delta<'package> {
 
         // Extensions
         for extension in &package.extensions {
-            build_order.push(DbObject::Extension(extension));
+            build_order.push(DbObject::ExtensionRequest(extension));
         }
 
         // Schemas
@@ -1005,7 +1002,7 @@ impl<'input> ChangeInstruction<'input> {
             },
             ChangeInstruction::UseDatabase(ref db) => format!("-- Using database `{}`", db),
 
-            // Extension level
+            // ExtensionRequest level
             ChangeInstruction::CreateExtension(ref name, ref version) => {
                 if let Some(ref version) = version {
                     format!("CREATE EXTENSION {} WITH VERSION \"{}\"", name, version)
@@ -1046,6 +1043,7 @@ impl<'input> ChangeInstruction<'input> {
                         }
                         def.push_str("\n)");
                     }
+                    ref unknown => panic!("Unknown kind: {}", unknown), // TODO
                 }
                 def
             }
@@ -1070,10 +1068,14 @@ impl<'input> ChangeInstruction<'input> {
                 ),
                 TypeModificationAction::RemoveEnumValue { ref value } => format!(
                     "DELETE FROM pg_enum \
-                     WHERE enumlabel = '{}' AND \
-                     enumtypid = (SELECT oid FROM pg_type WHERE typname = '{}')",
+                     WHERE enumlabel='{}' AND \
+                     enumtypid=(SELECT oid FROM pg_type WHERE {})",
                     value,
-                    ty.name
+                    if let Some(ref schema) = ty.name.schema {
+                        format!("nspname='{}' AND typname='{}'", schema, ty.name.name)
+                    } else {
+                        format!("typname='{}'", ty.name.name)
+                    },
                 ),
             }
             ChangeInstruction::DropType(ref type_name) => {
@@ -1092,7 +1094,7 @@ impl<'input> ChangeInstruction<'input> {
                         arg_comma_required = true;
                     }
 
-                    func.push_str(&format!("{} {}", arg.name, arg.sql_type)[..]);
+                    func.push_str(&arg.to_string());
                 }
                 func.push_str(")\n");
                 func.push_str("RETURNS ");
@@ -1110,6 +1112,9 @@ impl<'input> ChangeInstruction<'input> {
                         }
                         func.push_str("\n)\n");
                     }
+                    FunctionReturnType::SetOf(ref sql_type) => {
+                        func.push_str(&format!("SETOF {}", sql_type)[..]);
+                    }
                     FunctionReturnType::SqlType(ref sql_type) => {
                         func.push_str(&format!("{} ", sql_type)[..]);
                     }
@@ -1118,12 +1123,7 @@ impl<'input> ChangeInstruction<'input> {
                 func.push_str(&function.body[..]);
                 func.push_str("$$\n");
                 func.push_str("LANGUAGE ");
-                match function.language {
-                    FunctionLanguage::C => func.push_str("C"),
-                    FunctionLanguage::Internal => func.push_str("INTERNAL"),
-                    FunctionLanguage::PostgreSQL => func.push_str("PGSQL"),
-                    FunctionLanguage::SQL => func.push_str("SQL"),
-                }
+                func.push_str(&function.language.to_string());
                 func
             }
             ChangeInstruction::DropFunction(ref function_name) => {
@@ -1389,7 +1389,10 @@ mod tests {
 
     fn base_type() -> ast::TypeDefinition {
         ast::TypeDefinition {
-            name: "colors".into(),
+            name: ast::ObjectName {
+                schema: Some("public".to_string()),
+                name: "colors".to_string()
+            },
             kind: ast::TypeDefinitionKind::Enum(vec!["red".into(), "green".into(), "blue".into()]),
         }
     }
@@ -1420,9 +1423,13 @@ mod tests {
         assert_that!(change_set).has_length(1);
         match change_set[0] {
             ChangeInstruction::AddType(ref ty) => {
-                assert_that!(ty.name).is_equal_to("colors".to_owned());
+                assert_that!(ty.name).is_equal_to(ast::ObjectName {
+                    schema: Some("public".to_string()),
+                    name: "colors".to_string()
+                });
                 let values = match ty.kind {
                     TypeDefinitionKind::Enum(ref values) => values.clone(),
+                    ref unknown => panic!("Unknown kind: {}", unknown), // TODO
                 };
                 assert_that!(values).has_length(3);
                 assert_that!(values[0]).is_equal_to("red".to_owned());
@@ -1434,7 +1441,7 @@ mod tests {
 
         // Check the SQL generation
         assert_that!(change_set[0].to_sql(&log))
-            .is_equal_to("CREATE TYPE colors AS ENUM (\n  'red',\n  'green',\n  'blue'\n)".to_owned());
+            .is_equal_to("CREATE TYPE public.colors AS ENUM (\n  'red',\n  'green',\n  'blue'\n)".to_owned());
     }
 
     #[test]
@@ -1468,7 +1475,10 @@ mod tests {
     fn it_can_modify_enum_type_by_adding_a_value_to_the_end() {
         let log = empty_logger();
         let source_type = ast::TypeDefinition {
-            name: "colors".to_owned(),
+            name: ast::ObjectName {
+                schema: Some("public".to_string()),
+                name: "colors".to_string()
+            },
             kind: ast::TypeDefinitionKind::Enum(vec![
                 "red".to_owned(),
                 "green".to_owned(),
@@ -1499,7 +1509,10 @@ mod tests {
         assert_that!(change_set).has_length(1);
         match change_set[0] {
             ChangeInstruction::ModifyType(ty, ref action) => {
-                assert_that!(ty.name).is_equal_to("colors".to_owned());
+                assert_that!(ty.name).is_equal_to(ast::ObjectName {
+                    schema: Some("public".to_string()),
+                    name: "colors".to_string()
+                });
 
                 // Also, match the action
                 match *action {
@@ -1517,14 +1530,17 @@ mod tests {
         }
 
         // Check the SQL generation
-        assert_that!(change_set[0].to_sql(&log)).is_equal_to("ALTER TYPE colors ADD VALUE 'black' AFTER 'blue'".to_owned());
+        assert_that!(change_set[0].to_sql(&log)).is_equal_to("ALTER TYPE public.colors ADD VALUE 'black' AFTER 'blue'".to_owned());
     }
 
     #[test]
     fn it_can_modify_enum_type_by_adding_a_value_to_the_start() {
         let log = empty_logger();
         let source_type = ast::TypeDefinition {
-            name: "colors".to_owned(),
+            name: ast::ObjectName {
+                schema: Some("public".to_string()),
+                name: "colors".to_string()
+            },
             kind: ast::TypeDefinitionKind::Enum(vec![
                 "black".to_owned(),
                 "red".to_owned(),
@@ -1555,7 +1571,10 @@ mod tests {
         assert_that!(change_set).has_length(1);
         match change_set[0] {
             ChangeInstruction::ModifyType(ty, ref action) => {
-                assert_that!(ty.name).is_equal_to("colors".to_owned());
+                assert_that!(ty.name).is_equal_to(ast::ObjectName {
+                    schema: Some("public".to_string()),
+                    name: "colors".to_string()
+                });
 
                 // Also, match the action
                 match *action {
@@ -1573,14 +1592,17 @@ mod tests {
         }
 
         // Check the SQL generation
-        assert_that!(change_set[0].to_sql(&log)).is_equal_to("ALTER TYPE colors ADD VALUE 'black' BEFORE 'red'".to_owned());
+        assert_that!(change_set[0].to_sql(&log)).is_equal_to("ALTER TYPE public.colors ADD VALUE 'black' BEFORE 'red'".to_owned());
     }
 
     #[test]
     fn it_can_modify_enum_type_by_adding_a_value_to_the_middle() {
         let log = empty_logger();
         let source_type = ast::TypeDefinition {
-            name: "colors".to_owned(),
+            name: ast::ObjectName {
+                schema: Some("public".to_string()),
+                name: "colors".to_string()
+            },
             kind: ast::TypeDefinitionKind::Enum(vec![
                 "red".to_owned(),
                 "green".to_owned(),
@@ -1611,7 +1633,10 @@ mod tests {
         assert_that!(change_set).has_length(1);
         match change_set[0] {
             ChangeInstruction::ModifyType(ty, ref action) => {
-                assert_that!(ty.name).is_equal_to("colors".to_owned());
+                assert_that!(ty.name).is_equal_to(ast::ObjectName {
+                    schema: Some("public".to_string()),
+                    name: "colors".to_string()
+                });
 
                 // Also, match the action
                 match *action {
@@ -1629,14 +1654,17 @@ mod tests {
         }
 
         // Check the SQL generation
-        assert_that!(change_set[0].to_sql(&log)).is_equal_to("ALTER TYPE colors ADD VALUE 'black' AFTER 'green'".to_owned());
+        assert_that!(change_set[0].to_sql(&log)).is_equal_to("ALTER TYPE public.colors ADD VALUE 'black' AFTER 'green'".to_owned());
     }
 
     #[test]
     fn it_can_modify_enum_type_by_modifying_values_and_unsafe_declared() {
         let log = empty_logger();
         let source_type = ast::TypeDefinition {
-            name: "colors".to_owned(),
+            name: ast::ObjectName {
+                schema: Some("public".to_string()),
+                name: "colors".to_string()
+            },
             kind: ast::TypeDefinitionKind::Enum(vec![
                 "black".to_owned(),
                 "green".to_owned(),
@@ -1669,7 +1697,10 @@ mod tests {
         // Removals first
         match change_set[0] {
             ChangeInstruction::ModifyType(ty, ref action) => {
-                assert_that!(ty.name).is_equal_to("colors".to_owned());
+                assert_that!(ty.name).is_equal_to(ast::ObjectName {
+                    schema: Some("public".to_string()),
+                    name: "colors".to_string()
+                });
 
                 // Also, match the action
                 match *action {
@@ -1684,15 +1715,18 @@ mod tests {
         // Check the SQL generation
         assert_that!(change_set[0].to_sql(&log)).is_equal_to(
             "DELETE FROM pg_enum \
-             WHERE enumlabel = 'red' AND \
-             enumtypid = (SELECT oid FROM pg_type WHERE typname = 'colors')"
+             WHERE enumlabel='red' AND \
+             enumtypid=(SELECT oid FROM pg_type WHERE nspname='public' AND typname='colors')"
                 .to_owned(),
         );
 
         // Additions second
         match change_set[1] {
             ChangeInstruction::ModifyType(ty, ref action) => {
-                assert_that!(ty.name).is_equal_to("colors".to_owned());
+                assert_that!(ty.name).is_equal_to(ast::ObjectName {
+                    schema: Some("public".to_string()),
+                    name: "colors".to_string()
+                });
 
                 // Also, match the action
                 match *action {
@@ -1709,14 +1743,17 @@ mod tests {
             ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
         }
         // Check the SQL generation
-        assert_that!(change_set[1].to_sql(&log)).is_equal_to("ALTER TYPE colors ADD VALUE 'black' BEFORE 'green'".to_owned());
+        assert_that!(change_set[1].to_sql(&log)).is_equal_to("ALTER TYPE public.colors ADD VALUE 'black' BEFORE 'green'".to_owned());
     }
 
     #[test]
     fn it_rejects_modifying_enum_type_when_modifying_values_by_default() {
         let log = empty_logger();
         let source_type = ast::TypeDefinition {
-            name: "colors".to_owned(),
+            name: ast::ObjectName {
+                schema: Some("public".to_string()),
+                name: "colors".to_string()
+            },
             kind: ast::TypeDefinitionKind::Enum(vec![
                 "black".to_owned(),
                 "green".to_owned(),
@@ -1754,7 +1791,10 @@ mod tests {
     fn it_can_modify_enum_type_by_removing_values_and_unsafe_declared() {
         let log = empty_logger();
         let source_type = ast::TypeDefinition {
-            name: "colors".to_owned(),
+            name: ast::ObjectName {
+                schema: Some("public".to_string()),
+                name: "colors".to_string()
+            },
             kind: ast::TypeDefinitionKind::Enum(vec!["green".to_owned(), "blue".to_owned()]),
         };
 
@@ -1783,7 +1823,10 @@ mod tests {
         // Removals first
         match change_set[0] {
             ChangeInstruction::ModifyType(ty, ref action) => {
-                assert_that!(ty.name).is_equal_to("colors".to_owned());
+                assert_that!(ty.name).is_equal_to(ast::ObjectName {
+                    schema: Some("public".to_string()),
+                    name: "colors".to_string()
+                });
 
                 // Also, match the action
                 match *action {
@@ -1798,8 +1841,8 @@ mod tests {
         // Check the SQL generation
         assert_that!(change_set[0].to_sql(&log)).is_equal_to(
             "DELETE FROM pg_enum \
-             WHERE enumlabel = 'red' AND \
-             enumtypid = (SELECT oid FROM pg_type WHERE typname = 'colors')"
+             WHERE enumlabel='red' AND \
+             enumtypid=(SELECT oid FROM pg_type WHERE nspname='public' AND typname='colors')"
                 .to_owned(),
         );
     }
@@ -1813,7 +1856,7 @@ mod tests {
             columns: vec![
                 ColumnDefinition {
                     name: "id".to_owned(),
-                    sql_type: SqlType::Simple(SimpleSqlType::Serial),
+                    sql_type: SqlType::Simple(SimpleSqlType::Serial, None),
                     constraints: vec![
                         ColumnConstraint::NotNull,
                         ColumnConstraint::PrimaryKey,
@@ -1821,14 +1864,14 @@ mod tests {
                 },
                 ColumnDefinition {
                     name: "company_id".to_owned(),
-                    sql_type: SqlType::Simple(SimpleSqlType::BigInteger),
+                    sql_type: SqlType::Simple(SimpleSqlType::BigInteger, None),
                     constraints: vec![
                         ColumnConstraint::NotNull,
                     ],
                 },
                 ColumnDefinition {
                     name: "first_name".to_owned(),
-                    sql_type: SqlType::Simple(SimpleSqlType::VariableLengthString(100)),
+                    sql_type: SqlType::Simple(SimpleSqlType::VariableLengthString(100), None),
                     constraints: vec![
                         ColumnConstraint::NotNull,
                     ],
@@ -1889,7 +1932,7 @@ mod tests {
         let mut source_table = base_table();
         source_table.columns.push(ColumnDefinition {
                 name: "last_name".to_owned(),
-                sql_type: SqlType::Simple(SimpleSqlType::VariableLengthString(100)),
+                sql_type: SqlType::Simple(SimpleSqlType::VariableLengthString(100), None),
                 constraints: vec![
                     ColumnConstraint::NotNull,
                 ],
@@ -1929,7 +1972,7 @@ mod tests {
             ChangeInstruction::AddColumn(ref table, ref column) => {
                 assert_that!(table.name.to_string()).is_equal_to("my.contacts".to_owned());
                 assert_that!(column.name).is_equal_to("last_name".to_owned());
-                assert_that!(column.sql_type).is_equal_to(SqlType::Simple(SimpleSqlType::VariableLengthString(100)));
+                assert_that!(column.sql_type).is_equal_to(SqlType::Simple(SimpleSqlType::VariableLengthString(100), None));
                 assert_that!(column.constraints).has_length(1);
             }
             ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
@@ -1947,7 +1990,7 @@ mod tests {
         source_table.columns.push(
             ColumnDefinition {
                 name: "last_name".to_owned(),
-                sql_type: SqlType::Simple(SimpleSqlType::VariableLengthString(200)),
+                sql_type: SqlType::Simple(SimpleSqlType::VariableLengthString(200), None),
                 constraints: vec![
                     ColumnConstraint::NotNull,
                 ],
@@ -1959,7 +2002,7 @@ mod tests {
         existing_table.columns.push(
             ColumnDefinition {
                 name: "last_name".to_owned(),
-                sql_type: SqlType::Simple(SimpleSqlType::VariableLengthString(100)),
+                sql_type: SqlType::Simple(SimpleSqlType::VariableLengthString(100), None),
                 constraints: vec![
                     ColumnConstraint::NotNull,
                 ],
@@ -1997,7 +2040,7 @@ mod tests {
             ChangeInstruction::ModifyColumnType(ref table, ref column) => {
                 assert_that!(table.name.to_string()).is_equal_to("my.contacts".to_owned());
                 assert_that!(column.name).is_equal_to("last_name".to_owned());
-                assert_that!(column.sql_type).is_equal_to(SqlType::Simple(SimpleSqlType::VariableLengthString(200)));
+                assert_that!(column.sql_type).is_equal_to(SqlType::Simple(SimpleSqlType::VariableLengthString(200), None));
                 assert_that!(column.constraints).has_length(1);
             }
             ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
@@ -2019,7 +2062,7 @@ mod tests {
         existing_table.columns.push(
             ColumnDefinition {
                 name: "last_name".to_owned(),
-                sql_type: SqlType::Simple(SimpleSqlType::VariableLengthString(100)),
+                sql_type: SqlType::Simple(SimpleSqlType::VariableLengthString(100), None),
                 constraints: vec![
                     ColumnConstraint::NotNull,
                 ],
@@ -2682,7 +2725,7 @@ mod tests {
     #[test]
     fn it_can_create_an_extension_that_exists_and_is_not_installed_with_version() {
         let log = empty_logger();
-        let requested_extension = ExtensionDefinition {
+        let requested_extension = ExtensionRequest {
             name: &"postgis".to_owned(),
             version: &Some(Semver::new(2, 3, Some(7))),
         };
@@ -2727,7 +2770,7 @@ mod tests {
     #[test]
     fn it_can_create_an_extension_that_exists_and_is_not_installed_without_version() {
         let log = empty_logger();
-        let requested_extension = ExtensionDefinition {
+        let requested_extension = ExtensionRequest {
             name: &"postgis".to_owned(),
             version: &None,
         };
@@ -2772,7 +2815,7 @@ mod tests {
     #[test]
     fn it_errors_when_creating_an_extension_that_exists_and_different_version() {
         let log = empty_logger();
-        let requested_extension = ExtensionDefinition {
+        let requested_extension = ExtensionRequest {
             name: &"postgis".to_owned(),
             version: &Some(Semver::new(2, 4, Some(7))),
         };
@@ -2801,14 +2844,14 @@ mod tests {
         assert_that!(result).is_err();
 
         let err = result.err().unwrap();
-        let expect = "Publish error: Extension postgis version 2.4.7 not available to install".to_owned();
+        let expect = "Publish error: ExtensionRequest postgis version 2.4.7 not available to install".to_owned();
         assert_that!(format!("{}", err)).is_equal_to(&expect);
     }
 
     #[test]
     fn it_errors_when_creating_an_extension_that_does_not_exist() {
         let log = empty_logger();
-        let requested_extension = ExtensionDefinition {
+        let requested_extension = ExtensionRequest {
             name: &"postgis".to_owned(),
             version: &Some(Semver::new(2, 3, Some(7))),
         };
@@ -2831,14 +2874,14 @@ mod tests {
         assert_that!(result).is_err();
 
         let err = result.err().unwrap();
-        let expect = "Publish error: Extension postgis version 2.3.7 not available to install".to_owned();
+        let expect = "Publish error: ExtensionRequest postgis version 2.3.7 not available to install".to_owned();
         assert_that!(format!("{}", err)).is_equal_to(&expect);
     }
 
     #[test]
     fn it_can_upgrade_an_installed_extension_with_newer_version_specified_and_available() {
         let log = empty_logger();
-        let requested_extension = ExtensionDefinition {
+        let requested_extension = ExtensionRequest {
             name: &"postgis".to_owned(),
             version: &Some(Semver::new(3, 8, None)),
         };
@@ -2890,7 +2933,7 @@ mod tests {
     #[test]
     fn it_does_not_modify_an_extension_that_is_already_installed() {
         let log = empty_logger();
-        let requested_extension = ExtensionDefinition {
+        let requested_extension = ExtensionRequest {
             name: &"postgis".to_owned(),
             version: &None,
         };
@@ -2926,7 +2969,7 @@ mod tests {
     #[test]
     fn it_can_upgrade_an_installed_extension_with_no_version_specified_and_newer_version_available_when_profile_set_to_allow() {
         let log = empty_logger();
-        let requested_extension = ExtensionDefinition {
+        let requested_extension = ExtensionRequest {
             name: &"postgis".to_owned(),
             version: &None,
         };
@@ -2977,7 +3020,7 @@ mod tests {
     #[test]
     fn it_doesnt_upgrade_an_installed_extension_with_no_version_specified_and_newer_version_available_when_profile_set_to_ignore() {
         let log = empty_logger();
-        let requested_extension = ExtensionDefinition {
+        let requested_extension = ExtensionRequest {
             name: &"postgis".to_owned(),
             version: &None,
         };
@@ -3018,7 +3061,7 @@ mod tests {
     #[test]
     fn it_doesnt_upgrade_an_installed_extension_with_no_version_specified_and_newer_version_available_when_profile_set_to_error() {
         let log = empty_logger();
-        let requested_extension = ExtensionDefinition {
+        let requested_extension = ExtensionRequest {
             name: &"postgis".to_owned(),
             version: &None,
         };
@@ -3053,7 +3096,7 @@ mod tests {
         assert_that!(result).is_err();
 
         let err = result.err().unwrap();
-        let expect = "Couldn't publish database due to an unsafe operation: Extension postgis version 3.8 is available to upgrade".to_owned();
+        let expect = "Couldn't publish database due to an unsafe operation: ExtensionRequest postgis version 3.8 is available to upgrade".to_owned();
         assert_that!(format!("{}", err)).is_equal_to(&expect);
     }
 }

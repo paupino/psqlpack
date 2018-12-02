@@ -1,3 +1,5 @@
+use rust_decimal::Decimal;
+
 use sql::ast::*;
 use sql::lexer::{self};
 
@@ -11,11 +13,13 @@ extern {
         "]" => lexer::Token::RightSquare,
 
         "," => lexer::Token::Comma,
+        ":" => lexer::Token::Colon,
         ";" => lexer::Token::Semicolon,
         "=" => lexer::Token::Equals,
         "." => lexer::Token::Period,
 
         ACTION => lexer::Token::ACTION,
+        ARRAY => lexer::Token::ARRAY,
         AS => lexer::Token::AS,
         ASC => lexer::Token::ASC,
         BIGINT => lexer::Token::BIGINT,
@@ -24,7 +28,6 @@ extern {
         BOOL => lexer::Token::BOOL,
         BOOLEAN => lexer::Token::BOOLEAN,
         BTREE => lexer::Token::BTREE,
-        C => lexer::Token::C,
         CASCADE => lexer::Token::CASCADE,
         CONSTRAINT => lexer::Token::CONSTRAINT,
         CHAR => lexer::Token::CHAR,
@@ -45,13 +48,14 @@ extern {
         GIN => lexer::Token::GIN,
         GIST => lexer::Token::GIST,
         HASH => lexer::Token::HASH,
+        IN => lexer::Token::IN,
         INDEX => lexer::Token::INDEX,
+        INOUT => lexer::Token::INOUT,
         INT => lexer::Token::INT,
         INT2 => lexer::Token::INT2,
         INT4 => lexer::Token::INT4,
         INT8 => lexer::Token::INT8,
         INTEGER => lexer::Token::INTEGER,
-        INTERNAL => lexer::Token::INTERNAL,
         KEY => lexer::Token::KEY,
         LANGUAGE => lexer::Token::LANGUAGE,
         LAST => lexer::Token::LAST,
@@ -64,8 +68,8 @@ extern {
         NUMERIC => lexer::Token::NUMERIC,
         ON => lexer::Token::ON,
         OR => lexer::Token::OR,
+        OUT => lexer::Token::OUT,
         PARTIAL => lexer::Token::PARTIAL,
-        PLPGSQL => lexer::Token::PLPGSQL,
         PRECISION => lexer::Token::PRECISION,
         PRIMARY => lexer::Token::PRIMARY,
         REAL => lexer::Token::REAL,
@@ -79,10 +83,10 @@ extern {
         SERIAL4 => lexer::Token::SERIAL4,
         SERIAL8 => lexer::Token::SERIAL8,
         SET => lexer::Token::SET,
+        SETOF => lexer::Token::SETOF,
         SIMPLE => lexer::Token::SIMPLE,
         SMALLINT => lexer::Token::SMALLINT,
         SMALLSERIAL => lexer::Token::SMALLSERIAL,
-        SQL => lexer::Token::SQL,
         TABLE => lexer::Token::TABLE,
         TEXT => lexer::Token::TEXT,
         TIME => lexer::Token::TIME,
@@ -97,11 +101,13 @@ extern {
         VARBIT => lexer::Token::VARBIT,
         VARCHAR => lexer::Token::VARCHAR,
         VARYING => lexer::Token::VARYING,
+        VARIADIC => lexer::Token::VARIADIC,
         WITH => lexer::Token::WITH,
         WITHOUT => lexer::Token::WITHOUT,
         ZONE => lexer::Token::ZONE,
 
         Ident => lexer::Token::Identifier(<String>),
+        Decimal => lexer::Token::Decimal(<Decimal>),
         Digit => lexer::Token::Digit(<i32>),
         Boolean => lexer::Token::Boolean(<bool>),
         String => lexer::Token::StringValue(<String>),
@@ -121,42 +127,42 @@ pub StatementList: Vec<Statement> = {
 Statement: Statement = {
     CREATE EXTENSION <name:Ident> ";"? => Statement::Error(ErrorKind::ExtensionNotSupported(name)),
     CREATE (OR REPLACE)? FUNCTION <name:ObjectName> "(" ")" RETURNS <return_type:FunctionReturnType> AS <body:Literal> LANGUAGE <lang:FunctionType> ";"? => Statement::Function(FunctionDefinition {
-        name: name,
+        name,
         arguments: Vec::new(),
         return_type: return_type,
-        body: body,
+        body,
         language: lang,
     }),
     CREATE (OR REPLACE)? FUNCTION <name:ObjectName> "(" <args:FunctionArgumentList> ")" RETURNS <return_type:FunctionReturnType> AS <body:Literal> LANGUAGE <lang:FunctionType> ";"? => Statement::Function(FunctionDefinition {
-        name: name,
+        name,
         arguments: args,
-        return_type: return_type,
-        body: body,
+        return_type,
+        body,
         language: lang,
     }),
     CREATE <unique:UNIQUE?> INDEX <name:Ident> ON <table:ObjectName> <index_type:IndexType?> "(" <columns:IndexColumnList> ")" <storage_parameters:WithIndexParameters?> ";"? => Statement::Index(IndexDefinition {
-        name: name,
-        table: table,
-        columns: columns,
+        name,
+        table,
+        columns,
         unique: unique.is_some(),
-        index_type: index_type,
-        storage_parameters: storage_parameters,
+        index_type,
+        storage_parameters,
     }),
     CREATE SCHEMA <name:Ident> ";"? => Statement::Schema(SchemaDefinition {
-        name: name,
+        name,
     }),
     CREATE TABLE <name:ObjectName> "(" <columns:ColumnDefinitionList> "," <table_constraints:TableConstraintList> ")" ";"? => Statement::Table(TableDefinition {
-        name: name,
-        columns: columns,
+        name,
+        columns,
         constraints: table_constraints,
     }),
     CREATE TABLE <name:ObjectName> "(" <columns:ColumnDefinitionList> ")" ";"? => Statement::Table(TableDefinition {
-        name: name,
-        columns: columns,
+        name,
+        columns,
         constraints: Vec::new(),
     }),
-    CREATE TYPE <name:Ident> AS ENUM "(" <values:EnumValueList> ")" ";"? => Statement::Type(TypeDefinition {
-        name: name,
+    CREATE TYPE <name:ObjectName> AS ENUM "(" <values:EnumValueList> ")" ";"? => Statement::Type(TypeDefinition {
+        name,
         kind: TypeDefinitionKind::Enum(values),
     }),
 };
@@ -207,22 +213,52 @@ pub FunctionArgumentList: Vec<FunctionArgument> = {
 };
 
 FunctionArgument: FunctionArgument = {
-    <name:Ident> <t:SqlType> => FunctionArgument {
-        name: name,
-        sql_type: t,
+    <mode:FunctionArgumentMode?>
+    <name:Ident>
+    <sql_type:SqlType>
+    <default:FunctionArgumentDefault?> => FunctionArgument {
+        mode,
+        name: Some(name),
+        sql_type,
+        default,
+    },
+    <mode:FunctionArgumentMode?>
+    <sql_type:SqlType>
+    <default:FunctionArgumentDefault?> => FunctionArgument {
+        mode,
+        name: None,
+        sql_type,
+        default,
     }
+};
+
+FunctionArgumentMode: FunctionArgumentMode = {
+    IN => FunctionArgumentMode::In,
+    OUT => FunctionArgumentMode::Out,
+    INOUT => FunctionArgumentMode::InOut,
+    VARIADIC => FunctionArgumentMode::Variadic,
+};
+
+FunctionArgumentDefault: AnyValue = {
+    DEFAULT <AnyValue> => <>,
 };
 
 pub FunctionReturnType: FunctionReturnType = {
     TABLE "(" <columns:ColumnDefinitionList> ")" => FunctionReturnType::Table(columns),
-    <t:SqlType> => FunctionReturnType::SqlType(t),
+    SETOF <SqlType> => FunctionReturnType::SetOf(<>),
+    <SqlType> => FunctionReturnType::SqlType(<>),
 };
 
 FunctionType: FunctionLanguage = {
-    C => FunctionLanguage::C,
-    INTERNAL => FunctionLanguage::Internal,
-    PLPGSQL => FunctionLanguage::PostgreSQL,
-    SQL => FunctionLanguage::SQL,
+    <name:Ident> => {
+        match &name.to_lowercase()[..] {
+            "c" => FunctionLanguage::C,
+            "internal" => FunctionLanguage::Internal,
+            "plpgsql" => FunctionLanguage::PostgreSQL,
+            "sql" => FunctionLanguage::SQL,
+            _ => FunctionLanguage::Custom(name), // Use the raw name
+        }
+    }
 };
 
 TableConstraintList: Vec<TableConstraint> = {
@@ -332,15 +368,22 @@ IndexType: IndexType = {
 };
 
 pub SqlType: SqlType = {
-    <SimpleType> => SqlType::Simple(<>),
-    <simple:SimpleType> <dim:ArrayDimension> => SqlType::Array(simple, dim),
-    <Ident> => SqlType::Custom(<>, None),
-    <name:Ident> "(" <options:Ident> ")" => SqlType::Custom(name, Some(options)),
+    <SimpleType> => SqlType::Simple(<>, None),
+    <simple:SimpleType> <dim:ArrayDimension> => SqlType::Simple(simple, Some(dim)),
+
+    <name:ObjectName> => SqlType::Custom(name, None, None),
+    <name:ObjectName> <dim:ArrayDimension> => SqlType::Custom(name, None, Some(dim)),
+    <name:ObjectName> "(" <options:Ident> ")" =>
+        SqlType::Custom(name, Some(options), None),
+    <name:ObjectName> "(" <options:Ident> ")" <dim:ArrayDimension> =>
+        SqlType::Custom(name, Some(options), Some(dim)),
 };
 
 SimpleType: SimpleSqlType = {
     CHAR "(" <Digit> ")" => SimpleSqlType::FixedLengthString(<> as u32),
+    CHAR => SimpleSqlType::FixedLengthString(1u32),
     CHARACTER "(" <Digit> ")" => SimpleSqlType::FixedLengthString(<> as u32),
+    CHARACTER => SimpleSqlType::FixedLengthString(1u32),
     VARCHAR "(" <Digit> ")" => SimpleSqlType::VariableLengthString(<> as u32),
     VARCHAR => SimpleSqlType::UnsizedVariableLengthString,
     CHARACTER VARYING "(" <Digit> ")" => SimpleSqlType::VariableLengthString(<> as u32),
@@ -403,7 +446,6 @@ ColumnConstraintList: Vec<ColumnConstraint> = {
 
 ColumnConstraint: ColumnConstraint = {
     DEFAULT <AnyValue> => ColumnConstraint::Default(<>),
-    DEFAULT "(" <AnyValue> ")" => ColumnConstraint::Default(<>),
     NULL => ColumnConstraint::Null,
     NOT NULL => ColumnConstraint::NotNull,
     UNIQUE => ColumnConstraint::Unique,
@@ -411,9 +453,46 @@ ColumnConstraint: ColumnConstraint = {
 };
 
 AnyValue: AnyValue = {
-    <Boolean> => AnyValue::Boolean(<>),
-    <Digit> => AnyValue::Integer(<>),
-    <String> => AnyValue::String(<>),
+    <PrimitiveValue> => <>,
+    ARRAY <ArrayValue> => <>,
+};
+
+PrimitiveValue: AnyValue = {
+    <Boolean> <Cast?> => AnyValue::Boolean(<>),
+    <Digit> <Cast?> => AnyValue::Integer(<>),
+    <Decimal> <Cast?> => AnyValue::Decimal(<>),
+    <String> <Cast?> => AnyValue::String(<>),
+    NULL <Cast?> => AnyValue::Null(<>),
+
+    "(" <Boolean> ")" <Cast?> => AnyValue::Boolean(<>),
+    "(" <Digit> ")" <Cast?> => AnyValue::Integer(<>),
+    "(" <Decimal> ")" <Cast?> => AnyValue::Decimal(<>),
+    "(" <String> ")" <Cast?> => AnyValue::String(<>),
+    "(" NULL ")" <Cast?> => AnyValue::Null(<>),
+};
+
+Cast: SqlType = {
+    ":" ":" <SqlType> => <>,
+};
+
+ArrayValue: AnyValue = {
+    "[" <ArrayValueList> "]" <Cast?> => AnyValue::Array(<>),
+};
+
+// A little naive so we'll need to validate this within the AST
+ArrayValueList: Vec<AnyValue> = {
+    <v:ArrayValueList> "," <p:PrimitiveValue> => {
+        let mut v = v;
+        v.push(p);
+        v
+    },
+    <v:ArrayValueList> "," <p:ArrayValue> => {
+        let mut v = v;
+        v.push(p);
+        v
+    },
+    <PrimitiveValue> => vec!(<>),
+    <ArrayValue> => vec!(<>),
 };
 
 EnumValueList: Vec<String> = {

@@ -1,5 +1,6 @@
 #![recursion_limit = "1024"]
 
+extern crate chrono;
 #[macro_use]
 extern crate error_chain;
 extern crate lalrpop_util;
@@ -8,6 +9,7 @@ extern crate lazy_static;
 extern crate petgraph;
 extern crate postgres;
 extern crate regex;
+extern crate rust_decimal;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;

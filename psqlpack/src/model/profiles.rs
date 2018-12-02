@@ -11,11 +11,13 @@ use serde_json;
 
 use errors::{PsqlpackResult, PsqlpackResultExt};
 use errors::PsqlpackErrorKind::*;
+use semver::Semver;
 
 #[derive(Deserialize, Serialize)]
 pub struct PublishProfile {
-    pub version: String,
-    #[serde(rename = "generationOptions")] pub generation_options: GenerationOptions,
+    pub version: Semver,
+    #[serde(rename = "generationOptions")]
+    pub generation_options: GenerationOptions,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -94,7 +96,7 @@ pub struct GenerationOptions {
 impl Default for PublishProfile {
     fn default() -> Self {
         PublishProfile {
-            version: "1.0".to_owned(),
+            version: "1.0".into(),
             generation_options: GenerationOptions {
                 always_recreate_database: false,
 

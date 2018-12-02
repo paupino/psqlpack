@@ -101,6 +101,13 @@ impl FromStr for Connection {
             builder.with_password(*password);
         }
 
+        if let Some(port) = parts.get("port") {
+            match u16::from_str(port) {
+                Ok(port) => builder.with_port(port),
+                Err(_) => bail!(ConnectionErrorKind::MalformedConnectionString),
+            };
+        }
+
         if let Some(tls_mode) = parts.get("tlsmode") {
             builder.with_tls_mode(*tls_mode);
         }
@@ -115,6 +122,7 @@ pub struct ConnectionBuilder {
     host: String,
     user: String,
     password: Option<String>,
+    port: Option<u16>,
     tls_mode: bool,
 }
 
@@ -125,12 +133,18 @@ impl ConnectionBuilder {
             host: host.into(),
             user: user.into(),
             password: None,
+            port: None,
             tls_mode: false,
         }
     }
 
     pub fn with_password<S: Into<String>>(&mut self, value: S) -> &mut ConnectionBuilder {
         self.password = Some(value.into());
+        self
+    }
+
+    pub fn with_port(&mut self, value: u16) -> &mut ConnectionBuilder {
+        self.port = Some(value);
         self
     }
 
@@ -143,9 +157,13 @@ impl ConnectionBuilder {
         if self.tls_mode {
             Err(ConnectionErrorKind::TlsNotSupported.into())
         } else {
+            let fq_host = match self.port {
+                Some(port) => format!("{}:{}", self.host, port),
+                None => self.host.to_owned(),
+            };
             let uri = match self.password {
-                Some(ref password) => format!("postgres://{}:{}@{}", self.user, password, self.host),
-                None => format!("postgres://{}@{}", self.user, self.host),
+                Some(ref password) => format!("postgres://{}:{}@{}", self.user, password, fq_host),
+                None => format!("postgres://{}@{}", self.user, fq_host),
             };
             Ok(Connection {
                 database: self.database.clone(),

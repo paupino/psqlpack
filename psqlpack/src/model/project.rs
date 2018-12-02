@@ -1,5 +1,5 @@
 use std::default::Default;
-use std::fs::{self, File};
+use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
@@ -34,7 +34,7 @@ pub struct Project {
     #[serde(skip_serializing)] project_file_path: Option<PathBuf>,
 
     /// The version of this profile file format
-    pub version: String,
+    pub version: Semver,
 
     /// The default schema for the database. Typically `public`
     #[serde(rename = "defaultSchema")]
@@ -102,27 +102,8 @@ impl Project {
             })
     }
 
-    pub fn write_package(&self, log: &Logger, output_path: &Path) -> PsqlpackResult<()> {
-
-        let log = log.new(o!("project" => "write_package"));
-        let package = self.to_package(&log)?;
-        // Now write the package to disk
-        trace!(log, "Creating package directory");
-        if let Some(parent) = output_path.parent() {
-            match fs::create_dir_all(parent) {
-                Ok(_) => {}
-                Err(e) => bail!(GenerationError(
-                    format!("Failed to create package directory: {}", e)
-                )),
-            }
-        }
-
-        trace!(log, "Writing package file"; "output" => output_path.to_str().unwrap());
-        package.write_to(output_path)
-    }
-
-    pub fn to_package(&self, log: &Logger) -> PsqlpackResult<Package> {
-        let log = log.new(o!("project" => "to_package"));
+    pub fn build_package(&self, log: &Logger) -> PsqlpackResult<Package> {
+        let log = log.new(o!("project" => "build_package"));
 
         // Turn the pre/post into paths to quickly check
         let parent = match self.project_file_path {
@@ -195,7 +176,7 @@ impl Project {
                 });
             } else {
                 trace!(log, "Tokenizing file");
-                let tokens = match lexer::tokenize(&contents[..]) {
+                let tokens = match lexer::tokenize_stmt(&contents[..]) {
                     Ok(t) => t,
                     Err(e) => {
                         errors.push(

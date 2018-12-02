@@ -41,7 +41,11 @@ case $1 in
     extract)
         action="Extracting psqlpack for '$db'"
         cargo run -p psqlpack-cli -- extract --source "host=localhost;database=$db;userid=$username;tlsmode=none;" --output out/${db}db.psqlpack --trace
-        ;;        
+        ;;
+    extension)
+        action="Extracting extension 'postgis' for '$db'"
+        cargo run -p psqlpack-cli -- extension --name postgis --source "host=localhost;database=$db;userid=$username;tlsmode=none;" --output out/ --trace
+        ;;
     unpack)
         action="Unpacking psqlpack for '$db'"
         rm -rf out/$db

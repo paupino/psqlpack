@@ -1,6 +1,8 @@
+use rust_decimal::Decimal;
+
 use std::fmt;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum ErrorKind {
     ExtensionNotSupported(String),
 }
@@ -9,12 +11,12 @@ impl fmt::Display for ErrorKind {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             ErrorKind::ExtensionNotSupported(ref name) =>
-                write!(f, "Extensions definined in SQL not supported (found {}). Please define extensions within the project file.", name),
+                write!(f, "Extensions defined in SQL not supported (found {}). Please define extensions within the project file.", name),
         }
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Statement {
     Error(ErrorKind),
     Function(FunctionDefinition),
@@ -24,14 +26,13 @@ pub enum Statement {
     Type(TypeDefinition),
 }
 
-#[derive(Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
 pub enum SqlType {
-    Simple(SimpleSqlType),
-    Array(SimpleSqlType, u32),
-    Custom(String, Option<String>),
+    Simple(SimpleSqlType, Option<u32>), // type, dim
+    Custom(ObjectName, Option<String>, Option<u32>), // type, options, dim
 }
 
-#[derive(Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
 pub enum SimpleSqlType {
     FixedLengthString(u32),    // char(size)
     VariableLengthString(u32), // varchar(size)
@@ -76,9 +77,13 @@ pub enum ColumnConstraint {
 
 #[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
 pub enum AnyValue {
-    Boolean(bool),
-    Integer(i32),
-    String(String),
+    // Optional cast on each of these
+    Array(Vec<AnyValue>, Option<SqlType>),
+    Boolean(bool, Option<SqlType>),
+    Decimal(Decimal, Option<SqlType>),
+    Integer(i32, Option<SqlType>),
+    String(String, Option<SqlType>),
+    Null(Option<SqlType>),
 }
 
 #[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
@@ -170,13 +175,16 @@ pub struct SchemaDefinition {
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct TypeDefinition {
-    pub name: String,
+    pub name: ObjectName,
     pub kind: TypeDefinitionKind,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub enum TypeDefinitionKind {
+    Composite,
     Enum(Vec<String>),
+    Range,
+    UserDefined,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -204,22 +212,34 @@ pub struct FunctionDefinition {
 
 #[derive(Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
 pub struct FunctionArgument {
-    pub name: String,
+    pub mode: Option<FunctionArgumentMode>,
+    pub name: Option<String>,
     pub sql_type: SqlType,
+    pub default: Option<AnyValue>,
+}
+
+#[derive(Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
+pub enum FunctionArgumentMode {
+    In,
+    InOut,
+    Out,
+    Variadic,
 }
 
 #[derive(Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
 pub enum FunctionReturnType {
     Table(Vec<ColumnDefinition>),
+    SetOf(SqlType),
     SqlType(SqlType),
 }
 
-#[derive(Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
 pub enum FunctionLanguage {
     C,
     Internal,
     PostgreSQL,
     SQL,
+    Custom(String),
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -276,11 +296,46 @@ pub enum IndexPosition {
 
 impl fmt::Display for AnyValue {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            AnyValue::Boolean(ref b) => write!(f, "{}", b),
-            AnyValue::Integer(ref i) => write!(f, "{}", i),
-            AnyValue::String(ref s) => write!(f, "'{}'", s),
+        let sql_type = match *self {
+            AnyValue::Array(ref items, ref sql_type) => {
+                write!(f, "ARRAY [")?;
+                let mut comma = false;
+                for item in items {
+                    if comma {
+                        write!(f, ", ");
+                    } else {
+                        comma = true;
+                    }
+                    write!(f, "{}", item)?;
+                }
+                write!(f, "]")?;
+                sql_type
+            }
+            AnyValue::Boolean(ref b, ref sql_type) => {
+                write!(f, "{}", b)?;
+                sql_type
+            }
+            AnyValue::Decimal(ref d, ref sql_type) => {
+                write!(f, "{}", d)?;
+                sql_type
+            }
+            AnyValue::Integer(ref i, ref sql_type) => {
+                write!(f, "{}", i)?;
+                sql_type
+            }
+            AnyValue::String(ref s, ref sql_type) => {
+                write!(f, "'{}'", s)?;
+                sql_type
+            }
+            AnyValue::Null(ref sql_type) => {
+                write!(f, "NULL")?;
+                sql_type
+            }
+        };
+        if let Some(sql_type) = sql_type {
+            write!(f, "::{}", sql_type)?;
         }
+        Ok(())
     }
 }
 
@@ -306,6 +361,46 @@ impl fmt::Display for ForeignConstraintAction {
     }
 }
 
+impl fmt::Display for FunctionArgument {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        if let Some(ref mode) = self.mode {
+            write!(f, "{}", mode)?;
+        }
+        if let Some(ref name) = self.name {
+            write!(f, "{} {}", name, self.sql_type)?;
+        } else {
+            write!(f, "{}", self.sql_type)?;
+        }
+        if let Some(ref default) = self.default {
+            write!(f, "{}", default)?;
+        }
+        Ok(())
+    }
+}
+
+impl fmt::Display for FunctionArgumentMode {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            FunctionArgumentMode::In => write!(f, "IN"),
+            FunctionArgumentMode::InOut => write!(f, "INOUT"),
+            FunctionArgumentMode::Out => write!(f, "OUT"),
+            FunctionArgumentMode::Variadic => write!(f, "VARIADIC"),
+        }
+    }
+}
+
+impl fmt::Display for FunctionLanguage {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            FunctionLanguage::C => write!(f, "C"),
+            FunctionLanguage::Internal => write!(f, "INTERNAL"),
+            FunctionLanguage::PostgreSQL => write!(f, "PLPGSQL"),
+            FunctionLanguage::SQL => write!(f, "SQL"),
+            FunctionLanguage::Custom(ref name) => write!(f, "{}", name),
+        }
+    }
+}
+
 impl fmt::Display for ObjectName {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.schema {
@@ -317,19 +412,35 @@ impl fmt::Display for ObjectName {
 
 impl fmt::Display for SqlType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            SqlType::Simple(ref simple_type) => write!(f, "{}", simple_type),
-            SqlType::Array(ref simple_type, dim) => write!(
-                f,
-                "{}{}",
-                simple_type,
+        fn dimensions(dim: Option<u32>) -> String {
+            if let Some(dim) = dim {
                 (0..dim).map(|_| "[]").collect::<String>()
-            ),
-            SqlType::Custom(ref custom_type, ref options) => if let Some(ref opt) = *options {
-                write!(f, "{}({})", custom_type, opt)
             } else {
-                write!(f, "{}", custom_type)
+                String::new()
+            }
+        }
+        match *self {
+            SqlType::Simple(ref simple_type, dim) => {
+                write!(f, "{}{}", simple_type, dimensions(dim))
             },
+            SqlType::Custom(ref custom_type, ref options, dim) => {
+                if let Some(ref opt) = *options {
+                    write!(f, "{}({}){}", custom_type, opt, dimensions(dim))
+                } else {
+                    write!(f, "{}{}", custom_type, dimensions(dim))
+                }
+            },
+        }
+    }
+}
+
+impl fmt::Display for TypeDefinitionKind {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            TypeDefinitionKind::Enum(_) => write!(f, "Enum"),
+            TypeDefinitionKind::Composite => write!(f, "Composite"),
+            TypeDefinitionKind::Range => write!(f, "Range"),
+            TypeDefinitionKind::UserDefined => write!(f, "User Defined"),
         }
     }
 }
