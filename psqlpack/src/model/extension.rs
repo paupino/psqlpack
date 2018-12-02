@@ -25,16 +25,18 @@ impl Extension {
         let schemas = context.schemata(&db_conn, connection.database())?;
         let types = context.types(&db_conn)?;
         let functions = context.functions(&db_conn)?;
+        let tables = context.tables(&db_conn)?;
+        let indexes = context.indexes(&db_conn)?;
         dbtry!(db_conn.finish());
 
         let mut package = Package {
             meta,
             extensions: Vec::new(),
             functions,
-            indexes: Vec::new(), // TODO
+            indexes,
             schemas,
             scripts: Vec::new(),
-            tables: Vec::new(), // TODO
+            tables,
             types,
         };
         package.promote_primary_keys_to_table_constraints();
