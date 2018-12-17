@@ -8,12 +8,12 @@ use serde_json;
 use slog::Logger;
 
 use crate::Semver;
-use sql::ast::*;
-use sql::lexer;
-use sql::parser::StatementListParser;
-use model::Package;
-use errors::{PsqlpackError, PsqlpackResult, PsqlpackResultExt};
-use errors::PsqlpackErrorKind::*;
+use crate::sql::ast::*;
+use crate::sql::lexer;
+use crate::sql::parser::StatementListParser;
+use crate::model::Package;
+use crate::errors::{PsqlpackError, PsqlpackResult, PsqlpackResultExt};
+use crate::errors::PsqlpackErrorKind::*;
 
 #[cfg(feature = "symbols")]
 macro_rules! dump_statement {

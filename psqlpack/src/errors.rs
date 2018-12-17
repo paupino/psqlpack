@@ -1,13 +1,13 @@
 use std::path::PathBuf;
 use glob::PatternError;
 
-pub use ast::ErrorKind;
+pub use crate::ast::ErrorKind;
 pub use error_chain::ChainedError;
 pub use lalrpop_util::ParseError;
-pub use model::ValidationKind;
+pub use crate::model::ValidationKind;
 
-use sql::lexer;
-use connection::{ConnectionError, ConnectionErrorKind};
+use crate::sql::lexer;
+use crate::connection::{ConnectionError, ConnectionErrorKind};
 
 error_chain! {
     types {

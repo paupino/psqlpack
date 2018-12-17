@@ -1,7 +1,7 @@
-use connection::Connection;
-use errors::PsqlpackResult;
-use model::{Capabilities, DefinableCatalog, MetaInfo, Package, SourceInfo};
-use semver::Semver;
+use crate::connection::Connection;
+use crate::errors::PsqlpackResult;
+use crate::model::{Capabilities, DefinableCatalog, MetaInfo, Package, SourceInfo};
+use crate::semver::Semver;
 
 use slog::Logger;
 

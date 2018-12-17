@@ -9,9 +9,9 @@ use std::fs::File;
 
 use serde_json;
 
-use errors::{PsqlpackResult, PsqlpackResultExt};
-use errors::PsqlpackErrorKind::*;
-use semver::Semver;
+use crate::errors::{PsqlpackResult, PsqlpackResultExt};
+use crate::errors::PsqlpackErrorKind::*;
+use crate::semver::Semver;
 
 #[derive(Deserialize, Serialize)]
 pub struct PublishProfile {

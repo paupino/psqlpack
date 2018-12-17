@@ -1,6 +1,6 @@
-use sql::ast::*;
-use sql::lexer;
-use sql::parser::{FunctionArgumentListParser, StatementListParser};
+use crate::sql::ast::*;
+use crate::sql::lexer;
+use crate::sql::parser::{FunctionArgumentListParser, StatementListParser};
 
 use spectral::prelude::*;
 

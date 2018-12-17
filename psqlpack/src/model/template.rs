@@ -5,8 +5,8 @@ use serde_json;
 use serde::ser::Serialize;
 
 use super::{Project, PublishProfile};
-use errors::{PsqlpackResult, PsqlpackResultExt};
-use errors::PsqlpackErrorKind::*;
+use crate::errors::{PsqlpackResult, PsqlpackResultExt};
+use crate::errors::PsqlpackErrorKind::*;
 
 fn assert_directory_exists(path: &Path) -> PsqlpackResult<()> {
     if path.exists() {

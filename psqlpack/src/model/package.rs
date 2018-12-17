@@ -11,12 +11,12 @@ use slog::Logger;
 use zip::{ZipArchive, ZipWriter};
 use zip::write::FileOptions;
 
-use connection::Connection;
-use sql::ast::*;
-use model::{Capabilities, DefinableCatalog, Dependency, Project};
-use semver::Semver;
-use errors::{PsqlpackResult, PsqlpackResultExt};
-use errors::PsqlpackErrorKind::*;
+use crate::connection::Connection;
+use crate::sql::ast::*;
+use crate::model::{Capabilities, DefinableCatalog, Dependency, Project};
+use crate::semver::Semver;
+use crate::errors::{PsqlpackResult, PsqlpackResultExt};
+use crate::errors::PsqlpackErrorKind::*;
 
 macro_rules! ztry {
     ($expr:expr) => {{
@@ -962,11 +962,11 @@ impl Graphable for TableConstraint {
 
 #[cfg(test)]
 mod tests {
-    use errors::PsqlpackError;
-    use errors::PsqlpackErrorKind::*;
-    use model::*;
-    use sql::{ast, lexer};
-    use sql::parser::StatementListParser;
+    use crate::errors::PsqlpackError;
+    use crate::errors::PsqlpackErrorKind::*;
+    use crate::model::*;
+    use crate::sql::{ast, lexer};
+    use crate::sql::parser::StatementListParser;
 
     use slog::{Discard, Drain, Logger};
     use spectral::prelude::*;

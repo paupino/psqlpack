@@ -8,11 +8,11 @@ use slog::Logger;
 use serde_json;
 
 use crate::Semver;
-use connection::Connection;
-use errors::{PsqlpackResult, PsqlpackResultExt};
-use errors::PsqlpackErrorKind::*;
-use model::{Capabilities, Dependency, Node, Package, PublishProfile, Toggle};
-use sql::ast::*;
+use crate::connection::Connection;
+use crate::errors::{PsqlpackResult, PsqlpackResultExt};
+use crate::errors::PsqlpackErrorKind::*;
+use crate::model::{Capabilities, Dependency, Node, Package, PublishProfile, Toggle};
+use crate::sql::ast::*;
 
 enum DbObject<'a> {
     Column(&'a TableDefinition, &'a ColumnDefinition),
@@ -1376,9 +1376,9 @@ mod tests {
     use super::*;
 
     use crate::Semver;
-    use errors::PsqlpackError;
-    use model::*;
-    use sql::ast;
+    use crate::errors::PsqlpackError;
+    use crate::model::*;
+    use crate::sql::ast;
 
     use slog::{Discard, Drain, Logger};
     use spectral::prelude::*;

@@ -1,14 +1,14 @@
 use std::collections::HashMap;
 use std::str::FromStr;
 
-use ast::*;
-use connection::Connection;
-use errors::{PsqlpackError, PsqlpackResult, PsqlpackResultExt};
-use errors::PsqlpackErrorKind::*;
-use model::Extension;
-use semver::Semver;
-use sql::lexer;
-use sql::parser::{FunctionArgumentListParser, FunctionReturnTypeParser, SqlTypeParser};
+use crate::ast::*;
+use crate::connection::Connection;
+use crate::errors::{PsqlpackError, PsqlpackResult, PsqlpackResultExt};
+use crate::errors::PsqlpackErrorKind::*;
+use crate::model::Extension;
+use crate::semver::Semver;
+use crate::sql::lexer;
+use crate::sql::parser::{FunctionArgumentListParser, FunctionReturnTypeParser, SqlTypeParser};
 
 use slog::Logger;
 use postgres::{Connection as PostgresConnection};
