@@ -247,8 +247,8 @@ impl Project {
         let mut exclude_paths = Vec::new();
         if let Some(ref globs) = self.exclude_globs {
             for exclude_glob in globs {
-                for entry in glob(&format!("{}/{}", parent.to_str().unwrap(), exclude_glob))
-                    .map_err(GlobPatternError)?
+                for entry in
+                    glob(&format!("{}/{}", parent.to_str().unwrap(), exclude_glob)).map_err(GlobPatternError)?
                 {
                     let path = entry.unwrap().canonicalize().unwrap();
                     exclude_paths.push(path);
@@ -258,9 +258,7 @@ impl Project {
 
         let mut paths = Vec::new();
         for include_glob in include_globs {
-            for entry in
-                glob(&format!("{}/{}", parent.to_str().unwrap(), include_glob)).map_err(GlobPatternError)?
-            {
+            for entry in glob(&format!("{}/{}", parent.to_str().unwrap(), include_glob)).map_err(GlobPatternError)? {
                 // Get the path entry
                 let path = entry.unwrap();
 
