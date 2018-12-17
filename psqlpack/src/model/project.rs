@@ -164,7 +164,7 @@ impl Project {
                     name: path.file_name().unwrap().to_str().unwrap().to_owned(),
                     kind: ScriptKind::PreDeployment,
                     order: pos,
-                    contents: contents,
+                    contents,
                 });
             } else if let Some(pos) = postdeploy_paths.iter().position(|x| real_path.eq(x)) {
                 trace!(log, "Found postdeploy script");
@@ -172,7 +172,7 @@ impl Project {
                     name: path.file_name().unwrap().to_str().unwrap().to_owned(),
                     kind: ScriptKind::PostDeployment,
                     order: pos,
-                    contents: contents,
+                    contents,
                 });
             } else {
                 trace!(log, "Tokenizing file");
