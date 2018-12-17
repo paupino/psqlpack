@@ -245,31 +245,28 @@ impl Project {
             None => vec!["**/*.sql".into()],
         };
         let mut exclude_paths = Vec::new();
-        match self.exclude_globs {
-            Some(ref globs) => {
-                for exclude_glob in globs {
-                    for entry in glob(&format!("{}/{}", parent.to_str().unwrap(), exclude_glob))
-                        .map_err(|err| GlobPatternError(err))?
-                    {
-                        let path = entry.unwrap().canonicalize().unwrap();
-                        exclude_paths.push(path);
-                    }
+        if let Some(ref globs) = self.exclude_globs {
+            for exclude_glob in globs {
+                for entry in glob(&format!("{}/{}", parent.to_str().unwrap(), exclude_glob))
+                    .map_err(GlobPatternError)?
+                {
+                    let path = entry.unwrap().canonicalize().unwrap();
+                    exclude_paths.push(path);
                 }
             }
-            None => {}
         }
 
         let mut paths = Vec::new();
         for include_glob in include_globs {
             for entry in
-                glob(&format!("{}/{}", parent.to_str().unwrap(), include_glob)).map_err(|err| GlobPatternError(err))?
+                glob(&format!("{}/{}", parent.to_str().unwrap(), include_glob)).map_err(GlobPatternError)?
             {
                 // Get the path entry
                 let path = entry.unwrap();
 
                 // If this has been explicitly excluded then continue
                 let real_path = path.to_path_buf().canonicalize().unwrap();
-                if exclude_paths.iter().position(|x| real_path.eq(x)).is_some() {
+                if exclude_paths.iter().any(|x| real_path.eq(x)) {
                     continue;
                 }
 

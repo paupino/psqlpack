@@ -323,7 +323,7 @@ fn main() {
         HandleResult::Outcome(action, _) => {
             // Capture how long was elapsed
             let elapsed = time_stamp.elapsed();
-            let elapsed = elapsed.as_secs() as f64 + elapsed.subsec_nanos() as f64 / 1000_000_000.0;
+            let elapsed = elapsed.as_secs() as f64 + f64::from(elapsed.subsec_nanos()) / 1_000_000_000.0;
             info!(log, "Completed {} command in {}s", action, elapsed);
         }
     }
@@ -361,7 +361,7 @@ fn handle(log: &Logger, matches: &ArgMatches) -> HandleResult {
                 None => None,
             };
             info!(log, "Extension"; "name" => &name);
-            let result = operation::extract_extension(log, &source, output, name, version);
+            let result = operation::extract_extension(log, &source, output, &name, version);
             HandleResult::Outcome(command.to_owned(), result)
         }
         (command @ "extract", Some(extract)) => {

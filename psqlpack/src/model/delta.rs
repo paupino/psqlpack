@@ -384,7 +384,7 @@ impl<'a> Diffable<'a, Package> for LinkedTableConstraint<'a> {
         publish_profile: &PublishProfile,
         _log: &Logger,
     ) -> PsqlpackResult<()> {
-        fn vec_different<T: PartialEq>(src: &Vec<T>, tgt: &Vec<T>) -> bool {
+        fn vec_different<T: PartialEq>(src: &[T], tgt: &[T]) -> bool {
             if src.len() != tgt.len() {
                 return true;
             }
@@ -416,17 +416,17 @@ impl<'a> Diffable<'a, Package> for LinkedTableConstraint<'a> {
                 // TODO: After we have a min defined Postgres version we may be able to use ALTER in some cases as supported
                 let has_changed = match *self.constraint {
                     TableConstraint::Primary {
-                        name: _,
                         ref columns,
                         ref parameters,
+                        ..
                     } => {
                         let src_columns = columns;
                         let src_parameters = parameters;
                         match target_constraint {
                             TableConstraint::Primary {
-                                name: _,
                                 ref columns,
                                 ref parameters,
+                                ..
                             } => {
                                 vec_different(src_columns, columns)
                                     || optional_vec_different(src_parameters, parameters)
@@ -435,12 +435,12 @@ impl<'a> Diffable<'a, Package> for LinkedTableConstraint<'a> {
                         }
                     }
                     TableConstraint::Foreign {
-                        name: _,
                         ref columns,
                         ref ref_table,
                         ref ref_columns,
                         ref match_type,
                         ref events,
+                        ..
                     } => {
                         let src_columns = columns;
                         let src_ref_table = ref_table;
@@ -450,12 +450,12 @@ impl<'a> Diffable<'a, Package> for LinkedTableConstraint<'a> {
                         match target_constraint {
                             TableConstraint::Primary { .. } => true,
                             TableConstraint::Foreign {
-                                name: _,
                                 ref columns,
                                 ref ref_table,
                                 ref ref_columns,
                                 ref match_type,
                                 ref events,
+                                ..
                             } => {
                                 let match_type_different = if src_match_type.is_some() && match_type.is_some() {
                                     src_match_type.as_ref().unwrap().ne(match_type.as_ref().unwrap())
@@ -649,9 +649,9 @@ impl<'package> Delta<'package> {
         log: &Logger,
         package: &'package Package,
         target: Option<Package>,
-        target_database_name: String,
-        target_capabilities: Capabilities,
-        publish_profile: PublishProfile,
+        target_database_name: &str,
+        target_capabilities: &Capabilities,
+        publish_profile: &PublishProfile,
     ) -> PsqlpackResult<Delta<'package>> {
         let log = log.new(o!("delta" => "generate"));
 
@@ -1223,14 +1223,11 @@ impl<'input> ChangeInstruction<'input> {
             }
             ChangeInstruction::ModifyColumnDefault(table, column) => {
                 for constraint in column.constraints.iter() {
-                    match *constraint {
-                        ColumnConstraint::Default(ref any_type) => {
-                            return format!(
-                                ";\nALTER TABLE {} ALTER COLUMN {} SET DEFAULT {}",
-                                table.name, column.name, any_type
-                            );
-                        }
-                        _ => {}
+                    if let ColumnConstraint::Default(ref any_type) = *constraint {
+                        return format!(
+                            ";\nALTER TABLE {} ALTER COLUMN {} SET DEFAULT {}",
+                            table.name, column.name, any_type
+                        );
                     }
                 }
                 error!(
@@ -1241,30 +1238,24 @@ impl<'input> ChangeInstruction<'input> {
             }
             ChangeInstruction::ModifyColumnUniqueConstraint(table, column) => {
                 for constraint in column.constraints.iter() {
-                    match *constraint {
-                        ColumnConstraint::Unique => {
-                            // TODO: These have to be table level constraints. Ignore??
-                            warn!(
-                                log,
-                                "Ignoring UNIQUE column constraint for {}.{}", table.name, column.name
-                            );
-                        }
-                        _ => {}
+                    if let ColumnConstraint::Unique = *constraint {
+                        // TODO: These have to be table level constraints. Ignore??
+                        warn!(
+                            log,
+                            "Ignoring UNIQUE column constraint for {}.{}", table.name, column.name
+                        );
                     }
                 }
                 "".to_owned()
             }
             ChangeInstruction::ModifyColumnPrimaryKeyConstraint(table, column) => {
                 for constraint in column.constraints.iter() {
-                    match *constraint {
-                        ColumnConstraint::PrimaryKey => {
-                            // TODO: These have to be table level constraints. Ignore??
-                            warn!(
-                                log,
-                                "Ignoring PRIMARY KEY column constraint for {}.{}", table.name, column.name
-                            );
-                        }
-                        _ => {}
+                    if let ColumnConstraint::PrimaryKey = *constraint {
+                        // TODO: These have to be table level constraints. Ignore??
+                        warn!(
+                            log,
+                            "Ignoring PRIMARY KEY column constraint for {}.{}", table.name, column.name
+                        );
                     }
                 }
                 "".to_owned()
@@ -2716,9 +2707,9 @@ mod tests {
             &log,
             &source_package,
             existing_db(),
-            "dbname".to_owned(),
-            capabilities,
-            publish_profile,
+            "dbname",
+            &capabilities,
+            &publish_profile,
         );
         assert_that!(result).is_err();
         // Now run it again - it should be ok now
@@ -2733,9 +2724,9 @@ mod tests {
             &log,
             &source_package,
             existing_db(),
-            "dbname".to_owned(),
-            capabilities,
-            publish_profile,
+            "dbname",
+            &capabilities,
+            &publish_profile,
         );
         assert_that!(result).is_ok();
         let change_set = match result.unwrap() {

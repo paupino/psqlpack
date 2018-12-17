@@ -678,6 +678,12 @@ impl Package {
     }
 }
 
+impl Default for Package {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(Debug)]
 pub enum ValidationKind {
     IndexInvalidReferenceTable {

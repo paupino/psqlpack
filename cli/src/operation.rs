@@ -42,7 +42,7 @@ pub fn extract_extension<L: Into<Logger>>(
     log: L,
     source_connection_string: &str,
     target_path: &Path,
-    extension_name: String,
+    extension_name: &str,
     extension_version: Option<Semver>,
 ) -> PsqlpackResult<()> {
     let log = log.into().new(o!("operation" => "extract_extension"));
@@ -52,7 +52,7 @@ pub fn extract_extension<L: Into<Logger>>(
     let capabilities = Capabilities::from_connection(&log, &connection)?;
 
     trace!(log, "Loading Extension from connection");
-    let extensions = capabilities.available_extensions(&extension_name, extension_version);
+    let extensions = capabilities.available_extensions(extension_name, extension_version);
     if !extensions.is_empty() {
         if !extensions[0].installed {
             return Err(PsqlpackErrorKind::ExtractError("Extension was found but not installed".into()).into());
@@ -114,9 +114,9 @@ pub fn publish<L: Into<Logger>>(
         &log,
         &package,
         target_package,
-        target_database_name,
-        capabilities,
-        publish_profile,
+        &target_database_name,
+        &capabilities,
+        &publish_profile,
     )?;
     delta.apply(&log, &connection)
 }
@@ -143,9 +143,9 @@ pub fn generate_sql<L: Into<Logger>>(
         &log,
         &package,
         target_package,
-        target_database_name,
-        capabilities,
-        publish_profile,
+        &target_database_name,
+        &capabilities,
+        &publish_profile,
     )?;
     delta.write_sql(&log, output_file)
 }
@@ -172,9 +172,9 @@ pub fn generate_report<L: Into<Logger>>(
         &log,
         &package,
         target_package,
-        target_database_name,
-        capabilities,
-        publish_profile,
+        &target_database_name,
+        &capabilities,
+        &publish_profile,
     )?;
     delta.write_report(output_file)
 }

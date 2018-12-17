@@ -119,12 +119,10 @@ impl FromStr for Semver {
         fn get_u32(caps: &::regex::Captures<'_>, pos: usize, optional: bool) -> Option<u32> {
             if let Some(rev) = caps.get(pos) {
                 Some(rev.as_str().parse::<u32>().unwrap())
+            } else if !optional {
+                Some(0)
             } else {
-                if optional {
-                    None
-                } else {
-                    Some(0)
-                }
+                None
             }
         }
 

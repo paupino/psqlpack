@@ -30,9 +30,9 @@ macro_rules! publish_package {
             &log,
             &$package,
             target_package,
-            $db_name.into(),
-            capabilities,
-            publish_profile,
+            $db_name,
+            &capabilities,
+            &publish_profile,
         )
         .unwrap();
         delta.apply(&log, &$connection).unwrap();
