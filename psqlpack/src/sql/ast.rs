@@ -302,7 +302,7 @@ impl fmt::Display for AnyValue {
                 let mut comma = false;
                 for item in items {
                     if comma {
-                        write!(f, ", ");
+                        write!(f, ", ")?;
                     } else {
                         comma = true;
                     }
