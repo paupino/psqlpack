@@ -13,11 +13,12 @@ pub struct Extension {
 }
 
 impl Extension {
-    pub fn build_package_from_connection(&self,
-                                         log: &Logger,
-                                         connection: &Connection,
-                                         capabilities: &Capabilities) -> PsqlpackResult<Package> {
-
+    pub fn build_package_from_connection(
+        &self,
+        log: &Logger,
+        connection: &Connection,
+        capabilities: &Capabilities,
+    ) -> PsqlpackResult<Package> {
         trace!(log, "Connecting to database");
         let db_conn = connection.connect_database()?;
         let meta = MetaInfo::new(SourceInfo::Extension);

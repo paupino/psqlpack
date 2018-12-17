@@ -3,18 +3,18 @@ use std::str::FromStr;
 
 use crate::ast::*;
 use crate::connection::Connection;
-use crate::errors::{PsqlpackError, PsqlpackResult, PsqlpackResultExt};
 use crate::errors::PsqlpackErrorKind::*;
+use crate::errors::{PsqlpackError, PsqlpackResult, PsqlpackResultExt};
 use crate::model::Extension;
 use crate::semver::Semver;
 use crate::sql::lexer;
 use crate::sql::parser::{FunctionArgumentListParser, FunctionReturnTypeParser, SqlTypeParser};
 
-use slog::Logger;
-use postgres::{Connection as PostgresConnection};
 use postgres::rows::Row;
 use postgres::types::{FromSql, Type, TEXT};
+use postgres::Connection as PostgresConnection;
 use regex::Regex;
+use slog::Logger;
 
 pub struct Capabilities {
     pub server_version: Semver,
@@ -57,7 +57,8 @@ impl Capabilities {
     }
 
     fn server_version(conn: &PostgresConnection) -> PsqlpackResult<Semver> {
-        let rows = conn.query("SHOW SERVER_VERSION;", &[])
+        let rows = conn
+            .query("SHOW SERVER_VERSION;", &[])
             .map_err(|e| DatabaseError(format!("Failed to retrieve server version: {}", e)))?;
         let row = rows.iter().last();
         if let Some(row) = row {
@@ -69,11 +70,11 @@ impl Capabilities {
     }
 
     pub fn available_extensions(&self, name: &str, version: Option<Semver>) -> Vec<&Extension> {
-        let mut available = self.extensions
-                            .iter()
-                            .filter(|x| x.name.eq(name) && (version.is_none() ||
-                                version.unwrap().eq(&x.version)))
-                            .collect::<Vec<_>>();
+        let mut available = self
+            .extensions
+            .iter()
+            .filter(|x| x.name.eq(name) && (version.is_none() || version.unwrap().eq(&x.version)))
+            .collect::<Vec<_>>();
         available.sort_by(|a, b| b.version.cmp(&a.version));
         available
     }
@@ -139,7 +140,7 @@ impl DefinableCatalog for Capabilities {
             .query(&format!("{} {}", CTE_TABLES, Q_CTE_STANDARD), &[])
             .chain_err(|| PackageQueryTablesError)?;
         for row in query {
-            let table : TableDefinition = row.into();
+            let table: TableDefinition = row.into();
             tables.insert(table.name.to_string(), table);
         }
 
@@ -148,7 +149,7 @@ impl DefinableCatalog for Capabilities {
             .query(&format!("{} {} ORDER BY fqn, num", CTE_COLUMNS, Q_CTE_STANDARD), &[])
             .chain_err(|| PackageQueryColumnsError)?;
         for row in query {
-            let fqn : String = row.get(1);
+            let fqn: String = row.get(1);
             if let Some(definition) = tables.get_mut(&fqn) {
                 definition.columns.push(row.into());
             }
@@ -156,16 +157,19 @@ impl DefinableCatalog for Capabilities {
 
         // Get a list of table constraints
         let query = &conn
-            .query(&format!("{} {} ORDER BY fqn", CTE_TABLE_CONSTRAINTS, Q_CTE_STANDARD), &[])
+            .query(
+                &format!("{} {} ORDER BY fqn", CTE_TABLE_CONSTRAINTS, Q_CTE_STANDARD),
+                &[],
+            )
             .chain_err(|| PackageQueryTableConstraintsError)?;
         for row in query {
-            let fqn : String = row.get(1);
+            let fqn: String = row.get(1);
             if let Some(definition) = tables.get_mut(&fqn) {
                 definition.constraints.push(row.into());
             }
         }
 
-        Ok(tables.into_iter().map(|(_,b)| b).collect())
+        Ok(tables.into_iter().map(|(_, b)| b).collect())
     }
 
     fn indexes(&self, conn: &PostgresConnection) -> PsqlpackResult<Vec<IndexDefinition>> {
@@ -205,7 +209,10 @@ impl<'a> DefinableCatalog for ExtensionCapabilities<'a> {
     fn functions(&self, conn: &PostgresConnection) -> PsqlpackResult<Vec<FunctionDefinition>> {
         let mut functions = Vec::new();
         let query = &conn
-            .query(&format!("{} {}", CTE_FUNCTIONS, Q_CTE_EXTENSION), &[&self.extension.name])
+            .query(
+                &format!("{} {}", CTE_FUNCTIONS, Q_CTE_EXTENSION),
+                &[&self.extension.name],
+            )
             .chain_err(|| PackageQueryFunctionsError)?;
         for row in query {
             let function = parse_function(&row)?;
@@ -220,16 +227,19 @@ impl<'a> DefinableCatalog for ExtensionCapabilities<'a> {
             .query(&format!("{} {}", CTE_TABLES, Q_CTE_EXTENSION), &[&self.extension.name])
             .chain_err(|| PackageQueryTablesError)?;
         for row in query {
-            let table : TableDefinition = row.into();
+            let table: TableDefinition = row.into();
             tables.insert(table.name.to_string(), table);
         }
 
         // Get a list of columns and map them to the appropriate tables
         let query = &conn
-            .query(&format!("{} {} ORDER BY fqn, num", CTE_COLUMNS, Q_CTE_EXTENSION), &[&self.extension.name])
+            .query(
+                &format!("{} {} ORDER BY fqn, num", CTE_COLUMNS, Q_CTE_EXTENSION),
+                &[&self.extension.name],
+            )
             .chain_err(|| PackageQueryColumnsError)?;
         for row in query {
-            let fqn : String = row.get(1);
+            let fqn: String = row.get(1);
             if let Some(definition) = tables.get_mut(&fqn) {
                 definition.columns.push(row.into());
             }
@@ -237,16 +247,19 @@ impl<'a> DefinableCatalog for ExtensionCapabilities<'a> {
 
         // Get a list of table constraints
         let query = &conn
-            .query(&format!("{} {} ORDER BY fqn", CTE_TABLE_CONSTRAINTS, Q_CTE_EXTENSION), &[&self.extension.name])
+            .query(
+                &format!("{} {} ORDER BY fqn", CTE_TABLE_CONSTRAINTS, Q_CTE_EXTENSION),
+                &[&self.extension.name],
+            )
             .chain_err(|| PackageQueryTableConstraintsError)?;
         for row in query {
-            let fqn : String = row.get(1);
+            let fqn: String = row.get(1);
             if let Some(definition) = tables.get_mut(&fqn) {
                 definition.constraints.push(row.into());
             }
         }
 
-        Ok(tables.into_iter().map(|(_,b)| b).collect())
+        Ok(tables.into_iter().map(|(_, b)| b).collect())
     }
 
     fn indexes(&self, conn: &PostgresConnection) -> PsqlpackResult<Vec<IndexDefinition>> {
@@ -349,10 +362,7 @@ impl<'row> From<Row<'row>> for TypeDefinition {
         };
 
         TypeDefinition {
-            name: ObjectName {
-                schema,
-                name,
-            },
+            name: ObjectName { schema, name },
             kind,
         }
     }
@@ -400,7 +410,8 @@ fn parse_function(row: &Row) -> PsqlpackResult<FunctionDefinition> {
             err.line_number,
             err.start_pos,
             err.end_pos,
-        ).into()
+        )
+        .into()
     };
     fn parse(err: lalrpop_util::ParseError<(), lexer::Token, &'static str>) -> PsqlpackError {
         InlineParseError(err).into()
@@ -411,16 +422,12 @@ fn parse_function(row: &Row) -> PsqlpackResult<FunctionDefinition> {
     } else {
         lexer::tokenize_body(&raw_args)
             .map_err(lexical)
-            .and_then(|tokens| {
-                FunctionArgumentListParser::new().parse(tokens).map_err(parse)
-            })
+            .and_then(|tokens| FunctionArgumentListParser::new().parse(tokens).map_err(parse))
             .chain_err(|| PackageFunctionArgsInspectError(raw_args))?
     };
     let return_type = lexer::tokenize_body(&raw_result)
         .map_err(&lexical)
-        .and_then(|tokens| {
-            FunctionReturnTypeParser::new().parse(tokens).map_err(parse)
-        })
+        .and_then(|tokens| FunctionReturnTypeParser::new().parse(tokens).map_err(parse))
         .chain_err(|| PackageFunctionReturnTypeInspectError(raw_result))?;
 
     // Set up the function definition
@@ -435,7 +442,6 @@ fn parse_function(row: &Row) -> PsqlpackResult<FunctionDefinition> {
         language,
     })
 }
-
 
 static CTE_TABLES: &'static str = "
     WITH cte AS (
@@ -456,13 +462,13 @@ impl<'row> From<Row<'row>> for TableDefinition {
                 schema: Some(row.get(1)),
                 name: row.get(2),
             },
-            columns: Vec::new(), // This gets loaded later
-            constraints: Vec::new(),  // This gets loaded later
+            columns: Vec::new(),     // This gets loaded later
+            constraints: Vec::new(), // This gets loaded later
         }
     }
 }
 
-static CTE_COLUMNS : &'static str =  "
+static CTE_COLUMNS: &'static str = "
     WITH cte AS (
         SELECT DISTINCT
             pgc.oid,
@@ -498,14 +504,18 @@ impl<'row> From<Row<'row>> for ColumnDefinition {
     fn from(row: Row) -> Self {
         // Do the column constraints first
         let mut constraints = Vec::new();
-        let not_null : bool = row.get(7);
-        let primary_key : bool = row.get(8);
+        let not_null: bool = row.get(7);
+        let primary_key: bool = row.get(8);
         // TODO: Default value + unique
-        constraints.push(if not_null { ColumnConstraint::NotNull } else { ColumnConstraint::Null });
+        constraints.push(if not_null {
+            ColumnConstraint::NotNull
+        } else {
+            ColumnConstraint::Null
+        });
         if primary_key {
             constraints.push(ColumnConstraint::PrimaryKey);
         }
-        let sql_type : String = row.get(6);
+        let sql_type: String = row.get(6);
 
         ColumnDefinition {
             name: row.get(5),
@@ -515,7 +525,7 @@ impl<'row> From<Row<'row>> for ColumnDefinition {
     }
 }
 
-static CTE_TABLE_CONSTRAINTS : &'static str = "
+static CTE_TABLE_CONSTRAINTS: &'static str = "
     WITH cte AS (
         SELECT
             tcls.oid,
@@ -557,7 +567,7 @@ static CTE_TABLE_CONSTRAINTS : &'static str = "
             confmatchtype::text
     )";
 lazy_static! {
-    static ref FILL_FACTOR : Regex = Regex::new("fillfactor=(\\d+)").unwrap();
+    static ref FILL_FACTOR: Regex = Regex::new("fillfactor=(\\d+)").unwrap();
 }
 
 fn parse_index_parameters(raw_parameters: Option<Vec<String>>) -> Option<Vec<IndexParameter>> {
@@ -581,32 +591,27 @@ fn parse_index_parameters(raw_parameters: Option<Vec<String>>) -> Option<Vec<Ind
 
 impl<'row> From<Row<'row>> for TableConstraint {
     fn from(row: Row) -> Self {
-        let schema : String = row.get(2);
-        let constraint_type : String = row.get(4);
-        let constraint_name : String = row.get(5);
+        let schema: String = row.get(2);
+        let constraint_type: String = row.get(4);
+        let constraint_name: String = row.get(5);
 
-        let raw_column_names : String = row.get(6);
-        let column_names : Vec<String> = raw_column_names
-            .split_terminator(',')
-            .map(|s| s.into())
-            .collect();
+        let raw_column_names: String = row.get(6);
+        let column_names: Vec<String> = raw_column_names.split_terminator(',').map(|s| s.into()).collect();
 
         match &constraint_type[..] {
-            "PRIMARY KEY" => {
-                TableConstraint::Primary {
-                    name: constraint_name,
-                    columns: column_names,
-                    parameters: parse_index_parameters(row.get(9)),
-                }
+            "PRIMARY KEY" => TableConstraint::Primary {
+                name: constraint_name,
+                columns: column_names,
+                parameters: parse_index_parameters(row.get(9)),
             },
             "FOREIGN KEY" => {
-                let foreign_table_name : String = row.get(7);
-                let raw_foreign_column_names : String = row.get(8);
-                let foreign_column_names : Vec<String> = raw_foreign_column_names
+                let foreign_table_name: String = row.get(7);
+                let raw_foreign_column_names: String = row.get(8);
+                let foreign_column_names: Vec<String> = raw_foreign_column_names
                     .split_terminator(',')
                     .map(|s| s.into())
                     .collect();
-                let ev : String = row.get(12);
+                let ev: String = row.get(12);
                 let match_type = match &ev[..] {
                     "f" => Some(ForeignConstraintMatchType::Full),
                     "s" => Some(ForeignConstraintMatchType::Simple),
@@ -615,23 +620,23 @@ impl<'row> From<Row<'row>> for TableConstraint {
                 };
 
                 let mut events = Vec::new();
-                let update_event : i8 = row.get(10);
+                let update_event: i8 = row.get(10);
                 match update_event as u8 as char {
                     'r' => events.push(ForeignConstraintEvent::Update(ForeignConstraintAction::Restrict)),
                     'c' => events.push(ForeignConstraintEvent::Update(ForeignConstraintAction::Cascade)),
                     'd' => events.push(ForeignConstraintEvent::Update(ForeignConstraintAction::SetDefault)),
                     'n' => events.push(ForeignConstraintEvent::Update(ForeignConstraintAction::SetNull)),
                     'a' => events.push(ForeignConstraintEvent::Update(ForeignConstraintAction::NoAction)),
-                    _ => {},
+                    _ => {}
                 }
-                let delete_event : i8 = row.get(11);
+                let delete_event: i8 = row.get(11);
                 match delete_event as u8 as char {
                     'r' => events.push(ForeignConstraintEvent::Delete(ForeignConstraintAction::Restrict)),
                     'c' => events.push(ForeignConstraintEvent::Delete(ForeignConstraintAction::Cascade)),
                     'd' => events.push(ForeignConstraintEvent::Delete(ForeignConstraintAction::SetDefault)),
                     'n' => events.push(ForeignConstraintEvent::Delete(ForeignConstraintAction::SetNull)),
                     'a' => events.push(ForeignConstraintEvent::Delete(ForeignConstraintAction::NoAction)),
-                    _ => {},
+                    _ => {}
                 }
 
                 TableConstraint::Foreign {
@@ -639,13 +644,13 @@ impl<'row> From<Row<'row>> for TableConstraint {
                     columns: column_names,
                     ref_table: ObjectName {
                         schema: Some(schema),
-                        name: foreign_table_name
+                        name: foreign_table_name,
                     },
                     ref_columns: foreign_column_names,
                     match_type,
                     events: if events.is_empty() { None } else { Some(events) },
                 }
-            },
+            }
             unknown => panic!("Unknown constraint type: {}", unknown),
         }
     }
@@ -684,7 +689,7 @@ static CTE_INDEXES_94_THRU_96: &'static str = "
 ";
 
 // Index query >= 9.6
-static CTE_INDEXES : &'static str = "
+static CTE_INDEXES: &'static str = "
     WITH cte AS (
         SELECT
             tc.oid,
@@ -731,7 +736,8 @@ impl<'row> From<Row<'row>> for IndexDefinition {
             _ => None,
         };
         let columns: Vec<serde_json::Value> = row.get(6);
-        let columns = columns.iter()
+        let columns = columns
+            .iter()
             .map(|c| c.as_object().unwrap())
             .map(|map| IndexColumn {
                 name: map["colname"].as_str().unwrap().to_owned(),
@@ -757,7 +763,8 @@ impl<'row> From<Row<'row>> for IndexDefinition {
                 } else {
                     None
                 },
-            }).collect();
+            })
+            .collect();
         let storage_parameters = parse_index_parameters(row.get(7));
 
         IndexDefinition {

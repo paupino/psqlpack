@@ -26,9 +26,9 @@ extern crate zip;
 mod errors;
 pub use crate::errors::*;
 mod connection;
-mod sql;
 mod model;
 mod semver;
+mod sql;
 
 pub mod ast {
     pub use crate::sql::ast::*;
@@ -36,15 +36,7 @@ pub mod ast {
 pub use crate::connection::ConnectionBuilder;
 pub use crate::errors::{PsqlpackErrorKind, PsqlpackResult};
 pub use crate::model::{
-    Capabilities,
-    Delta,
-    Dependency,
-    GenerationOptions,
-    Package,
-    Project,
-    PublishProfile,
-    Toggle,
-    template,
+    template, Capabilities, Delta, Dependency, GenerationOptions, Package, Project, PublishProfile, Toggle,
 };
 pub use crate::semver::Semver;
 

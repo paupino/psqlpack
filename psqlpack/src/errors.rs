@@ -1,14 +1,14 @@
+use glob::PatternError;
 use std::fmt::{Display, Formatter, Result};
 use std::path::PathBuf;
-use glob::PatternError;
 
 pub use error_chain::ChainedError;
 pub use lalrpop_util::ParseError;
 
 pub use crate::ast::ErrorKind;
+use crate::connection::{ConnectionError, ConnectionErrorKind};
 pub use crate::model::ValidationKind;
 use crate::sql::lexer;
-use crate::connection::{ConnectionError, ConnectionErrorKind};
 
 error_chain! {
     types {
@@ -193,9 +193,8 @@ fn write_err(f: &mut Formatter, error: &ParseError<(), lexer::Token, &'static st
     }
 }
 
-
 struct LineFormatter<'fmt>(&'fmt str, usize, usize);
-const MAX_LINE_LENGTH : usize = 78;
+const MAX_LINE_LENGTH: usize = 78;
 
 impl<'fmt> Display for LineFormatter<'fmt> {
     fn fmt(&self, f: &mut Formatter) -> Result {

@@ -42,7 +42,7 @@ mod context {
     pub enum NormalVariant {
         Any,
         Definition,
-        Body
+        Body,
     }
 
     pub struct Context {
@@ -87,7 +87,8 @@ mod context {
                 line_number: self.current_line,
                 start_pos: self.current_position - self.buffer.len(),
                 end_pos: self.current_position,
-                lexer_state: self.state
+                lexer_state: self
+                    .state
                     .iter()
                     .map(|s| match s {
                         LexerState::Normal(variant) => match variant {
@@ -646,20 +647,24 @@ fn tokenize(text: &str, start: NormalVariant) -> Result<Vec<Token>, LexicalError
                     }
                     // Ignore comments
                 }
-                LexerState::String => if c == '\'' {
-                    push_token!(tokens, Token::StringValue(String::from_iter(context.buffer.clone())));
-                    context.buffer.clear();
-                    context.pop_state();
-                } else {
-                    context.buffer.push(c);
-                },
-                LexerState::QuotedIdentifier => if c == '"' {
-                    push_token!(tokens, Token::Identifier(String::from_iter(context.buffer.clone())));
-                    context.buffer.clear();
-                    context.pop_state();
-                } else {
-                    context.buffer.push(c);
-                },
+                LexerState::String => {
+                    if c == '\'' {
+                        push_token!(tokens, Token::StringValue(String::from_iter(context.buffer.clone())));
+                        context.buffer.clear();
+                        context.pop_state();
+                    } else {
+                        context.buffer.push(c);
+                    }
+                }
+                LexerState::QuotedIdentifier => {
+                    if c == '"' {
+                        push_token!(tokens, Token::Identifier(String::from_iter(context.buffer.clone())));
+                        context.buffer.clear();
+                        context.pop_state();
+                    } else {
+                        context.buffer.push(c);
+                    }
+                }
                 LexerState::LiteralStart => {
                     if c == '$' {
                         context.replace_state(LexerState::LiteralBody);
@@ -673,25 +678,16 @@ fn tokenize(text: &str, start: NormalVariant) -> Result<Vec<Token>, LexicalError
                             context.pop_state();
                         } else {
                             // Error: literal name mismatch
-                            return Err(
-                                context.create_error(line,
-                                                     "literal name mismatch - leftover characters")
-                            );
+                            return Err(context.create_error(line, "literal name mismatch - leftover characters"));
                         }
                     } else if context.literal.is_empty() {
                         // Error: literal name mismatch
-                        return Err(
-                            context.create_error(line,
-                                                 "literal name mismatch - exhausted characters")
-                        );
+                        return Err(context.create_error(line, "literal name mismatch - exhausted characters"));
                     } else {
                         let l = context.literal.pop().unwrap();
                         if l != c {
                             // Error: literal name mismatch
-                            return Err(
-                                context.create_error(line,
-                                                     "literal name mismatch - unexpected character")
-                            );
+                            return Err(context.create_error(line, "literal name mismatch - unexpected character"));
                         }
                     }
                 }
@@ -706,7 +702,7 @@ fn tokenize(text: &str, start: NormalVariant) -> Result<Vec<Token>, LexicalError
                             if c == '$' {
                                 // We've parsed a complete literal
                                 context.buffer.pop(); // Pop off the previous $
-                                // Add the token
+                                                      // Add the token
                                 let data = String::from_iter(context.buffer.clone());
                                 push_token!(tokens, Token::Literal(data.trim().into()));
                                 context.buffer.clear();

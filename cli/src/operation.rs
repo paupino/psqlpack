@@ -3,15 +3,7 @@ use std::path::Path;
 use slog::Logger;
 
 use psqlpack::{
-    Capabilities,
-    Delta,
-    Package,
-    Project,
-    PsqlpackResult,
-    PsqlpackErrorKind,
-    PublishProfile,
-    Semver,
-    template
+    template, Capabilities, Delta, Package, Project, PsqlpackErrorKind, PsqlpackResult, PublishProfile, Semver,
 };
 
 pub fn package<L: Into<Logger>>(log: L, project_file: &Path, output_path: &Path) -> PsqlpackResult<()> {
@@ -24,7 +16,11 @@ pub fn package<L: Into<Logger>>(log: L, project_file: &Path, output_path: &Path)
     package.write_to(output_path)
 }
 
-pub fn extract_database<L: Into<Logger>>(log: L, source_connection_string: &str, target_package_path: &Path) -> PsqlpackResult<()> {
+pub fn extract_database<L: Into<Logger>>(
+    log: L,
+    source_connection_string: &str,
+    target_package_path: &Path,
+) -> PsqlpackResult<()> {
     let log = log.into().new(o!("operation" => "extract_database"));
     let connection = source_connection_string.parse()?;
 
@@ -42,12 +38,13 @@ pub fn extract_database<L: Into<Logger>>(log: L, source_connection_string: &str,
     }
 }
 
-pub fn extract_extension<L: Into<Logger>>(log: L,
-                                          source_connection_string: &str,
-                                          target_path: &Path,
-                                          extension_name: String,
-                                          extension_version: Option<Semver>)
-    -> PsqlpackResult<()> {
+pub fn extract_extension<L: Into<Logger>>(
+    log: L,
+    source_connection_string: &str,
+    target_path: &Path,
+    extension_name: String,
+    extension_version: Option<Semver>,
+) -> PsqlpackResult<()> {
     let log = log.into().new(o!("operation" => "extract_extension"));
     let connection = source_connection_string.parse()?;
 
@@ -58,12 +55,12 @@ pub fn extract_extension<L: Into<Logger>>(log: L,
     let extensions = capabilities.available_extensions(&extension_name, extension_version);
     if !extensions.is_empty() {
         if !extensions[0].installed {
-            return Err(PsqlpackErrorKind::ExtractError("Extension was found but not installed".into()).into())
+            return Err(PsqlpackErrorKind::ExtractError("Extension was found but not installed".into()).into());
         }
     } else if let Some(version) = extension_version {
-        return Err(PsqlpackErrorKind::ExtractError(format!("No extension found with version {}", version)).into())
+        return Err(PsqlpackErrorKind::ExtractError(format!("No extension found with version {}", version)).into());
     } else {
-        return Err(PsqlpackErrorKind::ExtractError("No extension found".into()).into())
+        return Err(PsqlpackErrorKind::ExtractError("No extension found".into()).into());
     }
     let extension = extensions[0];
     let package = extension.build_package_from_connection(&log, &connection, &capabilities)?;
@@ -74,7 +71,12 @@ pub fn extract_extension<L: Into<Logger>>(log: L,
     package.write_to(&output_path)
 }
 
-pub fn generate_template<L: Into<Logger>>(log: L, template: &str, output_path: &Path, name: &str) -> PsqlpackResult<()> {
+pub fn generate_template<L: Into<Logger>>(
+    log: L,
+    template: &str,
+    output_path: &Path,
+    name: &str,
+) -> PsqlpackResult<()> {
     let log = log.into().new(o!("operation" => "generate_template"));
     match template {
         "project" => {
@@ -85,7 +87,9 @@ pub fn generate_template<L: Into<Logger>>(log: L, template: &str, output_path: &
             info!(log, "Generating publish profile"; "destination" => output_path.to_str().unwrap());
             template::generate_publish_profile(output_path, name)
         }
-        unrecognized => Err(PsqlpackErrorKind::TemplateGenerationError(format!("Template not found: {}", unrecognized)).into())
+        unrecognized => {
+            Err(PsqlpackErrorKind::TemplateGenerationError(format!("Template not found: {}", unrecognized)).into())
+        }
     }
 }
 

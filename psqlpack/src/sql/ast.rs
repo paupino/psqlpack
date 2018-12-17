@@ -10,8 +10,11 @@ pub enum ErrorKind {
 impl fmt::Display for ErrorKind {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            ErrorKind::ExtensionNotSupported(ref name) =>
-                write!(f, "Extensions defined in SQL not supported (found {}). Please define extensions within the project file.", name),
+            ErrorKind::ExtensionNotSupported(ref name) => write!(
+                f,
+                "Extensions defined in SQL not supported (found {}). Please define extensions within the project file.",
+                name
+            ),
         }
     }
 }
@@ -28,7 +31,7 @@ pub enum Statement {
 
 #[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
 pub enum SqlType {
-    Simple(SimpleSqlType, Option<u32>), // type, dim
+    Simple(SimpleSqlType, Option<u32>),              // type, dim
     Custom(ObjectName, Option<String>, Option<u32>), // type, options, dim
 }
 
@@ -51,9 +54,9 @@ pub enum SimpleSqlType {
     BigSerial,   // bigserial
 
     Numeric(Option<(u32, u32)>), // numeric(m,d)
-    Double,            // double precision
-    Single,            // real
-    Money,             // money
+    Double,                      // double precision
+    Single,                      // real
+    Money,                       // money
 
     Boolean, // bool
 
@@ -420,16 +423,14 @@ impl fmt::Display for SqlType {
             }
         }
         match *self {
-            SqlType::Simple(ref simple_type, dim) => {
-                write!(f, "{}{}", simple_type, dimensions(dim))
-            },
+            SqlType::Simple(ref simple_type, dim) => write!(f, "{}{}", simple_type, dimensions(dim)),
             SqlType::Custom(ref custom_type, ref options, dim) => {
                 if let Some(ref opt) = *options {
                     write!(f, "{}({}){}", custom_type, opt, dimensions(dim))
                 } else {
                     write!(f, "{}{}", custom_type, dimensions(dim))
                 }
-            },
+            }
         }
     }
 }
