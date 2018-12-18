@@ -39,17 +39,11 @@ impl Connection {
     }
 
     pub fn connect_host(&self) -> ConnectionResult<PostgresConnection> {
-        Ok(PostgresConnection::connect(
-            self.uri.clone(),
-            self.tls_mode()
-        )?)
+        Ok(PostgresConnection::connect(self.uri.clone(), self.tls_mode())?)
     }
 
     pub fn connect_database(&self) -> ConnectionResult<PostgresConnection> {
-        Ok(PostgresConnection::connect(
-            self.uri_with_database(),
-            self.tls_mode()
-        )?)
+        Ok(PostgresConnection::connect(self.uri_with_database(), self.tls_mode())?)
     }
 
     fn uri_with_database(&self) -> String {
@@ -84,15 +78,11 @@ impl FromStr for Connection {
         };
         let database = match parts.get(&"database") {
             Some(database) => *database,
-            None => bail!(ConnectionErrorKind::RequiredPartMissing(
-                "database".to_owned()
-            )),
+            None => bail!(ConnectionErrorKind::RequiredPartMissing("database".to_owned())),
         };
         let user = match parts.get(&"userid") {
             Some(user) => *user,
-            None => bail!(ConnectionErrorKind::RequiredPartMissing(
-                "userid".to_owned()
-            )),
+            None => bail!(ConnectionErrorKind::RequiredPartMissing("userid".to_owned())),
         };
 
         let mut builder = ConnectionBuilder::new(database, host, user);
@@ -178,17 +168,17 @@ mod tests {
     use super::*;
 
     macro_rules! assert_error_kind {
-        ($err:expr, $kind:pat) => (match *$err.kind() {
-            $kind => assert!(true, "{:?} is of kind {:?}", $err, stringify!($kind)),
-            _     => assert!(false, "{:?} is NOT of kind {:?}", $err, stringify!($kind))
-        });
+        ($err:expr, $kind:pat) => {
+            match *$err.kind() {
+                $kind => assert!(true, "{:?} is of kind {:?}", $err, stringify!($kind)),
+                _ => assert!(false, "{:?} is NOT of kind {:?}", $err, stringify!($kind)),
+            }
+        };
     }
 
     #[test]
     fn builder_basic_works() {
-        let connection = ConnectionBuilder::new("database", "host", "user")
-            .build()
-            .unwrap();
+        let connection = ConnectionBuilder::new("database", "host", "user").build().unwrap();
         assert_eq!("database", connection.database());
         assert_eq!("postgres://user@host", connection.uri);
     }
@@ -230,25 +220,19 @@ mod tests {
 
     #[test]
     fn parse_without_host_fails() {
-        let error = "database=db1;userid=user;"
-            .parse::<Connection>()
-            .unwrap_err();
+        let error = "database=db1;userid=user;".parse::<Connection>().unwrap_err();
         assert_error_kind!(error, ConnectionErrorKind::RequiredPartMissing(_));
     }
 
     #[test]
     fn parse_without_database_fails() {
-        let error = "host=localhost;userid=user;"
-            .parse::<Connection>()
-            .unwrap_err();
+        let error = "host=localhost;userid=user;".parse::<Connection>().unwrap_err();
         assert_error_kind!(error, ConnectionErrorKind::RequiredPartMissing(_));
     }
 
     #[test]
     fn parse_without_user_fails() {
-        let error = "host=localhost;database=db1"
-            .parse::<Connection>()
-            .unwrap_err();
+        let error = "host=localhost;database=db1".parse::<Connection>().unwrap_err();
         assert_error_kind!(error, ConnectionErrorKind::RequiredPartMissing(_));
     }
 }

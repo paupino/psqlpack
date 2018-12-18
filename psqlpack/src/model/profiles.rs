@@ -4,14 +4,14 @@
 //! target are handled when performing a `publish` operation.
 
 use std::default::Default;
-use std::path::Path;
 use std::fs::File;
+use std::path::Path;
 
 use serde_json;
 
-use errors::{PsqlpackResult, PsqlpackResultExt};
-use errors::PsqlpackErrorKind::*;
-use semver::Semver;
+use crate::errors::PsqlpackErrorKind::*;
+use crate::errors::{PsqlpackResult, PsqlpackResultExt};
+use crate::semver::Semver;
 
 #[derive(Deserialize, Serialize)]
 pub struct PublishProfile {
@@ -51,7 +51,8 @@ impl Bool {
 #[derive(Deserialize, Serialize)]
 pub struct GenerationOptions {
     /// If set to true, the database will always be recereated
-    #[serde(rename = "alwaysRecreateDatabase")] pub always_recreate_database: bool,
+    #[serde(rename = "alwaysRecreateDatabase")]
+    pub always_recreate_database: bool,
 
     /// Enum values are typically unsafe to delete. If set to Allow, psqlpack will attempt to delete.
     /// Default: Error

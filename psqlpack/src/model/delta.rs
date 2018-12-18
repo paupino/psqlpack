@@ -1,41 +1,38 @@
 use std::collections::HashSet;
 use std::fmt;
+use std::fs::File;
 use std::io::Write;
 use std::path::Path;
-use std::fs::File;
 
-use slog::Logger;
 use serde_json;
+use slog::Logger;
 
+use crate::connection::Connection;
+use crate::errors::PsqlpackErrorKind::*;
+use crate::errors::{PsqlpackResult, PsqlpackResultExt};
+use crate::model::{Capabilities, Dependency, Node, Package, PublishProfile, Toggle};
+use crate::sql::ast::*;
 use crate::Semver;
-use connection::Connection;
-use errors::{PsqlpackResult, PsqlpackResultExt};
-use errors::PsqlpackErrorKind::*;
-use model::{Capabilities, Dependency, Node, Package, PublishProfile, Toggle};
-use sql::ast::*;
 
 enum DbObject<'a> {
     Column(&'a TableDefinition, &'a ColumnDefinition),
     Constraint(&'a TableDefinition, &'a TableConstraint),
-    ExtensionRequest(&'a Dependency),          // 2
-    Function(&'a FunctionDefinition),   // 6 (ordered)
-    Index(&'a IndexDefinition),         // 7
-    Schema(&'a SchemaDefinition),       // 3
-    Script(&'a ScriptDefinition),       // 1, 8
-    Table(&'a TableDefinition),         // 5 (ordered)
-    Type(&'a TypeDefinition),           // 4
+    ExtensionRequest(&'a Dependency), // 2
+    Function(&'a FunctionDefinition), // 6 (ordered)
+    Index(&'a IndexDefinition),       // 7
+    Schema(&'a SchemaDefinition),     // 3
+    Script(&'a ScriptDefinition),     // 1, 8
+    Table(&'a TableDefinition),       // 5 (ordered)
+    Type(&'a TypeDefinition),         // 4
 }
 
 impl<'a> fmt::Display for DbObject<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             DbObject::Column(table, column) => write!(f, "Table: {}, Column: {}", table.name, column.name),
-            DbObject::Constraint(table, constraint) => write!(
-                f,
-                "Table: {}, Constraint: {}",
-                table.name,
-                constraint.name()
-            ),
+            DbObject::Constraint(table, constraint) => {
+                write!(f, "Table: {}, Constraint: {}", table.name, constraint.name())
+            }
             DbObject::ExtensionRequest(extension) => write!(f, "ExtensionRequest: {}", extension.name),
             DbObject::Function(function) => write!(f, "Function: {}", function.name),
             DbObject::Index(index) => write!(f, "Index: {}", index.name),
@@ -68,10 +65,24 @@ impl<'a> Diffable<'a, Package> for DbObject<'a> {
         log: &Logger,
     ) -> PsqlpackResult<()> {
         match *self {
-            DbObject::Column(table, column) => LinkedColumn { table: &table, column: &column }.generate(change_set, target, target_capabilities, publish_profile, log),
-            DbObject::Constraint(table, constraint) => LinkedTableConstraint { table: &table, constraint: &constraint }.generate(change_set, target, target_capabilities, publish_profile, log),
-            DbObject::ExtensionRequest(dependency) => ExtensionRequest { name: &dependency.name, version: &dependency.version }.generate(change_set, target, target_capabilities, publish_profile, log),
-            DbObject::Function(function) => function.generate(change_set, target, target_capabilities, publish_profile, log),
+            DbObject::Column(table, column) => LinkedColumn {
+                table: &table,
+                column: &column,
+            }
+            .generate(change_set, target, target_capabilities, publish_profile, log),
+            DbObject::Constraint(table, constraint) => LinkedTableConstraint {
+                table: &table,
+                constraint: &constraint,
+            }
+            .generate(change_set, target, target_capabilities, publish_profile, log),
+            DbObject::ExtensionRequest(dependency) => ExtensionRequest {
+                name: &dependency.name,
+                version: &dependency.version,
+            }
+            .generate(change_set, target, target_capabilities, publish_profile, log),
+            DbObject::Function(function) => {
+                function.generate(change_set, target, target_capabilities, publish_profile, log)
+            }
             DbObject::Index(index) => index.generate(change_set, target, target_capabilities, publish_profile, log),
             DbObject::Schema(schema) => schema.generate(change_set, target, target_capabilities, publish_profile, log),
             DbObject::Script(script) => script.generate(change_set, target, target_capabilities, publish_profile, log),
@@ -98,18 +109,13 @@ impl<'a> Diffable<'a, Package> for ExtensionRequest<'a> {
         let available = target_capabilities.available_extensions(self.name, None);
 
         // First of all, check to see what is installed
-        let installed = available
-                        .iter()
-                        .filter(|e| e.installed)
-                        .count();
+        let installed = available.iter().filter(|e| e.installed).count();
 
         // Nothing is installed
         if installed == 0 {
             // See if something is available to install first.
             let available_version = if let Some(ref version) = self.version {
-                available
-                    .iter()
-                    .any(|e|e.version.eq( version))
+                available.iter().any(|e| e.version.eq(version))
             } else {
                 !available.is_empty()
             };
@@ -117,30 +123,35 @@ impl<'a> Diffable<'a, Package> for ExtensionRequest<'a> {
                 change_set.push(ChangeInstruction::CreateExtension(self.name.to_string(), *self.version));
             } else {
                 if let Some(ref version) = self.version {
-                    bail!(PublishError(format!("ExtensionRequest {} version {} not available to install", self.name, version)))
+                    bail!(PublishError(format!(
+                        "ExtensionRequest {} version {} not available to install",
+                        self.name, version
+                    )))
                 }
-                bail!(PublishError(format!("ExtensionRequest {} not available to install", self.name)))
+                bail!(PublishError(format!(
+                    "ExtensionRequest {} not available to install",
+                    self.name
+                )))
             }
         } else {
             // Something is installed - verify if we need to upgrade.
             if let Some(ref version) = self.version {
                 // A SPECIFIC version is specified so check to see if it is available
-                let version_available = available
-                    .iter()
-                    .filter(|e| e.version.eq(version))
-                    .nth(0);
+                let version_available = available.iter().filter(|e| e.version.eq(version)).nth(0);
                 if let Some(v) = version_available {
                     // It's available so if it is not installed then upgrade
                     if !v.installed {
                         match profile.generation_options.upgrade_extensions {
                             Toggle::Allow => {
-                                change_set.push(ChangeInstruction::UpgradeExtension(self.name.to_string(), *self.version));
+                                change_set.push(ChangeInstruction::UpgradeExtension(
+                                    self.name.to_string(),
+                                    *self.version,
+                                ));
                             }
                             Toggle::Error => {
                                 bail!(PublishUnsafeOperationError(format!(
                                     "ExtensionRequest {} version {} is available to upgrade",
-                                    v.name,
-                                    v.version,
+                                    v.name, v.version,
                                 )));
                             }
                             Toggle::Ignore => {}
@@ -148,20 +159,25 @@ impl<'a> Diffable<'a, Package> for ExtensionRequest<'a> {
                     }
                 } else {
                     // It's not installed and not available... error!
-                    bail!(PublishError(format!("Expecting extension {} version {} to be installed", self.name, version)));
+                    bail!(PublishError(format!(
+                        "Expecting extension {} version {} to be installed",
+                        self.name, version
+                    )));
                 }
             } else {
                 // No version specified - are we on the latest?
                 if !available[0].installed {
                     match profile.generation_options.upgrade_extensions {
                         Toggle::Allow => {
-                            change_set.push(ChangeInstruction::UpgradeExtension(self.name.to_string(), *self.version));
+                            change_set.push(ChangeInstruction::UpgradeExtension(
+                                self.name.to_string(),
+                                *self.version,
+                            ));
                         }
                         Toggle::Error => {
                             bail!(PublishUnsafeOperationError(format!(
                                 "ExtensionRequest {} version {} is available to upgrade",
-                                available[0].name,
-                                available[0].version,
+                                available[0].name, available[0].version,
                             )));
                         }
                         Toggle::Ignore => {}
@@ -261,7 +277,7 @@ impl<'a> Diffable<'a, Package> for &'a TableDefinition {
                                 Toggle::Error => bail!(PublishUnsafeOperationError(format!(
                                     "Unable to drop constraint as dropping PKs is currently disabled: {}",
                                     tgt.name()
-                                )))
+                                ))),
                             }
                         }
                         TableConstraint::Foreign { .. } => {
@@ -271,7 +287,7 @@ impl<'a> Diffable<'a, Package> for &'a TableDefinition {
                                 Toggle::Error => bail!(PublishUnsafeOperationError(format!(
                                     "Unable to drop constraint as dropping FKs is currently disabled: {}",
                                     tgt.name()
-                                )))
+                                ))),
                             }
                         }
                     };
@@ -289,7 +305,7 @@ impl<'a> Diffable<'a, Package> for &'a TableDefinition {
 
 struct LinkedColumn<'a> {
     table: &'a TableDefinition,
-    column: &'a ColumnDefinition
+    column: &'a ColumnDefinition,
 }
 
 impl<'a> Diffable<'a, Package> for LinkedColumn<'a> {
@@ -305,7 +321,6 @@ impl<'a> Diffable<'a, Package> for LinkedColumn<'a> {
         // We should consider if we want to just generate empty tables and then be consistent adding
         let table_result = target.tables.iter().find(|t| t.name == self.table.name);
         if let Some(target_table) = table_result {
-
             // Check if the column exists on the target
             let target_column = target_table.columns.iter().find(|tgt| tgt.name.eq(&self.column.name));
             if let Some(target_column) = target_column {
@@ -328,16 +343,24 @@ impl<'a> Diffable<'a, Package> for LinkedColumn<'a> {
                             if self.column.constraints.iter().any(|c| ColumnConstraint::NotNull.eq(c)) {
                                 change_set.push(ChangeInstruction::ModifyColumnNull(self.table, &self.column));
                             }
-                        },
-                        ColumnConstraint::NotNull => change_set.push(ChangeInstruction::ModifyColumnNull(self.table, &self.column)),
-                        ColumnConstraint::Default(_) => change_set.push(ChangeInstruction::ModifyColumnDefault(self.table, &self.column)),
-                        ColumnConstraint::Unique => change_set.push(ChangeInstruction::ModifyColumnUniqueConstraint(self.table, &self.column)),
-                        ColumnConstraint::PrimaryKey => change_set.push(ChangeInstruction::ModifyColumnPrimaryKeyConstraint(self.table, &self.column)),
+                        }
+                        ColumnConstraint::NotNull => {
+                            change_set.push(ChangeInstruction::ModifyColumnNull(self.table, &self.column))
+                        }
+                        ColumnConstraint::Default(_) => {
+                            change_set.push(ChangeInstruction::ModifyColumnDefault(self.table, &self.column))
+                        }
+                        ColumnConstraint::Unique => change_set.push(ChangeInstruction::ModifyColumnUniqueConstraint(
+                            self.table,
+                            &self.column,
+                        )),
+                        ColumnConstraint::PrimaryKey => change_set.push(
+                            ChangeInstruction::ModifyColumnPrimaryKeyConstraint(self.table, &self.column),
+                        ),
                     }
                 }
 
-                // TODO: src_sec - target_set (e.g. what column constraints have been removed)
-
+            // TODO: src_sec - target_set (e.g. what column constraints have been removed)
             } else {
                 // Doesn't exist, add it
                 change_set.push(ChangeInstruction::AddColumn(self.table, &self.column));
@@ -349,7 +372,7 @@ impl<'a> Diffable<'a, Package> for LinkedColumn<'a> {
 
 struct LinkedTableConstraint<'a> {
     table: &'a TableDefinition,
-    constraint: &'a TableConstraint
+    constraint: &'a TableConstraint,
 }
 
 impl<'a> Diffable<'a, Package> for LinkedTableConstraint<'a> {
@@ -361,7 +384,7 @@ impl<'a> Diffable<'a, Package> for LinkedTableConstraint<'a> {
         publish_profile: &PublishProfile,
         _log: &Logger,
     ) -> PsqlpackResult<()> {
-        fn vec_different<T: PartialEq>(src: &Vec<T>, tgt: &Vec<T>) -> bool {
+        fn vec_different<T: PartialEq>(src: &[T], tgt: &[T]) -> bool {
             if src.len() != tgt.len() {
                 return true;
             }
@@ -384,59 +407,70 @@ impl<'a> Diffable<'a, Package> for LinkedTableConstraint<'a> {
         let table_result = target.tables.iter().find(|t| t.name == self.table.name);
         if let Some(target_table) = table_result {
             // Check if the constraint exists on the target - this is a basic comparison of name
-            let target_constraint = target_table.constraints.iter().find(|tgt| tgt.name().eq(self.constraint.name()));
+            let target_constraint = target_table
+                .constraints
+                .iter()
+                .find(|tgt| tgt.name().eq(self.constraint.name()));
             if let Some(target_constraint) = target_constraint {
                 // Exists on target - compare to see if it's equal
                 // TODO: After we have a min defined Postgres version we may be able to use ALTER in some cases as supported
                 let has_changed = match *self.constraint {
-                        TableConstraint::Primary { name: _, ref columns, ref parameters } => {
-                            let src_columns = columns;
-                            let src_parameters = parameters;
-                            match target_constraint {
-                                TableConstraint::Primary { name: _, ref columns, ref parameters } => {
-                                    vec_different(src_columns, columns) ||
-                                        optional_vec_different(src_parameters, parameters)
-                                },
-                                TableConstraint::Foreign { .. } => true,
+                    TableConstraint::Primary {
+                        ref columns,
+                        ref parameters,
+                        ..
+                    } => {
+                        let src_columns = columns;
+                        let src_parameters = parameters;
+                        match target_constraint {
+                            TableConstraint::Primary {
+                                ref columns,
+                                ref parameters,
+                                ..
+                            } => {
+                                vec_different(src_columns, columns)
+                                    || optional_vec_different(src_parameters, parameters)
+                            }
+                            TableConstraint::Foreign { .. } => true,
+                        }
+                    }
+                    TableConstraint::Foreign {
+                        ref columns,
+                        ref ref_table,
+                        ref ref_columns,
+                        ref match_type,
+                        ref events,
+                        ..
+                    } => {
+                        let src_columns = columns;
+                        let src_ref_table = ref_table;
+                        let src_ref_columns = ref_columns;
+                        let src_match_type = match_type;
+                        let src_events = events;
+                        match target_constraint {
+                            TableConstraint::Primary { .. } => true,
+                            TableConstraint::Foreign {
+                                ref columns,
+                                ref ref_table,
+                                ref ref_columns,
+                                ref match_type,
+                                ref events,
+                                ..
+                            } => {
+                                let match_type_different = if src_match_type.is_some() && match_type.is_some() {
+                                    src_match_type.as_ref().unwrap().ne(match_type.as_ref().unwrap())
+                                } else {
+                                    src_match_type.is_none() ^ match_type.is_none()
+                                };
+                                match_type_different
+                                    || vec_different(src_columns, columns)
+                                    || src_ref_table.ne(ref_table)
+                                    || vec_different(src_ref_columns, ref_columns)
+                                    || optional_vec_different(src_events, events)
                             }
                         }
-                        TableConstraint::Foreign {
-                            name: _,
-                            ref columns,
-                            ref ref_table,
-                            ref ref_columns,
-                            ref match_type,
-                            ref events
-                        } => {
-                            let src_columns = columns;
-                            let src_ref_table = ref_table;
-                            let src_ref_columns = ref_columns;
-                            let src_match_type = match_type;
-                            let src_events = events;
-                            match target_constraint {
-                                TableConstraint::Primary { .. } => true,
-                                TableConstraint::Foreign {
-                                    name: _,
-                                    ref columns,
-                                    ref ref_table,
-                                    ref ref_columns,
-                                    ref match_type,
-                                    ref events
-                                } => {
-                                    let match_type_different = if src_match_type.is_some() && match_type.is_some() {
-                                        src_match_type.as_ref().unwrap().ne(match_type.as_ref().unwrap())
-                                    } else {
-                                        src_match_type.is_none() ^ match_type.is_none()
-                                    };
-                                    match_type_different ||
-                                        vec_different(src_columns, columns) ||
-                                        src_ref_table.ne(ref_table) ||
-                                        vec_different(src_ref_columns, ref_columns) ||
-                                        optional_vec_different(src_events, events)
-                                }
-                            }
-                        }
-                    };
+                    }
+                };
                 if has_changed {
                     let remove_ok = match self.constraint {
                         TableConstraint::Primary { .. } => {
@@ -446,7 +480,7 @@ impl<'a> Diffable<'a, Package> for LinkedTableConstraint<'a> {
                                 Toggle::Error => bail!(PublishUnsafeOperationError(format!(
                                     "Unable to modify constraint as dropping PKs is currently disabled: {}",
                                     self.constraint.name()
-                                )))
+                                ))),
                             }
                         }
                         TableConstraint::Foreign { .. } => {
@@ -456,12 +490,15 @@ impl<'a> Diffable<'a, Package> for LinkedTableConstraint<'a> {
                                 Toggle::Error => bail!(PublishUnsafeOperationError(format!(
                                     "Unable to modify constraint as dropping FKs is currently disabled: {}",
                                     self.constraint.name()
-                                )))
+                                ))),
                             }
                         }
                     };
                     if remove_ok {
-                        change_set.push(ChangeInstruction::DropConstraint(self.table, self.constraint.name().to_owned()));
+                        change_set.push(ChangeInstruction::DropConstraint(
+                            self.table,
+                            self.constraint.name().to_owned(),
+                        ));
                         change_set.push(ChangeInstruction::AddConstraint(self.table, self.constraint));
                     }
                 }
@@ -469,7 +506,6 @@ impl<'a> Diffable<'a, Package> for LinkedTableConstraint<'a> {
                 // Doesn't exist, add it
                 change_set.push(ChangeInstruction::AddConstraint(self.table, &self.constraint));
             }
-
         } else {
             change_set.push(ChangeInstruction::AddConstraint(self.table, &self.constraint));
         }
@@ -533,8 +569,7 @@ impl<'a> Diffable<'a, TypeDefinition> for &'a TypeDefinition {
         if self.name.ne(&target.name) {
             bail!(PublishInvalidOperationError(format!(
                 "Types not diffable: {} != {}",
-                self.name,
-                target.name
+                self.name, target.name
             )))
         }
         // We can only diff types of the same kind. Only one type right now, but future proofing.
@@ -546,20 +581,13 @@ impl<'a> Diffable<'a, TypeDefinition> for &'a TypeDefinition {
                         let mut to_delete = target_values
                             .iter()
                             .filter(|v| !source_values.contains(v))
-                            .map(|v| {
-                                TypeModificationAction::RemoveEnumValue {
-                                    value: v.to_owned(),
-                                }
-                            })
+                            .map(|v| TypeModificationAction::RemoveEnumValue { value: v.to_owned() })
                             .collect::<Vec<_>>();
                         if !to_delete.is_empty() {
                             match publish_profile.generation_options.drop_enum_values {
                                 Toggle::Allow => {
-                                    change_set.extend(
-                                        to_delete
-                                            .drain(..)
-                                            .map(|d| ChangeInstruction::ModifyType(self, d)),
-                                    );
+                                    change_set
+                                        .extend(to_delete.drain(..).map(|d| ChangeInstruction::ModifyType(self, d)));
                                 }
                                 Toggle::Error => {
                                     bail!(PublishUnsafeOperationError(format!(
@@ -621,9 +649,9 @@ impl<'package> Delta<'package> {
         log: &Logger,
         package: &'package Package,
         target: Option<Package>,
-        target_database_name: String,
-        target_capabilities: Capabilities,
-        publish_profile: PublishProfile,
+        target_database_name: &str,
+        target_capabilities: &Capabilities,
+        publish_profile: &PublishProfile,
     ) -> PsqlpackResult<Delta<'package>> {
         let log = log.new(o!("delta" => "generate"));
 
@@ -633,9 +661,7 @@ impl<'package> Delta<'package> {
         // If we always recreate then add a drop and set to false
         let mut target = target;
         if target.is_some() && publish_profile.generation_options.always_recreate_database {
-            change_set.push(ChangeInstruction::DropDatabase(
-                target_database_name.to_owned(),
-            ));
+            change_set.push(ChangeInstruction::DropDatabase(target_database_name.to_owned()));
             target = None;
         }
 
@@ -643,17 +669,13 @@ impl<'package> Delta<'package> {
         let target_package = match target {
             Some(target_package) => target_package,
             None => {
-                change_set.push(ChangeInstruction::CreateDatabase(
-                    target_database_name.to_owned(),
-                ));
+                change_set.push(ChangeInstruction::CreateDatabase(target_database_name.to_owned()));
                 Package::new()
             }
         };
 
         // Set the connection instruction
-        change_set.push(ChangeInstruction::UseDatabase(
-            target_database_name.to_owned(),
-        ));
+        change_set.push(ChangeInstruction::UseDatabase(target_database_name.to_owned()));
 
         // Create the build order - including all document types outside the topological sort.
         let mut build_order = Vec::new();
@@ -684,12 +706,14 @@ impl<'package> Delta<'package> {
         for index in &target_package.indexes {
             if !package.indexes.iter().any(|idx| idx.is_same_index(&index)) {
                 match publish_profile.generation_options.drop_indexes {
-                    Toggle::Allow => change_set.push(ChangeInstruction::DropIndex(index.fully_qualified_name(), publish_profile.generation_options.force_concurrent_indexes)),
-                    Toggle::Error => bail!(
-                                        PublishUnsafeOperationError(
-                                            format!("Attempted to drop index {} however dropping indexes is currently disabled", index.name)
-                                        )
-                                    ),
+                    Toggle::Allow => change_set.push(ChangeInstruction::DropIndex(
+                        index.fully_qualified_name(),
+                        publish_profile.generation_options.force_concurrent_indexes,
+                    )),
+                    Toggle::Error => bail!(PublishUnsafeOperationError(format!(
+                        "Attempted to drop index {} however dropping indexes is currently disabled",
+                        index.name
+                    ))),
                     _ => {}
                 }
             }
@@ -700,11 +724,10 @@ impl<'package> Delta<'package> {
             if !package.functions.iter().any(|t| t.name.eq(&function.name)) {
                 match publish_profile.generation_options.drop_functions {
                     Toggle::Allow => change_set.push(ChangeInstruction::DropFunction(function.name.to_string())),
-                    Toggle::Error => bail!(
-                                        PublishUnsafeOperationError(
-                                            format!("Attempted to drop function {} however dropping functions is currently disabled", function.name)
-                                        )
-                                    ),
+                    Toggle::Error => bail!(PublishUnsafeOperationError(format!(
+                        "Attempted to drop function {} however dropping functions is currently disabled",
+                        function.name
+                    ))),
                     _ => {}
                 }
             }
@@ -715,11 +738,10 @@ impl<'package> Delta<'package> {
             if !package.tables.iter().any(|t| t.name.eq(&table.name)) {
                 match publish_profile.generation_options.drop_tables {
                     Toggle::Allow => change_set.push(ChangeInstruction::DropTable(table.name.to_string())),
-                    Toggle::Error => bail!(
-                                        PublishUnsafeOperationError(
-                                            format!("Attempted to drop table {} however dropping tables is currently disabled", table.name)
-                                        )
-                                    ),
+                    Toggle::Error => bail!(PublishUnsafeOperationError(format!(
+                        "Attempted to drop table {} however dropping tables is currently disabled",
+                        table.name
+                    ))),
                     _ => {}
                 }
             }
@@ -761,7 +783,13 @@ impl<'package> Delta<'package> {
 
         // Go through each item in order and figure out what to do with it
         for item in &build_order {
-            item.generate(&mut change_set, &target_package, &target_capabilities, &publish_profile, &log)?;
+            item.generate(
+                &mut change_set,
+                &target_package,
+                &target_capabilities,
+                &publish_profile,
+                &log,
+            )?;
         }
 
         Ok(Delta(change_set))
@@ -785,8 +813,7 @@ impl<'package> Delta<'package> {
             // Execute SQL directly
             trace!(log, "Executing: {}", change);
             let sql = change.to_sql(&log);
-            conn.batch_execute(&sql)
-                .chain_err(|| DatabaseExecuteError(sql))?;
+            conn.batch_execute(&sql).chain_err(|| DatabaseExecuteError(sql))?;
         }
 
         // Close the connection
@@ -814,9 +841,7 @@ impl<'package> Delta<'package> {
         // These instructions turn into a single SQL file
         let mut out = match File::create(destination) {
             Ok(o) => o,
-            Err(e) => bail!(GenerationError(
-                format!("Failed to generate SQL file: {}", e)
-            )),
+            Err(e) => bail!(GenerationError(format!("Failed to generate SQL file: {}", e))),
         };
 
         for change in change_set.iter() {
@@ -826,14 +851,10 @@ impl<'package> Delta<'package> {
                     // New line
                     match out.write(&[59u8, 10u8, 10u8]) {
                         Ok(_) => {}
-                        Err(e) => bail!(GenerationError(
-                            format!("Failed to generate SQL file: {}", e)
-                        )),
+                        Err(e) => bail!(GenerationError(format!("Failed to generate SQL file: {}", e))),
                     }
                 }
-                Err(e) => bail!(GenerationError(
-                    format!("Failed to generate SQL file: {}", e)
-                )),
+                Err(e) => bail!(GenerationError(format!("Failed to generate SQL file: {}", e))),
             }
         }
 
@@ -917,14 +938,14 @@ impl<'input> fmt::Display for ChangeInstruction<'input> {
                 } else {
                     write!(f, "Create extension: {}", name)
                 }
-            },
+            }
             UpgradeExtension(ref name, ref version) => {
                 if let Some(ref version) = version {
                     write!(f, "Upgrade extension: {} version {}", name, version)
                 } else {
                     write!(f, "Upgrade extension: {}", name)
                 }
-            },
+            }
 
             // Schema
             AddSchema(schema) => write!(f, "Add schema: {}", schema.name),
@@ -953,30 +974,46 @@ impl<'input> fmt::Display for ChangeInstruction<'input> {
 
             // Columns
             AddColumn(table, column) => write!(f, "Add column: {} to table: {}", column.name, table.name),
-            ModifyColumnType(table, column) => write!(f, "Modify type for column: {} on table: {}", column.name, table.name),
-            ModifyColumnNull(table, column) => write!(f, "Modify null for column: {} on table: {}", column.name, table.name),
-            ModifyColumnDefault(table, column) => write!(f, "Modify default for column: {} on table: {}", column.name, table.name),
-            ModifyColumnUniqueConstraint(table, column) => write!(f, "Modify unique constraint for column: {} on table: {}", column.name, table.name),
-            ModifyColumnPrimaryKeyConstraint(table, column) => write!(f, "Modify primary key constraint for column: {} on table: {}", column.name, table.name),
+            ModifyColumnType(table, column) => {
+                write!(f, "Modify type for column: {} on table: {}", column.name, table.name)
+            }
+            ModifyColumnNull(table, column) => {
+                write!(f, "Modify null for column: {} on table: {}", column.name, table.name)
+            }
+            ModifyColumnDefault(table, column) => {
+                write!(f, "Modify default for column: {} on table: {}", column.name, table.name)
+            }
+            ModifyColumnUniqueConstraint(table, column) => write!(
+                f,
+                "Modify unique constraint for column: {} on table: {}",
+                column.name, table.name
+            ),
+            ModifyColumnPrimaryKeyConstraint(table, column) => write!(
+                f,
+                "Modify primary key constraint for column: {} on table: {}",
+                column.name, table.name
+            ),
             DropColumn(table, ref column_name) => write!(f, "Drop column: {} on table: {}", column_name, table.name),
 
             // Constraints
-            AddConstraint(table, constraint) => write!(
-                f,
-                "Add constraint: {} to table: {}",
-                constraint.name(),
-                table.name
-            ),
-            DropConstraint(table, ref name) => write!(
-                f,
-                "Drop constraint: {} to table: {}",
-                name,
-                table.name
-            ),
+            AddConstraint(table, constraint) => {
+                write!(f, "Add constraint: {} to table: {}", constraint.name(), table.name)
+            }
+            DropConstraint(table, ref name) => write!(f, "Drop constraint: {} to table: {}", name, table.name),
 
             // Indexes
-            AddIndex(index, concurrently) => write!(f, "Add index{}: {}", if concurrently { " concurrently" } else { "" }, index.fully_qualified_name()),
-            DropIndex(ref index_name, concurrently) => write!(f, "Drop index{}: {}", if concurrently { " concurrently" } else { "" }, index_name),
+            AddIndex(index, concurrently) => write!(
+                f,
+                "Add index{}: {}",
+                if concurrently { " concurrently" } else { "" },
+                index.fully_qualified_name()
+            ),
+            DropIndex(ref index_name, concurrently) => write!(
+                f,
+                "Drop index{}: {}",
+                if concurrently { " concurrently" } else { "" },
+                index_name
+            ),
 
             // Functions
             AddFunction(function) => write!(f, "Add function: {}", function.name),
@@ -999,7 +1036,7 @@ impl<'input> ChangeInstruction<'input> {
                 drop.push_str(&format!("WHERE pg_stat_activity.datname = '{}';", db));
                 drop.push_str(&format!("DROP DATABASE {}", db));
                 drop
-            },
+            }
             ChangeInstruction::UseDatabase(ref db) => format!("-- Using database `{}`", db),
 
             // ExtensionRequest level
@@ -1009,21 +1046,23 @@ impl<'input> ChangeInstruction<'input> {
                 } else {
                     format!("CREATE EXTENSION {}", name)
                 }
-            },
+            }
             ChangeInstruction::UpgradeExtension(ref name, ref version) => {
                 if let Some(ref version) = version {
                     format!("ALTER EXTENSION {} UPDATE TO \"{}\"", name, version)
                 } else {
                     format!("ALTER EXTENSION {} UPDATE", name)
                 }
-            },
+            }
 
             // Schema level
-            ChangeInstruction::AddSchema(schema) => if schema.name == "public" {
-                format!("CREATE SCHEMA IF NOT EXISTS {}", schema.name)
-            } else {
-                format!("CREATE SCHEMA {}", schema.name)
-            },
+            ChangeInstruction::AddSchema(schema) => {
+                if schema.name == "public" {
+                    format!("CREATE SCHEMA IF NOT EXISTS {}", schema.name)
+                } else {
+                    format!("CREATE SCHEMA {}", schema.name)
+                }
+            }
 
             // Type level
             ChangeInstruction::AddType(ty) => {
@@ -1048,24 +1087,12 @@ impl<'input> ChangeInstruction<'input> {
                 def
             }
             ChangeInstruction::ModifyType(ty, ref action) => match *action {
-                TypeModificationAction::AddEnumValueBefore {
-                    ref value,
-                    ref before,
-                } => format!(
-                    "ALTER TYPE {} ADD VALUE '{}' BEFORE '{}'",
-                    ty.name,
-                    value,
-                    before
-                ),
-                TypeModificationAction::AddEnumValueAfter {
-                    ref value,
-                    ref after,
-                } => format!(
-                    "ALTER TYPE {} ADD VALUE '{}' AFTER '{}'",
-                    ty.name,
-                    value,
-                    after
-                ),
+                TypeModificationAction::AddEnumValueBefore { ref value, ref before } => {
+                    format!("ALTER TYPE {} ADD VALUE '{}' BEFORE '{}'", ty.name, value, before)
+                }
+                TypeModificationAction::AddEnumValueAfter { ref value, ref after } => {
+                    format!("ALTER TYPE {} ADD VALUE '{}' AFTER '{}'", ty.name, value, after)
+                }
                 TypeModificationAction::RemoveEnumValue { ref value } => format!(
                     "DELETE FROM pg_enum \
                      WHERE enumlabel='{}' AND \
@@ -1077,10 +1104,8 @@ impl<'input> ChangeInstruction<'input> {
                         format!("typname='{}'", ty.name.name)
                     },
                 ),
-            }
-            ChangeInstruction::DropType(ref type_name) => {
-                format!("DROP TYPE IF EXISTS {}", type_name)
-            }
+            },
+            ChangeInstruction::DropType(ref type_name) => format!("DROP TYPE IF EXISTS {}", type_name),
 
             // Function level
             ChangeInstruction::AddFunction(function) | ChangeInstruction::ModifyFunction(function) => {
@@ -1126,9 +1151,7 @@ impl<'input> ChangeInstruction<'input> {
                 func.push_str(&function.language.to_string());
                 func
             }
-            ChangeInstruction::DropFunction(ref function_name) => {
-                format!("DROP FUNCTION IF EXISTS {}", function_name)
-            }
+            ChangeInstruction::DropFunction(ref function_name) => format!("DROP FUNCTION IF EXISTS {}", function_name),
 
             // Table level
             ChangeInstruction::AddTable(def) => {
@@ -1142,7 +1165,9 @@ impl<'input> ChangeInstruction<'input> {
                     instr.push_str(&format!("{} {}", column.name, column.sql_type));
                     for constraint in column.constraints.iter() {
                         match *constraint {
-                            ColumnConstraint::Default(ref any_type) => instr.push_str(&format!(" DEFAULT {}", any_type)),
+                            ColumnConstraint::Default(ref any_type) => {
+                                instr.push_str(&format!(" DEFAULT {}", any_type))
+                            }
                             ColumnConstraint::NotNull => instr.push_str(" NOT NULL"),
                             ColumnConstraint::Null => instr.push_str(" NULL"),
                             ColumnConstraint::Unique => instr.push_str(" UNIQUE"),
@@ -1154,14 +1179,15 @@ impl<'input> ChangeInstruction<'input> {
                 instr.push_str("\n)");
                 instr
             }
-            ChangeInstruction::DropTable(ref table_name) => {
-                format!("DROP TABLE IF EXISTS {}", table_name)
-            }
+            ChangeInstruction::DropTable(ref table_name) => format!("DROP TABLE IF EXISTS {}", table_name),
 
             // Column level
             ChangeInstruction::AddColumn(table, column) => {
                 let mut instr = String::new();
-                instr.push_str(&format!("ALTER TABLE {} ADD COLUMN {} {}", table.name, column.name, column.sql_type));
+                instr.push_str(&format!(
+                    "ALTER TABLE {} ADD COLUMN {} {}",
+                    table.name, column.name, column.sql_type
+                ));
                 for constraint in column.constraints.iter() {
                     match *constraint {
                         ColumnConstraint::Default(ref any_type) => instr.push_str(&format!(" DEFAULT {}", any_type)),
@@ -1173,9 +1199,10 @@ impl<'input> ChangeInstruction<'input> {
                 }
                 instr
             }
-            ChangeInstruction::ModifyColumnType(table, column) => {
-                format!("ALTER TABLE {} ALTER COLUMN {} TYPE {}", table.name, column.name, column.sql_type)
-            }
+            ChangeInstruction::ModifyColumnType(table, column) => format!(
+                "ALTER TABLE {} ALTER COLUMN {} TYPE {}",
+                table.name, column.name, column.sql_type
+            ),
             ChangeInstruction::ModifyColumnNull(table, column) => {
                 for constraint in column.constraints.iter() {
                     match *constraint {
@@ -1188,41 +1215,47 @@ impl<'input> ChangeInstruction<'input> {
                         _ => {}
                     }
                 }
-                error!(log, "Expected to modify column null constraint for {}.{}", table.name, column.name);
+                error!(
+                    log,
+                    "Expected to modify column null constraint for {}.{}", table.name, column.name
+                );
                 "".to_owned()
             }
             ChangeInstruction::ModifyColumnDefault(table, column) => {
                 for constraint in column.constraints.iter() {
-                    match *constraint {
-                        ColumnConstraint::Default(ref any_type) => {
-                            return format!(";\nALTER TABLE {} ALTER COLUMN {} SET DEFAULT {}", table.name, column.name, any_type);
-                        }
-                        _ => {}
+                    if let ColumnConstraint::Default(ref any_type) = *constraint {
+                        return format!(
+                            ";\nALTER TABLE {} ALTER COLUMN {} SET DEFAULT {}",
+                            table.name, column.name, any_type
+                        );
                     }
                 }
-                error!(log, "Expected to modify column default constraint for {}.{}", table.name, column.name);
+                error!(
+                    log,
+                    "Expected to modify column default constraint for {}.{}", table.name, column.name
+                );
                 "".to_owned()
             }
             ChangeInstruction::ModifyColumnUniqueConstraint(table, column) => {
                 for constraint in column.constraints.iter() {
-                    match *constraint {
-                        ColumnConstraint::Unique => {
-                            // TODO: These have to be table level constraints. Ignore??
-                            warn!(log, "Ignoring UNIQUE column constraint for {}.{}", table.name, column.name);
-                        }
-                        _ => {}
+                    if let ColumnConstraint::Unique = *constraint {
+                        // TODO: These have to be table level constraints. Ignore??
+                        warn!(
+                            log,
+                            "Ignoring UNIQUE column constraint for {}.{}", table.name, column.name
+                        );
                     }
                 }
                 "".to_owned()
             }
             ChangeInstruction::ModifyColumnPrimaryKeyConstraint(table, column) => {
                 for constraint in column.constraints.iter() {
-                    match *constraint {
-                        ColumnConstraint::PrimaryKey => {
-                            // TODO: These have to be table level constraints. Ignore??
-                            warn!(log, "Ignoring PRIMARY KEY column constraint for {}.{}", table.name, column.name);
-                        }
-                        _ => {}
+                    if let ColumnConstraint::PrimaryKey = *constraint {
+                        // TODO: These have to be table level constraints. Ignore??
+                        warn!(
+                            log,
+                            "Ignoring PRIMARY KEY column constraint for {}.{}", table.name, column.name
+                        );
                     }
                 }
                 "".to_owned()
@@ -1240,11 +1273,7 @@ impl<'input> ChangeInstruction<'input> {
                         ref columns,
                         ref parameters,
                     } => {
-                        instr.push_str(&format!(
-                            "CONSTRAINT {} PRIMARY KEY ({})",
-                            name,
-                            columns.join(", ")
-                        ));
+                        instr.push_str(&format!("CONSTRAINT {} PRIMARY KEY ({})", name, columns.join(", ")));
 
                         // Do the WITH options too
                         if let Some(ref unwrapped) = *parameters {
@@ -1375,10 +1404,10 @@ impl<'input> ChangeInstruction<'input> {
 mod tests {
     use super::*;
 
+    use crate::errors::PsqlpackError;
+    use crate::model::*;
+    use crate::sql::ast;
     use crate::Semver;
-    use errors::PsqlpackError;
-    use model::*;
-    use sql::ast;
 
     use slog::{Discard, Drain, Logger};
     use spectral::prelude::*;
@@ -1391,7 +1420,7 @@ mod tests {
         ast::TypeDefinition {
             name: ast::ObjectName {
                 schema: Some("public".to_string()),
-                name: "colors".to_string()
+                name: "colors".to_string(),
             },
             kind: ast::TypeDefinitionKind::Enum(vec!["red".into(), "green".into(), "blue".into()]),
         }
@@ -1412,11 +1441,13 @@ mod tests {
         let publish_profile = PublishProfile::default();
 
         let mut change_set = Vec::new();
-        let result = (&source_type).generate(&mut change_set,
-                                             &existing_database,
-                                             &capabilities,
-                                             &publish_profile,
-                                             &log);
+        let result = (&source_type).generate(
+            &mut change_set,
+            &existing_database,
+            &capabilities,
+            &publish_profile,
+            &log,
+        );
         assert_that!(result).is_ok();
 
         // We should have a single instruction to add
@@ -1425,7 +1456,7 @@ mod tests {
             ChangeInstruction::AddType(ref ty) => {
                 assert_that!(ty.name).is_equal_to(ast::ObjectName {
                     schema: Some("public".to_string()),
-                    name: "colors".to_string()
+                    name: "colors".to_string(),
                 });
                 let values = match ty.kind {
                     TypeDefinitionKind::Enum(ref values) => values.clone(),
@@ -1460,11 +1491,13 @@ mod tests {
         let publish_profile = PublishProfile::default();
 
         let mut change_set = Vec::new();
-        let result = (&source_type).generate(&mut change_set,
-                                             &existing_database,
-                                             &capabilities,
-                                             &publish_profile,
-                                             &log);
+        let result = (&source_type).generate(
+            &mut change_set,
+            &existing_database,
+            &capabilities,
+            &publish_profile,
+            &log,
+        );
         assert_that!(result).is_ok();
 
         // We should have a single instruction to add
@@ -1477,7 +1510,7 @@ mod tests {
         let source_type = ast::TypeDefinition {
             name: ast::ObjectName {
                 schema: Some("public".to_string()),
-                name: "colors".to_string()
+                name: "colors".to_string(),
             },
             kind: ast::TypeDefinitionKind::Enum(vec![
                 "red".to_owned(),
@@ -1498,11 +1531,13 @@ mod tests {
         let publish_profile = PublishProfile::default();
 
         let mut change_set = Vec::new();
-        let result = (&source_type).generate(&mut change_set,
-                                             &existing_database,
-                                             &capabilities,
-                                             &publish_profile,
-                                             &log);
+        let result = (&source_type).generate(
+            &mut change_set,
+            &existing_database,
+            &capabilities,
+            &publish_profile,
+            &log,
+        );
         assert_that!(result).is_ok();
 
         // We should have a single instruction to modify the enum with an additional value
@@ -1511,15 +1546,12 @@ mod tests {
             ChangeInstruction::ModifyType(ty, ref action) => {
                 assert_that!(ty.name).is_equal_to(ast::ObjectName {
                     schema: Some("public".to_string()),
-                    name: "colors".to_string()
+                    name: "colors".to_string(),
                 });
 
                 // Also, match the action
                 match *action {
-                    TypeModificationAction::AddEnumValueAfter {
-                        ref value,
-                        ref after,
-                    } => {
+                    TypeModificationAction::AddEnumValueAfter { ref value, ref after } => {
                         assert_that!(*value).is_equal_to("black".to_owned());
                         assert_that!(*after).is_equal_to("blue".to_owned());
                     }
@@ -1530,7 +1562,8 @@ mod tests {
         }
 
         // Check the SQL generation
-        assert_that!(change_set[0].to_sql(&log)).is_equal_to("ALTER TYPE public.colors ADD VALUE 'black' AFTER 'blue'".to_owned());
+        assert_that!(change_set[0].to_sql(&log))
+            .is_equal_to("ALTER TYPE public.colors ADD VALUE 'black' AFTER 'blue'".to_owned());
     }
 
     #[test]
@@ -1539,7 +1572,7 @@ mod tests {
         let source_type = ast::TypeDefinition {
             name: ast::ObjectName {
                 schema: Some("public".to_string()),
-                name: "colors".to_string()
+                name: "colors".to_string(),
             },
             kind: ast::TypeDefinitionKind::Enum(vec![
                 "black".to_owned(),
@@ -1560,11 +1593,13 @@ mod tests {
         let publish_profile = PublishProfile::default();
 
         let mut change_set = Vec::new();
-        let result = (&source_type).generate(&mut change_set,
-                                             &existing_database,
-                                             &capabilities,
-                                             &publish_profile,
-                                             &log);
+        let result = (&source_type).generate(
+            &mut change_set,
+            &existing_database,
+            &capabilities,
+            &publish_profile,
+            &log,
+        );
         assert_that!(result).is_ok();
 
         // We should have a single instruction to modify the enum with an additional value
@@ -1573,15 +1608,12 @@ mod tests {
             ChangeInstruction::ModifyType(ty, ref action) => {
                 assert_that!(ty.name).is_equal_to(ast::ObjectName {
                     schema: Some("public".to_string()),
-                    name: "colors".to_string()
+                    name: "colors".to_string(),
                 });
 
                 // Also, match the action
                 match *action {
-                    TypeModificationAction::AddEnumValueBefore {
-                        ref value,
-                        ref before,
-                    } => {
+                    TypeModificationAction::AddEnumValueBefore { ref value, ref before } => {
                         assert_that!(*value).is_equal_to("black".to_owned());
                         assert_that!(*before).is_equal_to("red".to_owned());
                     }
@@ -1592,7 +1624,8 @@ mod tests {
         }
 
         // Check the SQL generation
-        assert_that!(change_set[0].to_sql(&log)).is_equal_to("ALTER TYPE public.colors ADD VALUE 'black' BEFORE 'red'".to_owned());
+        assert_that!(change_set[0].to_sql(&log))
+            .is_equal_to("ALTER TYPE public.colors ADD VALUE 'black' BEFORE 'red'".to_owned());
     }
 
     #[test]
@@ -1601,7 +1634,7 @@ mod tests {
         let source_type = ast::TypeDefinition {
             name: ast::ObjectName {
                 schema: Some("public".to_string()),
-                name: "colors".to_string()
+                name: "colors".to_string(),
             },
             kind: ast::TypeDefinitionKind::Enum(vec![
                 "red".to_owned(),
@@ -1622,11 +1655,13 @@ mod tests {
         let publish_profile = PublishProfile::default();
 
         let mut change_set = Vec::new();
-        let result = (&source_type).generate(&mut change_set,
-                                             &existing_database,
-                                             &capabilities,
-                                             &publish_profile,
-                                             &log);
+        let result = (&source_type).generate(
+            &mut change_set,
+            &existing_database,
+            &capabilities,
+            &publish_profile,
+            &log,
+        );
         assert_that!(result).is_ok();
 
         // We should have a single instruction to modify the enum with an additional value
@@ -1635,15 +1670,12 @@ mod tests {
             ChangeInstruction::ModifyType(ty, ref action) => {
                 assert_that!(ty.name).is_equal_to(ast::ObjectName {
                     schema: Some("public".to_string()),
-                    name: "colors".to_string()
+                    name: "colors".to_string(),
                 });
 
                 // Also, match the action
                 match *action {
-                    TypeModificationAction::AddEnumValueAfter {
-                        ref value,
-                        ref after,
-                    } => {
+                    TypeModificationAction::AddEnumValueAfter { ref value, ref after } => {
                         assert_that!(*value).is_equal_to("black".to_owned());
                         assert_that!(*after).is_equal_to("green".to_owned());
                     }
@@ -1654,7 +1686,8 @@ mod tests {
         }
 
         // Check the SQL generation
-        assert_that!(change_set[0].to_sql(&log)).is_equal_to("ALTER TYPE public.colors ADD VALUE 'black' AFTER 'green'".to_owned());
+        assert_that!(change_set[0].to_sql(&log))
+            .is_equal_to("ALTER TYPE public.colors ADD VALUE 'black' AFTER 'green'".to_owned());
     }
 
     #[test]
@@ -1663,13 +1696,9 @@ mod tests {
         let source_type = ast::TypeDefinition {
             name: ast::ObjectName {
                 schema: Some("public".to_string()),
-                name: "colors".to_string()
+                name: "colors".to_string(),
             },
-            kind: ast::TypeDefinitionKind::Enum(vec![
-                "black".to_owned(),
-                "green".to_owned(),
-                "blue".to_owned(),
-            ]),
+            kind: ast::TypeDefinitionKind::Enum(vec!["black".to_owned(), "green".to_owned(), "blue".to_owned()]),
         };
 
         // Create a package with the type already defined
@@ -1684,11 +1713,13 @@ mod tests {
         publish_profile.generation_options.drop_enum_values = Toggle::Allow;
 
         let mut change_set = Vec::new();
-        let result = (&source_type).generate(&mut change_set,
-                                             &existing_database,
-                                             &capabilities,
-                                             &publish_profile,
-                                             &log);
+        let result = (&source_type).generate(
+            &mut change_set,
+            &existing_database,
+            &capabilities,
+            &publish_profile,
+            &log,
+        );
         assert_that!(result).is_ok();
 
         // We should have a single instruction to modify the enum with an additional value
@@ -1699,7 +1730,7 @@ mod tests {
             ChangeInstruction::ModifyType(ty, ref action) => {
                 assert_that!(ty.name).is_equal_to(ast::ObjectName {
                     schema: Some("public".to_string()),
-                    name: "colors".to_string()
+                    name: "colors".to_string(),
                 });
 
                 // Also, match the action
@@ -1725,15 +1756,12 @@ mod tests {
             ChangeInstruction::ModifyType(ty, ref action) => {
                 assert_that!(ty.name).is_equal_to(ast::ObjectName {
                     schema: Some("public".to_string()),
-                    name: "colors".to_string()
+                    name: "colors".to_string(),
                 });
 
                 // Also, match the action
                 match *action {
-                    TypeModificationAction::AddEnumValueBefore {
-                        ref value,
-                        ref before,
-                    } => {
+                    TypeModificationAction::AddEnumValueBefore { ref value, ref before } => {
                         assert_that!(*value).is_equal_to("black".to_owned());
                         assert_that!(*before).is_equal_to("green".to_owned());
                     }
@@ -1743,7 +1771,8 @@ mod tests {
             ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
         }
         // Check the SQL generation
-        assert_that!(change_set[1].to_sql(&log)).is_equal_to("ALTER TYPE public.colors ADD VALUE 'black' BEFORE 'green'".to_owned());
+        assert_that!(change_set[1].to_sql(&log))
+            .is_equal_to("ALTER TYPE public.colors ADD VALUE 'black' BEFORE 'green'".to_owned());
     }
 
     #[test]
@@ -1752,13 +1781,9 @@ mod tests {
         let source_type = ast::TypeDefinition {
             name: ast::ObjectName {
                 schema: Some("public".to_string()),
-                name: "colors".to_string()
+                name: "colors".to_string(),
             },
-            kind: ast::TypeDefinitionKind::Enum(vec![
-                "black".to_owned(),
-                "green".to_owned(),
-                "blue".to_owned(),
-            ]),
+            kind: ast::TypeDefinitionKind::Enum(vec!["black".to_owned(), "green".to_owned(), "blue".to_owned()]),
         };
 
         // Create a package with the type already defined
@@ -1772,18 +1797,17 @@ mod tests {
         let publish_profile = PublishProfile::default();
 
         let mut change_set = Vec::new();
-        let result = (&source_type).generate(&mut change_set,
-                                             &existing_database,
-                                             &capabilities,
-                                             &publish_profile,
-                                             &log);
+        let result = (&source_type).generate(
+            &mut change_set,
+            &existing_database,
+            &capabilities,
+            &publish_profile,
+            &log,
+        );
         assert_that!(result).is_err();
         match result.err().unwrap() {
             PsqlpackError(PublishUnsafeOperationError(_), _) => {}
-            unexpected => panic!(
-                "Expected unsafe operation error however saw {:?}",
-                unexpected
-            ),
+            unexpected => panic!("Expected unsafe operation error however saw {:?}", unexpected),
         };
     }
 
@@ -1793,7 +1817,7 @@ mod tests {
         let source_type = ast::TypeDefinition {
             name: ast::ObjectName {
                 schema: Some("public".to_string()),
-                name: "colors".to_string()
+                name: "colors".to_string(),
             },
             kind: ast::TypeDefinitionKind::Enum(vec!["green".to_owned(), "blue".to_owned()]),
         };
@@ -1810,11 +1834,13 @@ mod tests {
         publish_profile.generation_options.drop_enum_values = Toggle::Allow;
 
         let mut change_set = Vec::new();
-        let result = (&source_type).generate(&mut change_set,
-                                             &existing_database,
-                                             &capabilities,
-                                             &publish_profile,
-                                             &log);
+        let result = (&source_type).generate(
+            &mut change_set,
+            &existing_database,
+            &capabilities,
+            &publish_profile,
+            &log,
+        );
         assert_that!(result).is_ok();
 
         // We should have a single instruction to modify the enum with an additional value
@@ -1825,7 +1851,7 @@ mod tests {
             ChangeInstruction::ModifyType(ty, ref action) => {
                 assert_that!(ty.name).is_equal_to(ast::ObjectName {
                     schema: Some("public".to_string()),
-                    name: "colors".to_string()
+                    name: "colors".to_string(),
                 });
 
                 // Also, match the action
@@ -1857,24 +1883,17 @@ mod tests {
                 ColumnDefinition {
                     name: "id".to_owned(),
                     sql_type: SqlType::Simple(SimpleSqlType::Serial, None),
-                    constraints: vec![
-                        ColumnConstraint::NotNull,
-                        ColumnConstraint::PrimaryKey,
-                    ],
+                    constraints: vec![ColumnConstraint::NotNull, ColumnConstraint::PrimaryKey],
                 },
                 ColumnDefinition {
                     name: "company_id".to_owned(),
                     sql_type: SqlType::Simple(SimpleSqlType::BigInteger, None),
-                    constraints: vec![
-                        ColumnConstraint::NotNull,
-                    ],
+                    constraints: vec![ColumnConstraint::NotNull],
                 },
                 ColumnDefinition {
                     name: "first_name".to_owned(),
                     sql_type: SqlType::Simple(SimpleSqlType::VariableLengthString(100), None),
-                    constraints: vec![
-                        ColumnConstraint::NotNull,
-                    ],
+                    constraints: vec![ColumnConstraint::NotNull],
                 },
             ],
             constraints: Vec::new(),
@@ -1896,11 +1915,13 @@ mod tests {
         let publish_profile = PublishProfile::default();
 
         let mut change_set = Vec::new();
-        let result = (&source_table).generate(&mut change_set,
-                                              &existing_database,
-                                              &capabilities,
-                                              &publish_profile,
-                                              &log);
+        let result = (&source_table).generate(
+            &mut change_set,
+            &existing_database,
+            &capabilities,
+            &publish_profile,
+            &log,
+        );
         assert_that!(result).is_ok();
 
         // We should have a single instruction to create a new table
@@ -1918,12 +1939,14 @@ mod tests {
         }
 
         // Check the SQL generation
-        assert_that!(change_set[0].to_sql(&log))
-            .is_equal_to("CREATE TABLE my.contacts (\n\
-                \tid serial NOT NULL PRIMARY KEY,\n\
-                \tcompany_id bigint NOT NULL,\n\
-                \tfirst_name varchar(100) NOT NULL\n\
-                )".to_owned());
+        assert_that!(change_set[0].to_sql(&log)).is_equal_to(
+            "CREATE TABLE my.contacts (\n\
+             \tid serial NOT NULL PRIMARY KEY,\n\
+             \tcompany_id bigint NOT NULL,\n\
+             \tfirst_name varchar(100) NOT NULL\n\
+             )"
+            .to_owned(),
+        );
     }
 
     #[test]
@@ -1931,12 +1954,10 @@ mod tests {
         let log = empty_logger();
         let mut source_table = base_table();
         source_table.columns.push(ColumnDefinition {
-                name: "last_name".to_owned(),
-                sql_type: SqlType::Simple(SimpleSqlType::VariableLengthString(100), None),
-                constraints: vec![
-                    ColumnConstraint::NotNull,
-                ],
-            });
+            name: "last_name".to_owned(),
+            sql_type: SqlType::Simple(SimpleSqlType::VariableLengthString(100), None),
+            constraints: vec![ColumnConstraint::NotNull],
+        });
 
         // Create a database with the base table already defined.
         let mut existing_database = Package::new();
@@ -1950,20 +1971,27 @@ mod tests {
 
         let mut change_set = Vec::new();
         // First, check that source table changes do nothing
-        let _ = (&source_table).generate(&mut change_set,
-                                         &existing_database,
-                                         &capabilities,
-                                         &publish_profile,
-                                         &log);
+        let _ = (&source_table).generate(
+            &mut change_set,
+            &existing_database,
+            &capabilities,
+            &publish_profile,
+            &log,
+        );
         assert_that!(change_set).is_empty();
 
         // Now we check with a linked column
-        let result = LinkedColumn { table: &source_table, column: &source_table.columns.last().unwrap()}
-                        .generate(&mut change_set,
-                                  &existing_database,
-                                  &capabilities,
-                                  &publish_profile,
-                                  &log);
+        let result = LinkedColumn {
+            table: &source_table,
+            column: &source_table.columns.last().unwrap(),
+        }
+        .generate(
+            &mut change_set,
+            &existing_database,
+            &capabilities,
+            &publish_profile,
+            &log,
+        );
         assert_that!(result).is_ok();
 
         // We should have a single instruction to create a new table
@@ -1972,7 +2000,8 @@ mod tests {
             ChangeInstruction::AddColumn(ref table, ref column) => {
                 assert_that!(table.name.to_string()).is_equal_to("my.contacts".to_owned());
                 assert_that!(column.name).is_equal_to("last_name".to_owned());
-                assert_that!(column.sql_type).is_equal_to(SqlType::Simple(SimpleSqlType::VariableLengthString(100), None));
+                assert_that!(column.sql_type)
+                    .is_equal_to(SqlType::Simple(SimpleSqlType::VariableLengthString(100), None));
                 assert_that!(column.constraints).has_length(1);
             }
             ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
@@ -1987,26 +2016,20 @@ mod tests {
     fn it_can_widen_column_on_existing_table() {
         let log = empty_logger();
         let mut source_table = base_table();
-        source_table.columns.push(
-            ColumnDefinition {
-                name: "last_name".to_owned(),
-                sql_type: SqlType::Simple(SimpleSqlType::VariableLengthString(200), None),
-                constraints: vec![
-                    ColumnConstraint::NotNull,
-                ],
-            });
+        source_table.columns.push(ColumnDefinition {
+            name: "last_name".to_owned(),
+            sql_type: SqlType::Simple(SimpleSqlType::VariableLengthString(200), None),
+            constraints: vec![ColumnConstraint::NotNull],
+        });
 
         // Create a database with the base table already defined.
         let mut existing_database = Package::new();
         let mut existing_table = base_table();
-        existing_table.columns.push(
-            ColumnDefinition {
-                name: "last_name".to_owned(),
-                sql_type: SqlType::Simple(SimpleSqlType::VariableLengthString(100), None),
-                constraints: vec![
-                    ColumnConstraint::NotNull,
-                ],
-            });
+        existing_table.columns.push(ColumnDefinition {
+            name: "last_name".to_owned(),
+            sql_type: SqlType::Simple(SimpleSqlType::VariableLengthString(100), None),
+            constraints: vec![ColumnConstraint::NotNull],
+        });
 
         existing_database.tables.push(existing_table);
         let capabilities = Capabilities {
@@ -2018,20 +2041,27 @@ mod tests {
 
         let mut change_set = Vec::new();
         // First, check that source table changes do nothing
-        let _ = (&source_table).generate(&mut change_set,
-                                         &existing_database,
-                                         &capabilities,
-                                         &publish_profile,
-                                         &log);
+        let _ = (&source_table).generate(
+            &mut change_set,
+            &existing_database,
+            &capabilities,
+            &publish_profile,
+            &log,
+        );
         assert_that!(change_set).is_empty();
 
         // Now we check with a linked column
-        let result = LinkedColumn { table: &source_table, column: &source_table.columns.last().unwrap()}
-                        .generate(&mut change_set,
-                                  &existing_database,
-                                  &capabilities,
-                                  &publish_profile,
-                                  &log);
+        let result = LinkedColumn {
+            table: &source_table,
+            column: &source_table.columns.last().unwrap(),
+        }
+        .generate(
+            &mut change_set,
+            &existing_database,
+            &capabilities,
+            &publish_profile,
+            &log,
+        );
         assert_that!(result).is_ok();
 
         // We should have a single instruction to create a new table
@@ -2040,7 +2070,8 @@ mod tests {
             ChangeInstruction::ModifyColumnType(ref table, ref column) => {
                 assert_that!(table.name.to_string()).is_equal_to("my.contacts".to_owned());
                 assert_that!(column.name).is_equal_to("last_name".to_owned());
-                assert_that!(column.sql_type).is_equal_to(SqlType::Simple(SimpleSqlType::VariableLengthString(200), None));
+                assert_that!(column.sql_type)
+                    .is_equal_to(SqlType::Simple(SimpleSqlType::VariableLengthString(200), None));
                 assert_that!(column.constraints).has_length(1);
             }
             ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
@@ -2059,14 +2090,11 @@ mod tests {
         // Create a database with the base table already defined.
         let mut existing_database = Package::new();
         let mut existing_table = base_table();
-        existing_table.columns.push(
-            ColumnDefinition {
-                name: "last_name".to_owned(),
-                sql_type: SqlType::Simple(SimpleSqlType::VariableLengthString(100), None),
-                constraints: vec![
-                    ColumnConstraint::NotNull,
-                ],
-            });
+        existing_table.columns.push(ColumnDefinition {
+            name: "last_name".to_owned(),
+            sql_type: SqlType::Simple(SimpleSqlType::VariableLengthString(100), None),
+            constraints: vec![ColumnConstraint::NotNull],
+        });
 
         existing_database.tables.push(existing_table);
         let capabilities = Capabilities {
@@ -2078,11 +2106,13 @@ mod tests {
         publish_profile.generation_options.drop_columns = Toggle::Allow;
 
         let mut change_set = Vec::new();
-        let result = (&source_table).generate(&mut change_set,
-                                              &existing_database,
-                                              &capabilities,
-                                              &publish_profile,
-                                              &log);
+        let result = (&source_table).generate(
+            &mut change_set,
+            &existing_database,
+            &capabilities,
+            &publish_profile,
+            &log,
+        );
         assert_that!(result).is_ok();
 
         // We should have a single instruction to create a new table
@@ -2105,10 +2135,10 @@ mod tests {
         let log = empty_logger();
         let mut source_table = base_table();
         source_table.constraints.push(TableConstraint::Primary {
-                name: "pk_my_contacts_id".to_owned(),
-                columns: vec!["id".into()],
-                parameters: Some(vec![IndexParameter::FillFactor(80)]),
-            });
+            name: "pk_my_contacts_id".to_owned(),
+            columns: vec!["id".into()],
+            parameters: Some(vec![IndexParameter::FillFactor(80)]),
+        });
 
         // Create a database with the base table already defined.
         let mut existing_database = Package::new();
@@ -2122,20 +2152,27 @@ mod tests {
 
         let mut change_set = Vec::new();
         // First, check that source table changes do nothing
-        let _ = (&source_table).generate(&mut change_set,
-                                         &existing_database,
-                                         &capabilities,
-                                         &publish_profile,
-                                         &log);
+        let _ = (&source_table).generate(
+            &mut change_set,
+            &existing_database,
+            &capabilities,
+            &publish_profile,
+            &log,
+        );
         assert_that!(change_set).is_empty();
 
         // Now we check with a linked table constraint
-        let result = LinkedTableConstraint { table: &source_table, constraint: &source_table.constraints.first().unwrap()}
-                        .generate(&mut change_set,
-                                  &existing_database,
-                                  &capabilities,
-                                  &publish_profile,
-                                  &log);
+        let result = LinkedTableConstraint {
+            table: &source_table,
+            constraint: &source_table.constraints.first().unwrap(),
+        }
+        .generate(
+            &mut change_set,
+            &existing_database,
+            &capabilities,
+            &publish_profile,
+            &log,
+        );
         assert_that!(result).is_ok();
 
         // We should have a single instruction to add a constraint
@@ -2144,7 +2181,11 @@ mod tests {
             ChangeInstruction::AddConstraint(ref table, ref constraint) => {
                 assert_that!(table.name.to_string()).is_equal_to("my.contacts".to_owned());
                 match *constraint {
-                    TableConstraint::Primary { name, columns, parameters } => {
+                    TableConstraint::Primary {
+                        name,
+                        columns,
+                        parameters,
+                    } => {
                         assert_that!(*name).is_equal_to("pk_my_contacts_id".to_owned());
                         assert_that!(*columns).has_length(1);
                         assert_that!(columns.iter()).contains("id".to_owned());
@@ -2157,8 +2198,10 @@ mod tests {
         }
 
         // Check the SQL generation
-        assert_that!(change_set[0].to_sql(&log))
-            .is_equal_to("ALTER TABLE my.contacts\nADD CONSTRAINT pk_my_contacts_id PRIMARY KEY (id) WITH (FILLFACTOR=80)".to_owned());
+        assert_that!(change_set[0].to_sql(&log)).is_equal_to(
+            "ALTER TABLE my.contacts\nADD CONSTRAINT pk_my_contacts_id PRIMARY KEY (id) WITH (FILLFACTOR=80)"
+                .to_owned(),
+        );
     }
 
     #[test]
@@ -2185,11 +2228,13 @@ mod tests {
 
         let mut change_set = Vec::new();
         // This change_set gets generated at the table level
-        let result = (&source_table).generate(&mut change_set,
-                                              &existing_database,
-                                              &capabilities,
-                                              &publish_profile,
-                                              &log);
+        let result = (&source_table).generate(
+            &mut change_set,
+            &existing_database,
+            &capabilities,
+            &publish_profile,
+            &log,
+        );
         assert_that!(result).is_ok();
 
         // We should have a single instruction to remove the constraint
@@ -2212,19 +2257,19 @@ mod tests {
         let log = empty_logger();
         let mut source_table = base_table();
         source_table.constraints.push(TableConstraint::Primary {
-                name: "pk_my_contacts_id".to_owned(),
-                columns: vec!["id".into()],
-                parameters: Some(vec![IndexParameter::FillFactor(80)]),
-            });
+            name: "pk_my_contacts_id".to_owned(),
+            columns: vec!["id".into()],
+            parameters: Some(vec![IndexParameter::FillFactor(80)]),
+        });
 
         // Create a database with the base table already defined.
         let mut existing_database = Package::new();
         let mut existing_table = base_table();
         existing_table.constraints.push(TableConstraint::Primary {
-                name: "pk_my_contacts_id".to_owned(),
-                columns: vec!["id".into(), "company_id".into()],
-                parameters: Some(vec![IndexParameter::FillFactor(80)]),
-            });
+            name: "pk_my_contacts_id".to_owned(),
+            columns: vec!["id".into(), "company_id".into()],
+            parameters: Some(vec![IndexParameter::FillFactor(80)]),
+        });
         existing_database.tables.push(existing_table);
         let capabilities = Capabilities {
             server_version: Semver::new(9, 6, None),
@@ -2236,20 +2281,27 @@ mod tests {
 
         let mut change_set = Vec::new();
         // First, check that source table changes do nothing
-        let _ = (&source_table).generate(&mut change_set,
-                                         &existing_database,
-                                         &capabilities,
-                                         &publish_profile,
-                                         &log);
+        let _ = (&source_table).generate(
+            &mut change_set,
+            &existing_database,
+            &capabilities,
+            &publish_profile,
+            &log,
+        );
         assert_that!(change_set).is_empty();
 
         // Now we check with a linked table constraint
-        let result = LinkedTableConstraint { table: &source_table, constraint: &source_table.constraints.first().unwrap()}
-                        .generate(&mut change_set,
-                                  &existing_database,
-                                  &capabilities,
-                                  &publish_profile,
-                                  &log);
+        let result = LinkedTableConstraint {
+            table: &source_table,
+            constraint: &source_table.constraints.first().unwrap(),
+        }
+        .generate(
+            &mut change_set,
+            &existing_database,
+            &capabilities,
+            &publish_profile,
+            &log,
+        );
         assert_that!(result).is_ok();
 
         // Primary keys cannot be altered, so we drop/create
@@ -2265,7 +2317,11 @@ mod tests {
             ChangeInstruction::AddConstraint(ref table, ref constraint) => {
                 assert_that!(table.name.to_string()).is_equal_to("my.contacts".to_owned());
                 match *constraint {
-                    TableConstraint::Primary { name, columns, parameters } => {
+                    TableConstraint::Primary {
+                        name,
+                        columns,
+                        parameters,
+                    } => {
                         assert_that!(*name).is_equal_to("pk_my_contacts_id".to_owned());
                         assert_that!(*columns).has_length(1);
                         assert_that!(columns.iter()).contains("id".to_owned());
@@ -2280,8 +2336,10 @@ mod tests {
         // Check the SQL generation
         assert_that!(change_set[0].to_sql(&log))
             .is_equal_to("ALTER TABLE my.contacts\nDROP CONSTRAINT pk_my_contacts_id".to_owned());
-        assert_that!(change_set[1].to_sql(&log))
-            .is_equal_to("ALTER TABLE my.contacts\nADD CONSTRAINT pk_my_contacts_id PRIMARY KEY (id) WITH (FILLFACTOR=80)".to_owned());
+        assert_that!(change_set[1].to_sql(&log)).is_equal_to(
+            "ALTER TABLE my.contacts\nADD CONSTRAINT pk_my_contacts_id PRIMARY KEY (id) WITH (FILLFACTOR=80)"
+                .to_owned(),
+        );
     }
 
     #[test]
@@ -2289,16 +2347,19 @@ mod tests {
         let log = empty_logger();
         let mut source_table = base_table();
         source_table.constraints.push(TableConstraint::Foreign {
-                name: "fk_my_contacts_my_companies".to_owned(),
-                columns: vec!["company_id".into()],
-                ref_table: ObjectName { schema: Some("my".into()), name: "companies".into() },
-                ref_columns: vec!["id".into()],
-                match_type: Some(ForeignConstraintMatchType::Simple),
-                events: Some(vec![
-                    ForeignConstraintEvent::Update(ForeignConstraintAction::Cascade),
-                    ForeignConstraintEvent::Delete(ForeignConstraintAction::NoAction),
-                ]),
-            });
+            name: "fk_my_contacts_my_companies".to_owned(),
+            columns: vec!["company_id".into()],
+            ref_table: ObjectName {
+                schema: Some("my".into()),
+                name: "companies".into(),
+            },
+            ref_columns: vec!["id".into()],
+            match_type: Some(ForeignConstraintMatchType::Simple),
+            events: Some(vec![
+                ForeignConstraintEvent::Update(ForeignConstraintAction::Cascade),
+                ForeignConstraintEvent::Delete(ForeignConstraintAction::NoAction),
+            ]),
+        });
 
         // Create a database with the base table already defined.
         let mut existing_database = Package::new();
@@ -2312,20 +2373,27 @@ mod tests {
 
         let mut change_set = Vec::new();
         // First, check that source table changes do nothing
-        let _ = (&source_table).generate(&mut change_set,
-                                         &existing_database,
-                                         &capabilities,
-                                         &publish_profile,
-                                         &log);
+        let _ = (&source_table).generate(
+            &mut change_set,
+            &existing_database,
+            &capabilities,
+            &publish_profile,
+            &log,
+        );
         assert_that!(change_set).is_empty();
 
         // Now we check with a linked table constraint
-        let result = LinkedTableConstraint { table: &source_table, constraint: &source_table.constraints.first().unwrap()}
-                        .generate(&mut change_set,
-                                  &existing_database,
-                                  &capabilities,
-                                  &publish_profile,
-                                  &log);
+        let result = LinkedTableConstraint {
+            table: &source_table,
+            constraint: &source_table.constraints.first().unwrap(),
+        }
+        .generate(
+            &mut change_set,
+            &existing_database,
+            &capabilities,
+            &publish_profile,
+            &log,
+        );
         assert_that!(result).is_ok();
 
         // We should have a single instruction to create a new constraint
@@ -2334,14 +2402,23 @@ mod tests {
             ChangeInstruction::AddConstraint(ref table, ref constraint) => {
                 assert_that!(table.name.to_string()).is_equal_to("my.contacts".to_owned());
                 match *constraint {
-                    TableConstraint::Foreign { name, columns, ref_table, ref_columns, match_type, events } => {
+                    TableConstraint::Foreign {
+                        name,
+                        columns,
+                        ref_table,
+                        ref_columns,
+                        match_type,
+                        events,
+                    } => {
                         assert_that!(*name).is_equal_to("fk_my_contacts_my_companies".to_owned());
                         assert_that!(*columns).has_length(1);
                         assert_that!(columns.iter()).contains("company_id".to_owned());
                         assert_that!(ref_table.to_string()).is_equal_to("my.companies".to_owned());
                         assert_that!(*ref_columns).has_length(1);
                         assert_that!(ref_columns.iter()).contains("id".to_owned());
-                        assert_that!(*match_type).is_some().is_equal_to(ForeignConstraintMatchType::Simple);
+                        assert_that!(*match_type)
+                            .is_some()
+                            .is_equal_to(ForeignConstraintMatchType::Simple);
                         assert_that!(*events).is_some().has_length(2); // We test this further below
                     }
                     unxpected => panic!("Unexpected constraint: {:?}", unxpected),
@@ -2351,10 +2428,12 @@ mod tests {
         }
 
         // Check the SQL generation
-        assert_that!(change_set[0].to_sql(&log))
-            .is_equal_to("ALTER TABLE my.contacts\n\
-                          ADD CONSTRAINT fk_my_contacts_my_companies FOREIGN KEY (company_id) \
-                          REFERENCES my.companies (id) MATCH SIMPLE ON UPDATE CASCADE ON DELETE NO ACTION".to_owned());
+        assert_that!(change_set[0].to_sql(&log)).is_equal_to(
+            "ALTER TABLE my.contacts\n\
+             ADD CONSTRAINT fk_my_contacts_my_companies FOREIGN KEY (company_id) \
+             REFERENCES my.companies (id) MATCH SIMPLE ON UPDATE CASCADE ON DELETE NO ACTION"
+                .to_owned(),
+        );
     }
 
     #[test]
@@ -2366,16 +2445,19 @@ mod tests {
         let mut existing_database = Package::new();
         let mut existing_table = base_table();
         existing_table.constraints.push(TableConstraint::Foreign {
-                name: "fk_my_contacts_my_companies".to_owned(),
-                columns: vec!["company_id".into()],
-                ref_table: ObjectName { schema: Some("my".into()), name: "companies".into() },
-                ref_columns: vec!["id".into()],
-                match_type: Some(ForeignConstraintMatchType::Simple),
-                events: Some(vec![
-                    ForeignConstraintEvent::Update(ForeignConstraintAction::Cascade),
-                    ForeignConstraintEvent::Delete(ForeignConstraintAction::NoAction),
-                ]),
-            });
+            name: "fk_my_contacts_my_companies".to_owned(),
+            columns: vec!["company_id".into()],
+            ref_table: ObjectName {
+                schema: Some("my".into()),
+                name: "companies".into(),
+            },
+            ref_columns: vec!["id".into()],
+            match_type: Some(ForeignConstraintMatchType::Simple),
+            events: Some(vec![
+                ForeignConstraintEvent::Update(ForeignConstraintAction::Cascade),
+                ForeignConstraintEvent::Delete(ForeignConstraintAction::NoAction),
+            ]),
+        });
         existing_database.tables.push(existing_table);
         let capabilities = Capabilities {
             server_version: Semver::new(9, 6, None),
@@ -2387,11 +2469,13 @@ mod tests {
 
         let mut change_set = Vec::new();
         // This change_set gets generated at the table level
-        let result = (&source_table).generate(&mut change_set,
-                                              &existing_database,
-                                              &capabilities,
-                                              &publish_profile,
-                                              &log);
+        let result = (&source_table).generate(
+            &mut change_set,
+            &existing_database,
+            &capabilities,
+            &publish_profile,
+            &log,
+        );
         assert_that!(result).is_ok();
 
         // We should have a single instruction to remove a constraint
@@ -2414,31 +2498,37 @@ mod tests {
         let log = empty_logger();
         let mut source_table = base_table();
         source_table.constraints.push(TableConstraint::Foreign {
-                name: "fk_my_contacts_my_companies".to_owned(),
-                columns: vec!["company_id".into()],
-                ref_table: ObjectName { schema: Some("my".into()), name: "companies".into() },
-                ref_columns: vec!["id".into()],
-                match_type: Some(ForeignConstraintMatchType::Simple),
-                events: Some(vec![
-                    ForeignConstraintEvent::Update(ForeignConstraintAction::NoAction),
-                    ForeignConstraintEvent::Delete(ForeignConstraintAction::NoAction),
-                ]),
-            });
+            name: "fk_my_contacts_my_companies".to_owned(),
+            columns: vec!["company_id".into()],
+            ref_table: ObjectName {
+                schema: Some("my".into()),
+                name: "companies".into(),
+            },
+            ref_columns: vec!["id".into()],
+            match_type: Some(ForeignConstraintMatchType::Simple),
+            events: Some(vec![
+                ForeignConstraintEvent::Update(ForeignConstraintAction::NoAction),
+                ForeignConstraintEvent::Delete(ForeignConstraintAction::NoAction),
+            ]),
+        });
 
         // Create a database with the base table already defined.
         let mut existing_database = Package::new();
         let mut existing_table = base_table();
         existing_table.constraints.push(TableConstraint::Foreign {
-                name: "fk_my_contacts_my_companies".to_owned(),
-                columns: vec!["company_id".into()],
-                ref_table: ObjectName { schema: Some("my".into()), name: "companies".into() },
-                ref_columns: vec!["id".into()],
-                match_type: Some(ForeignConstraintMatchType::Simple),
-                events: Some(vec![
-                    ForeignConstraintEvent::Update(ForeignConstraintAction::Cascade),
-                    ForeignConstraintEvent::Delete(ForeignConstraintAction::NoAction),
-                ]),
-            });
+            name: "fk_my_contacts_my_companies".to_owned(),
+            columns: vec!["company_id".into()],
+            ref_table: ObjectName {
+                schema: Some("my".into()),
+                name: "companies".into(),
+            },
+            ref_columns: vec!["id".into()],
+            match_type: Some(ForeignConstraintMatchType::Simple),
+            events: Some(vec![
+                ForeignConstraintEvent::Update(ForeignConstraintAction::Cascade),
+                ForeignConstraintEvent::Delete(ForeignConstraintAction::NoAction),
+            ]),
+        });
         existing_database.tables.push(existing_table);
         let capabilities = Capabilities {
             server_version: Semver::new(9, 6, None),
@@ -2450,20 +2540,27 @@ mod tests {
 
         let mut change_set = Vec::new();
         // First, check that source table changes do nothing
-        let _ = (&source_table).generate(&mut change_set,
-                                         &existing_database,
-                                         &capabilities,
-                                         &publish_profile,
-                                         &log);
+        let _ = (&source_table).generate(
+            &mut change_set,
+            &existing_database,
+            &capabilities,
+            &publish_profile,
+            &log,
+        );
         assert_that!(change_set).is_empty();
 
         // Now we check with a linked table constraint
-        let result = LinkedTableConstraint { table: &source_table, constraint: &source_table.constraints.first().unwrap()}
-                        .generate(&mut change_set,
-                                  &existing_database,
-                                  &capabilities,
-                                  &publish_profile,
-                                  &log);
+        let result = LinkedTableConstraint {
+            table: &source_table,
+            constraint: &source_table.constraints.first().unwrap(),
+        }
+        .generate(
+            &mut change_set,
+            &existing_database,
+            &capabilities,
+            &publish_profile,
+            &log,
+        );
         assert_that!(result).is_ok();
 
         // Primary keys cannot be altered, so we drop/create
@@ -2479,14 +2576,23 @@ mod tests {
             ChangeInstruction::AddConstraint(ref table, ref constraint) => {
                 assert_that!(table.name.to_string()).is_equal_to("my.contacts".to_owned());
                 match *constraint {
-                    TableConstraint::Foreign { name, columns, ref_table, ref_columns, match_type, events } => {
+                    TableConstraint::Foreign {
+                        name,
+                        columns,
+                        ref_table,
+                        ref_columns,
+                        match_type,
+                        events,
+                    } => {
                         assert_that!(*name).is_equal_to("fk_my_contacts_my_companies".to_owned());
                         assert_that!(*columns).has_length(1);
                         assert_that!(columns.iter()).contains("company_id".to_owned());
                         assert_that!(ref_table.to_string()).is_equal_to("my.companies".to_owned());
                         assert_that!(*ref_columns).has_length(1);
                         assert_that!(ref_columns.iter()).contains("id".to_owned());
-                        assert_that!(*match_type).is_some().is_equal_to(ForeignConstraintMatchType::Simple);
+                        assert_that!(*match_type)
+                            .is_some()
+                            .is_equal_to(ForeignConstraintMatchType::Simple);
                         assert_that!(*events).is_some().has_length(2); // We test this further below
                     }
                     unxpected => panic!("Unexpected constraint: {:?}", unxpected),
@@ -2498,10 +2604,12 @@ mod tests {
         // Check the SQL generation
         assert_that!(change_set[0].to_sql(&log))
             .is_equal_to("ALTER TABLE my.contacts\nDROP CONSTRAINT fk_my_contacts_my_companies".to_owned());
-        assert_that!(change_set[1].to_sql(&log))
-            .is_equal_to("ALTER TABLE my.contacts\n\
-                          ADD CONSTRAINT fk_my_contacts_my_companies FOREIGN KEY (company_id) \
-                          REFERENCES my.companies (id) MATCH SIMPLE ON UPDATE NO ACTION ON DELETE NO ACTION".to_owned());
+        assert_that!(change_set[1].to_sql(&log)).is_equal_to(
+            "ALTER TABLE my.contacts\n\
+             ADD CONSTRAINT fk_my_contacts_my_companies FOREIGN KEY (company_id) \
+             REFERENCES my.companies (id) MATCH SIMPLE ON UPDATE NO ACTION ON DELETE NO ACTION"
+                .to_owned(),
+        );
     }
 
     #[test]
@@ -2513,13 +2621,11 @@ mod tests {
                 schema: Some("public".to_owned()),
                 name: "contacts".to_owned(),
             },
-            columns: vec![
-                IndexColumn {
-                    name: "first_name".to_owned(),
-                    order: Some(IndexOrder::Ascending),
-                    null_position: Some(IndexPosition::Last),
-                },
-            ],
+            columns: vec![IndexColumn {
+                name: "first_name".to_owned(),
+                order: Some(IndexOrder::Ascending),
+                null_position: Some(IndexPosition::Last),
+            }],
             unique: true,
             index_type: Some(IndexType::BTree),
             storage_parameters: None,
@@ -2535,11 +2641,13 @@ mod tests {
         };
 
         let mut change_set = Vec::new();
-        let result = (&source_index).generate(&mut change_set,
-                                              &existing_database,
-                                              &capabilities,
-                                              &publish_profile,
-                                              &log);
+        let result = (&source_index).generate(
+            &mut change_set,
+            &existing_database,
+            &capabilities,
+            &publish_profile,
+            &log,
+        );
         assert_that!(result).is_ok();
 
         // We should have a single instruction to create a new index
@@ -2554,9 +2662,11 @@ mod tests {
         }
 
         // Check the SQL generation
-        assert_that!(change_set[0].to_sql(&log))
-            .is_equal_to("CREATE UNIQUE INDEX CONCURRENTLY idx_contacts_first_name \
-                          ON public.contacts USING btree (first_name ASC NULLS LAST)".to_owned());
+        assert_that!(change_set[0].to_sql(&log)).is_equal_to(
+            "CREATE UNIQUE INDEX CONCURRENTLY idx_contacts_first_name \
+             ON public.contacts USING btree (first_name ASC NULLS LAST)"
+                .to_owned(),
+        );
     }
 
     #[test]
@@ -2573,13 +2683,11 @@ mod tests {
                     schema: Some("public".to_owned()),
                     name: "contacts".to_owned(),
                 },
-                columns: vec![
-                    IndexColumn {
-                        name: "first_name".to_owned(),
-                        order: Some(IndexOrder::Ascending),
-                        null_position: Some(IndexPosition::Last),
-                    },
-                ],
+                columns: vec![IndexColumn {
+                    name: "first_name".to_owned(),
+                    order: Some(IndexOrder::Ascending),
+                    null_position: Some(IndexPosition::Last),
+                }],
                 unique: true,
                 index_type: Some(IndexType::BTree),
                 storage_parameters: None,
@@ -2595,12 +2703,14 @@ mod tests {
         publish_profile.generation_options.drop_indexes = Toggle::Error;
 
         // First of all, make sure an error is generated
-        let result = Delta::generate(&log,
-                                     &source_package,
-                                     existing_db(),
-                                     "dbname".to_owned(),
-                                     capabilities,
-                                     publish_profile);
+        let result = Delta::generate(
+            &log,
+            &source_package,
+            existing_db(),
+            "dbname",
+            &capabilities,
+            &publish_profile,
+        );
         assert_that!(result).is_err();
         // Now run it again - it should be ok now
         let capabilities = Capabilities {
@@ -2610,12 +2720,14 @@ mod tests {
         };
         let mut publish_profile = PublishProfile::default();
         publish_profile.generation_options.drop_indexes = Toggle::Allow;
-        let result = Delta::generate(&log,
-                                     &source_package,
-                                     existing_db(),
-                                     "dbname".to_owned(),
-                                     capabilities,
-                                     publish_profile);
+        let result = Delta::generate(
+            &log,
+            &source_package,
+            existing_db(),
+            "dbname",
+            &capabilities,
+            &publish_profile,
+        );
         assert_that!(result).is_ok();
         let change_set = match result.unwrap() {
             Delta(c) => c,
@@ -2670,13 +2782,11 @@ mod tests {
                 schema: Some("public".to_owned()),
                 name: "contacts".to_owned(),
             },
-            columns: vec![
-                IndexColumn {
-                    name: "first_name".to_owned(),
-                    order: Some(IndexOrder::Ascending),
-                    null_position: Some(IndexPosition::Last),
-                },
-            ],
+            columns: vec![IndexColumn {
+                name: "first_name".to_owned(),
+                order: Some(IndexOrder::Ascending),
+                null_position: Some(IndexPosition::Last),
+            }],
             unique: true,
             index_type: Some(IndexType::BTree),
             storage_parameters: None,
@@ -2689,11 +2799,13 @@ mod tests {
         let publish_profile = PublishProfile::default();
 
         let mut change_set = Vec::new();
-        let result = (&source_index).generate(&mut change_set,
-                                              &existing_database,
-                                              &capabilities,
-                                              &publish_profile,
-                                              &log);
+        let result = (&source_index).generate(
+            &mut change_set,
+            &existing_database,
+            &capabilities,
+            &publish_profile,
+            &log,
+        );
         assert_that!(result).is_ok();
 
         // We should have two instructions to drop/create a new index
@@ -2717,9 +2829,11 @@ mod tests {
         // Check the SQL generation
         assert_that!(change_set[0].to_sql(&log))
             .is_equal_to("DROP INDEX CONCURRENTLY IF EXISTS public.idx_contacts_name".to_owned());
-        assert_that!(change_set[1].to_sql(&log))
-            .is_equal_to("CREATE INDEX CONCURRENTLY idx_contacts_name \
-                          ON public.contacts USING btree (first_name ASC NULLS LAST, last_name DESC NULLS FIRST)".to_owned());
+        assert_that!(change_set[1].to_sql(&log)).is_equal_to(
+            "CREATE INDEX CONCURRENTLY idx_contacts_name \
+             ON public.contacts USING btree (first_name ASC NULLS LAST, last_name DESC NULLS FIRST)"
+                .to_owned(),
+        );
     }
 
     #[test]
@@ -2734,23 +2848,23 @@ mod tests {
         let existing_database = Package::new();
         let capabilities = Capabilities {
             server_version: Semver::new(9, 6, None),
-            extensions: vec![
-                Extension {
-                    name: "postgis".to_owned(),
-                    version: Semver::new(2, 3, Some(7)),
-                    installed: false,
-                },
-            ],
+            extensions: vec![Extension {
+                name: "postgis".to_owned(),
+                version: Semver::new(2, 3, Some(7)),
+                installed: false,
+            }],
             database_exists: true,
         };
         let publish_profile = PublishProfile::default();
 
         let mut change_set = Vec::new();
-        let result = (&requested_extension).generate(&mut change_set,
-                                                     &existing_database,
-                                                     &capabilities,
-                                                     &publish_profile,
-                                                     &log);
+        let result = (&requested_extension).generate(
+            &mut change_set,
+            &existing_database,
+            &capabilities,
+            &publish_profile,
+            &log,
+        );
         assert_that!(result).is_ok();
 
         // We should have one instruction to create an extension
@@ -2779,23 +2893,23 @@ mod tests {
         let existing_database = Package::new();
         let capabilities = Capabilities {
             server_version: Semver::new(9, 6, None),
-            extensions: vec![
-                Extension {
-                    name: "postgis".to_owned(),
-                    version: Semver::new(2, 3, Some(7)),
-                    installed: false,
-                },
-            ],
+            extensions: vec![Extension {
+                name: "postgis".to_owned(),
+                version: Semver::new(2, 3, Some(7)),
+                installed: false,
+            }],
             database_exists: true,
         };
         let publish_profile = PublishProfile::default();
 
         let mut change_set = Vec::new();
-        let result = (&requested_extension).generate(&mut change_set,
-                                                     &existing_database,
-                                                     &capabilities,
-                                                     &publish_profile,
-                                                     &log);
+        let result = (&requested_extension).generate(
+            &mut change_set,
+            &existing_database,
+            &capabilities,
+            &publish_profile,
+            &log,
+        );
         assert_that!(result).is_ok();
 
         // We should have one instruction to create an extension
@@ -2808,8 +2922,7 @@ mod tests {
         }
 
         // Check the SQL generation
-        assert_that!(change_set[0].to_sql(&log))
-            .is_equal_to("CREATE EXTENSION postgis".to_owned());
+        assert_that!(change_set[0].to_sql(&log)).is_equal_to("CREATE EXTENSION postgis".to_owned());
     }
 
     #[test]
@@ -2824,23 +2937,23 @@ mod tests {
         let existing_database = Package::new();
         let capabilities = Capabilities {
             server_version: Semver::new(9, 6, None),
-            extensions: vec![
-                Extension {
-                    name: "postgis".to_owned(),
-                    version: Semver::new(2, 3, Some(7)),
-                    installed: false,
-                },
-            ],
+            extensions: vec![Extension {
+                name: "postgis".to_owned(),
+                version: Semver::new(2, 3, Some(7)),
+                installed: false,
+            }],
             database_exists: true,
         };
         let publish_profile = PublishProfile::default();
 
         let mut change_set = Vec::new();
-        let result = (&requested_extension).generate(&mut change_set,
-                                                     &existing_database,
-                                                     &capabilities,
-                                                     &publish_profile,
-                                                     &log);
+        let result = (&requested_extension).generate(
+            &mut change_set,
+            &existing_database,
+            &capabilities,
+            &publish_profile,
+            &log,
+        );
         assert_that!(result).is_err();
 
         let err = result.err().unwrap();
@@ -2866,11 +2979,13 @@ mod tests {
         let publish_profile = PublishProfile::default();
 
         let mut change_set = Vec::new();
-        let result = (&requested_extension).generate(&mut change_set,
-                                                     &existing_database,
-                                                     &capabilities,
-                                                     &publish_profile,
-                                                     &log);
+        let result = (&requested_extension).generate(
+            &mut change_set,
+            &existing_database,
+            &capabilities,
+            &publish_profile,
+            &log,
+        );
         assert_that!(result).is_err();
 
         let err = result.err().unwrap();
@@ -2908,11 +3023,13 @@ mod tests {
         publish_profile.generation_options.upgrade_extensions = Toggle::Allow;
 
         let mut change_set = Vec::new();
-        let result = (&requested_extension).generate(&mut change_set,
-                                                     &existing_database,
-                                                     &capabilities,
-                                                     &publish_profile,
-                                                     &log);
+        let result = (&requested_extension).generate(
+            &mut change_set,
+            &existing_database,
+            &capabilities,
+            &publish_profile,
+            &log,
+        );
         assert_that!(result).is_ok();
 
         // We should have one instruction to upgrade an extension
@@ -2925,10 +3042,8 @@ mod tests {
         }
 
         // Check the SQL generation
-        assert_that!(change_set[0].to_sql(&log))
-            .is_equal_to("ALTER EXTENSION postgis UPDATE TO \"3.8\"".to_owned());
+        assert_that!(change_set[0].to_sql(&log)).is_equal_to("ALTER EXTENSION postgis UPDATE TO \"3.8\"".to_owned());
     }
-
 
     #[test]
     fn it_does_not_modify_an_extension_that_is_already_installed() {
@@ -2942,24 +3057,24 @@ mod tests {
         let existing_database = Package::new();
         let capabilities = Capabilities {
             server_version: Semver::new(9, 6, None),
-            extensions: vec![
-                Extension {
-                    name: "postgis".to_owned(),
-                    version: Semver::new(2, 3, Some(7)),
-                    installed: true,
-                },
-            ],
+            extensions: vec![Extension {
+                name: "postgis".to_owned(),
+                version: Semver::new(2, 3, Some(7)),
+                installed: true,
+            }],
             database_exists: true,
         };
         let mut publish_profile = PublishProfile::default();
         publish_profile.generation_options.upgrade_extensions = Toggle::Allow;
 
         let mut change_set = Vec::new();
-        let result = (&requested_extension).generate(&mut change_set,
-                                                     &existing_database,
-                                                     &capabilities,
-                                                     &publish_profile,
-                                                     &log);
+        let result = (&requested_extension).generate(
+            &mut change_set,
+            &existing_database,
+            &capabilities,
+            &publish_profile,
+            &log,
+        );
         assert_that!(result).is_ok();
 
         // We should have no instructions
@@ -2967,7 +3082,8 @@ mod tests {
     }
 
     #[test]
-    fn it_can_upgrade_an_installed_extension_with_no_version_specified_and_newer_version_available_when_profile_set_to_allow() {
+    fn it_can_upgrade_an_installed_extension_with_no_version_specified_and_newer_version_available_when_profile_set_to_allow(
+    ) {
         let log = empty_logger();
         let requested_extension = ExtensionRequest {
             name: &"postgis".to_owned(),
@@ -2988,7 +3104,7 @@ mod tests {
                     name: "postgis".to_owned(),
                     version: Semver::new(3, 8, None),
                     installed: false,
-                }
+                },
             ],
             database_exists: true,
         };
@@ -2996,11 +3112,13 @@ mod tests {
         publish_profile.generation_options.upgrade_extensions = Toggle::Allow;
 
         let mut change_set = Vec::new();
-        let result = (&requested_extension).generate(&mut change_set,
-                                                     &existing_database,
-                                                     &capabilities,
-                                                     &publish_profile,
-                                                     &log);
+        let result = (&requested_extension).generate(
+            &mut change_set,
+            &existing_database,
+            &capabilities,
+            &publish_profile,
+            &log,
+        );
         assert_that!(result).is_ok();
 
         // We should have one instruction to upgrade an extension
@@ -3013,12 +3131,12 @@ mod tests {
         }
 
         // Check the SQL generation
-        assert_that!(change_set[0].to_sql(&log))
-            .is_equal_to("ALTER EXTENSION postgis UPDATE".to_owned());
+        assert_that!(change_set[0].to_sql(&log)).is_equal_to("ALTER EXTENSION postgis UPDATE".to_owned());
     }
 
     #[test]
-    fn it_doesnt_upgrade_an_installed_extension_with_no_version_specified_and_newer_version_available_when_profile_set_to_ignore() {
+    fn it_doesnt_upgrade_an_installed_extension_with_no_version_specified_and_newer_version_available_when_profile_set_to_ignore(
+    ) {
         let log = empty_logger();
         let requested_extension = ExtensionRequest {
             name: &"postgis".to_owned(),
@@ -3047,11 +3165,13 @@ mod tests {
         publish_profile.generation_options.upgrade_extensions = Toggle::Ignore;
 
         let mut change_set = Vec::new();
-        let result = (&requested_extension).generate(&mut change_set,
-                                                     &existing_database,
-                                                     &capabilities,
-                                                     &publish_profile,
-                                                     &log);
+        let result = (&requested_extension).generate(
+            &mut change_set,
+            &existing_database,
+            &capabilities,
+            &publish_profile,
+            &log,
+        );
         assert_that!(result).is_ok();
 
         // We should have no instructions
@@ -3059,7 +3179,8 @@ mod tests {
     }
 
     #[test]
-    fn it_doesnt_upgrade_an_installed_extension_with_no_version_specified_and_newer_version_available_when_profile_set_to_error() {
+    fn it_doesnt_upgrade_an_installed_extension_with_no_version_specified_and_newer_version_available_when_profile_set_to_error(
+    ) {
         let log = empty_logger();
         let requested_extension = ExtensionRequest {
             name: &"postgis".to_owned(),
@@ -3088,15 +3209,19 @@ mod tests {
         publish_profile.generation_options.upgrade_extensions = Toggle::Error;
 
         let mut change_set = Vec::new();
-        let result = (&requested_extension).generate(&mut change_set,
-                                                     &existing_database,
-                                                     &capabilities,
-                                                     &publish_profile,
-                                                     &log);
+        let result = (&requested_extension).generate(
+            &mut change_set,
+            &existing_database,
+            &capabilities,
+            &publish_profile,
+            &log,
+        );
         assert_that!(result).is_err();
 
         let err = result.err().unwrap();
-        let expect = "Couldn't publish database due to an unsafe operation: ExtensionRequest postgis version 3.8 is available to upgrade".to_owned();
+        let expect =
+            "Couldn't publish database due to an unsafe operation: ExtensionRequest postgis version 3.8 is available to upgrade"
+                .to_owned();
         assert_that!(format!("{}", err)).is_equal_to(&expect);
     }
 }

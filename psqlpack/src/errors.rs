@@ -1,13 +1,14 @@
-use std::path::PathBuf;
 use glob::PatternError;
+use std::fmt::{Display, Formatter, Result};
+use std::path::PathBuf;
 
-pub use ast::ErrorKind;
 pub use error_chain::ChainedError;
 pub use lalrpop_util::ParseError;
-pub use model::ValidationKind;
 
-use sql::lexer;
-use connection::{ConnectionError, ConnectionErrorKind};
+pub use crate::ast::ErrorKind;
+use crate::connection::{ConnectionError, ConnectionErrorKind};
+pub use crate::model::ValidationKind;
+use crate::sql::lexer;
 
 error_chain! {
     types {
@@ -174,8 +175,6 @@ error_chain! {
     }
 }
 
-use std::fmt::{Display, Formatter, Result};
-
 fn write_err(f: &mut Formatter, error: &ParseError<(), lexer::Token, &'static str>) -> Result {
     match *error {
         ParseError::InvalidToken { .. } => write!(f, "Invalid token"),
@@ -194,9 +193,8 @@ fn write_err(f: &mut Formatter, error: &ParseError<(), lexer::Token, &'static st
     }
 }
 
-
 struct LineFormatter<'fmt>(&'fmt str, usize, usize);
-const MAX_LINE_LENGTH : usize = 78;
+const MAX_LINE_LENGTH: usize = 78;
 
 impl<'fmt> Display for LineFormatter<'fmt> {
     fn fmt(&self, f: &mut Formatter) -> Result {
@@ -257,7 +255,7 @@ struct ValidationErrorFormatter<'fmt>(&'fmt Vec<ValidationKind>);
 impl<'fmt> Display for ValidationErrorFormatter<'fmt> {
     fn fmt(&self, f: &mut Formatter) -> Result {
         for error in self.0.iter() {
-            write!(f, " - {}\n", error)?;
+            writeln!(f, " - {}", error)?;
         }
         Ok(())
     }

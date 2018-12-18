@@ -7,13 +7,13 @@ use glob::glob;
 use serde_json;
 use slog::Logger;
 
+use crate::errors::PsqlpackErrorKind::*;
+use crate::errors::{PsqlpackError, PsqlpackResult, PsqlpackResultExt};
+use crate::model::Package;
+use crate::sql::ast::*;
+use crate::sql::lexer;
+use crate::sql::parser::StatementListParser;
 use crate::Semver;
-use sql::ast::*;
-use sql::lexer;
-use sql::parser::StatementListParser;
-use model::Package;
-use errors::{PsqlpackError, PsqlpackResult, PsqlpackResultExt};
-use errors::PsqlpackErrorKind::*;
 
 #[cfg(feature = "symbols")]
 macro_rules! dump_statement {
@@ -25,13 +25,14 @@ macro_rules! dump_statement {
 
 #[cfg(not(feature = "symbols"))]
 macro_rules! dump_statement {
-    ($log:ident, $statement:ident) => {}
+    ($log:ident, $statement:ident) => {};
 }
 
 #[derive(Deserialize, Serialize)]
 pub struct Project {
     // Internal only tracking for the project path
-    #[serde(skip_serializing)] project_file_path: Option<PathBuf>,
+    #[serde(skip_serializing)]
+    project_file_path: Option<PathBuf>,
 
     /// The version of this profile file format
     pub version: Semver,
@@ -164,7 +165,7 @@ impl Project {
                     name: path.file_name().unwrap().to_str().unwrap().to_owned(),
                     kind: ScriptKind::PreDeployment,
                     order: pos,
-                    contents: contents,
+                    contents,
                 });
             } else if let Some(pos) = postdeploy_paths.iter().position(|x| real_path.eq(x)) {
                 trace!(log, "Found postdeploy script");
@@ -172,7 +173,7 @@ impl Project {
                     name: path.file_name().unwrap().to_str().unwrap().to_owned(),
                     kind: ScriptKind::PostDeployment,
                     order: pos,
-                    contents: contents,
+                    contents,
                 });
             } else {
                 trace!(log, "Tokenizing file");
@@ -186,7 +187,8 @@ impl Project {
                                 e.line_number as usize,
                                 e.start_pos as usize,
                                 e.end_pos as usize,
-                            ).into(),
+                            )
+                            .into(),
                         );
                         continue;
                     }
@@ -204,7 +206,7 @@ impl Project {
                             match statement {
                                 Statement::Error(kind) => {
                                     errors.push(HandledParseError(kind).into());
-                                },
+                                }
                                 Statement::Function(function_definition) => package.push_function(function_definition),
                                 Statement::Index(index_definition) => package.push_index(index_definition),
                                 Statement::Schema(schema_definition) => package.push_schema(schema_definition),
@@ -240,30 +242,29 @@ impl Project {
     fn walk_files(&self, parent: &Path) -> PsqlpackResult<Vec<PathBuf>> {
         let include_globs = match self.include_globs {
             Some(ref globs) => globs.to_owned(),
-            None => vec![ "**/*.sql".into() ],
+            None => vec!["**/*.sql".into()],
         };
         let mut exclude_paths = Vec::new();
-        match self.exclude_globs {
-            Some(ref globs) => {
-                for exclude_glob in globs {
-                    for entry in glob(&format!("{}/{}", parent.to_str().unwrap(), exclude_glob)).map_err(|err| GlobPatternError(err))? {
-                        let path = entry.unwrap().canonicalize().unwrap();
-                        exclude_paths.push(path);
-                    }
+        if let Some(ref globs) = self.exclude_globs {
+            for exclude_glob in globs {
+                for entry in
+                    glob(&format!("{}/{}", parent.to_str().unwrap(), exclude_glob)).map_err(GlobPatternError)?
+                {
+                    let path = entry.unwrap().canonicalize().unwrap();
+                    exclude_paths.push(path);
                 }
             }
-            None => {}
         }
 
         let mut paths = Vec::new();
         for include_glob in include_globs {
-            for entry in glob(&format!("{}/{}", parent.to_str().unwrap(), include_glob)).map_err(|err| GlobPatternError(err))? {
+            for entry in glob(&format!("{}/{}", parent.to_str().unwrap(), include_glob)).map_err(GlobPatternError)? {
                 // Get the path entry
                 let path = entry.unwrap();
 
                 // If this has been explicitly excluded then continue
                 let real_path = path.to_path_buf().canonicalize().unwrap();
-                if exclude_paths.iter().position(|x| real_path.eq(x)).is_some() {
+                if exclude_paths.iter().any(|x| real_path.eq(x)) {
                     continue;
                 }
 
@@ -277,9 +278,9 @@ impl Project {
 #[cfg(test)]
 mod tests {
 
-    use std::path::Path;
     use super::Project;
     use spectral::prelude::*;
+    use std::path::Path;
 
     #[test]
     fn it_can_iterate_default_include_exclude_globs_correctly() {
@@ -291,7 +292,7 @@ mod tests {
         // Check the expected files were returned
         assert_that!(result).is_ok().has_length(4);
         let result = result.unwrap();
-        let result : Vec<&str> = result.iter().map(|x| x.to_str().unwrap()).collect();
+        let result: Vec<&str> = result.iter().map(|x| x.to_str().unwrap()).collect();
         assert_that!(result).contains_all_of(&vec![
             &"../samples/simple/public/tables/public.expense_status.sql",
             &"../samples/simple/public/tables/public.organisation.sql",
@@ -319,7 +320,7 @@ mod tests {
         // Check the expected files were returned
         assert_that!(result).is_ok().has_length(3);
         let result = result.unwrap();
-        let result : Vec<&str> = result.iter().map(|x| x.to_str().unwrap()).collect();
+        let result: Vec<&str> = result.iter().map(|x| x.to_str().unwrap()).collect();
         assert_that!(result).does_not_contain(&"../samples/simple/public/tables/public.organisation.sql");
         assert_that!(result).contains_all_of(&vec![
             &"../samples/simple/public/tables/public.expense_status.sql",
@@ -340,18 +341,16 @@ mod tests {
             post_deploy_scripts: Vec::new(),
             extensions: None,
             include_globs: None,
-            exclude_globs: Some(vec![
-                "**/geo/**/*.sql".into(),
-                "**/geo.*".into(),
-            ]),
+            exclude_globs: Some(vec!["**/geo/**/*.sql".into(), "**/geo.*".into()]),
         };
         let result = project.walk_files(&parent);
 
         // Check the expected files were returned
         assert_that!(result).is_ok();
         let result = result.unwrap();
-        let result : Vec<&str> = result.iter().map(|x| x.to_str().unwrap()).collect();
-        assert_that!(result).does_not_contain(&"../samples/complex/geo/functions/fn_do_any_coordinates_fall_inside.sql");
+        let result: Vec<&str> = result.iter().map(|x| x.to_str().unwrap()).collect();
+        assert_that!(result)
+            .does_not_contain(&"../samples/complex/geo/functions/fn_do_any_coordinates_fall_inside.sql");
         assert_that!(result).does_not_contain(&"../samples/complex/geo/tables/states.sql");
         assert_that!(result).does_not_contain(&"../samples/complex/scripts/seed/geo.states.sql");
     }
@@ -375,10 +374,8 @@ mod tests {
         // Check the expected files were returned
         assert_that!(result).is_ok().has_length(1);
         let result = result.unwrap();
-        let result : Vec<&str> = result.iter().map(|x| x.to_str().unwrap()).collect();
-        assert_that!(result).contains_all_of(&vec![
-            &"../samples/simple/public/tables/public.organisation.sql",
-        ]);
+        let result: Vec<&str> = result.iter().map(|x| x.to_str().unwrap()).collect();
+        assert_that!(result).contains_all_of(&vec![&"../samples/simple/public/tables/public.organisation.sql"]);
     }
 
 }

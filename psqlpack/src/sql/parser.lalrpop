@@ -1,7 +1,9 @@
+#![allow(clippy::all)]
+
 use rust_decimal::Decimal;
 
-use sql::ast::*;
-use sql::lexer::{self};
+use crate::sql::ast::*;
+use crate::sql::lexer;
 
 grammar<'input>;
 

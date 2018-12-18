@@ -8,20 +8,20 @@ use chrono::prelude::*;
 use petgraph;
 use serde_json;
 use slog::Logger;
-use zip::{ZipArchive, ZipWriter};
 use zip::write::FileOptions;
+use zip::{ZipArchive, ZipWriter};
 
-use connection::Connection;
-use sql::ast::*;
-use model::{Capabilities, DefinableCatalog, Dependency, Project};
-use semver::Semver;
-use errors::{PsqlpackResult, PsqlpackResultExt};
-use errors::PsqlpackErrorKind::*;
+use crate::connection::Connection;
+use crate::errors::PsqlpackErrorKind::*;
+use crate::errors::{PsqlpackResult, PsqlpackResultExt};
+use crate::model::{Capabilities, DefinableCatalog, Dependency, Project};
+use crate::semver::Semver;
+use crate::sql::ast::*;
 
 macro_rules! ztry {
     ($expr:expr) => {{
         match $expr {
-            Ok(_) => {},
+            Ok(_) => {}
             Err(e) => bail!(GenerationError(format!("Failed to write package: {}", e))),
         }
     }};
@@ -32,7 +32,10 @@ macro_rules! zip_collection {
         let collection_name = stringify!($collection);
         ztry!($zip.add_directory(format!("{}/", collection_name), FileOptions::default()));
         for item in &$package.$collection {
-            ztry!($zip.start_file(format!("{}/{}.json", collection_name, item.name), FileOptions::default()));
+            ztry!($zip.start_file(
+                format!("{}/{}.json", collection_name, item.name),
+                FileOptions::default()
+            ));
             let json = match serde_json::to_string_pretty(&item) {
                 Ok(j) => j,
                 Err(e) => bail!(GenerationError(format!("Failed to write package: {}", e))),
@@ -74,12 +77,13 @@ impl MetaInfo {
 }
 
 fn crate_version() -> Semver {
-    Semver::from_str(
-        &format!("{}.{}.{}",
-            env!("CARGO_PKG_VERSION_MAJOR"),
-            env!("CARGO_PKG_VERSION_MINOR"),
-            env!("CARGO_PKG_VERSION_PATCH"))
-    ).unwrap()
+    Semver::from_str(&format!(
+        "{}.{}.{}",
+        env!("CARGO_PKG_VERSION_MAJOR"),
+        env!("CARGO_PKG_VERSION_MINOR"),
+        env!("CARGO_PKG_VERSION_PATCH")
+    ))
+    .unwrap()
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -96,16 +100,20 @@ impl Package {
             .and_then(|file| {
                 let mut reader = BufReader::with_capacity(4, file);
                 let mut buffer = [0; 2];
-                let b = reader.read(&mut buffer[..])
-                    .map_err(|e| IOError(source_path.to_str().unwrap().into(), format!("Failed to read file: {}", e)))?;
+                let b = reader.read(&mut buffer[..]).map_err(|e| {
+                    IOError(
+                        source_path.to_str().unwrap().into(),
+                        format!("Failed to read file: {}", e),
+                    )
+                })?;
                 if b != 2 {
-                    bail!(IOError(source_path.to_str().unwrap().into(), "Invalid file provide (< 4 bytes)".into()));
+                    bail!(IOError(
+                        source_path.to_str().unwrap().into(),
+                        "Invalid file provide (< 4 bytes)".into()
+                    ));
                 }
 
-                Ok(
-                    buffer[0] == 0x50 &&
-                    buffer[1] == 0x4B
-                )
+                Ok(buffer[0] == 0x50 && buffer[1] == 0x4B)
             })
     }
 
@@ -126,11 +134,9 @@ impl Package {
         let _log = log.new(o!("package" => "from_packaged_file"));
         let mut archive = File::open(&source_path)
             .chain_err(|| PackageReadError(source_path.to_path_buf()))
-            .and_then(|file| {
-                ZipArchive::new(file).chain_err(|| PackageUnarchiveError(source_path.to_path_buf()))
-            })?;
+            .and_then(|file| ZipArchive::new(file).chain_err(|| PackageUnarchiveError(source_path.to_path_buf())))?;
 
-        let mut meta : Option<MetaInfo> = None;
+        let mut meta: Option<MetaInfo> = None;
         let mut extensions = Vec::new();
         let mut functions = Vec::new();
         let mut indexes = Vec::new();
@@ -149,31 +155,22 @@ impl Package {
                 if meta.is_some() {
                     bail!(PackageReadError(source_path.to_path_buf()));
                 }
-                let m = serde_json::from_reader(file)
-                    .chain_err(|| PackageInternalReadError(name))?;
+                let m = serde_json::from_reader(file).chain_err(|| PackageInternalReadError(name))?;
                 meta = Some(m);
-            }
-            else if name.starts_with("extensions/") {
-                extensions.push(serde_json::from_reader(file)
-                    .chain_err(|| PackageInternalReadError(name))?);
+            } else if name.starts_with("extensions/") {
+                extensions.push(serde_json::from_reader(file).chain_err(|| PackageInternalReadError(name))?);
             } else if name.starts_with("functions/") {
-                functions.push(serde_json::from_reader(file)
-                    .chain_err(|| PackageInternalReadError(name))?);
+                functions.push(serde_json::from_reader(file).chain_err(|| PackageInternalReadError(name))?);
             } else if name.starts_with("indexes") {
-                indexes.push(serde_json::from_reader(file)
-                    .chain_err(|| PackageInternalReadError(name))?);
+                indexes.push(serde_json::from_reader(file).chain_err(|| PackageInternalReadError(name))?);
             } else if name.starts_with("schemas/") {
-                schemas.push(serde_json::from_reader(file)
-                    .chain_err(|| PackageInternalReadError(name))?);
+                schemas.push(serde_json::from_reader(file).chain_err(|| PackageInternalReadError(name))?);
             } else if name.starts_with("scripts/") {
-                scripts.push(serde_json::from_reader(file)
-                    .chain_err(|| PackageInternalReadError(name))?);
+                scripts.push(serde_json::from_reader(file).chain_err(|| PackageInternalReadError(name))?);
             } else if name.starts_with("tables/") {
-                tables.push(serde_json::from_reader(file)
-                    .chain_err(|| PackageInternalReadError(name))?);
+                tables.push(serde_json::from_reader(file).chain_err(|| PackageInternalReadError(name))?);
             } else if name.starts_with("types/") {
-                types.push(serde_json::from_reader(file)
-                    .chain_err(|| PackageInternalReadError(name))?);
+                types.push(serde_json::from_reader(file).chain_err(|| PackageInternalReadError(name))?);
             }
         }
 
@@ -196,15 +193,14 @@ impl Package {
         Ok(package)
     }
 
-    pub fn from_connection(log: &Logger, connection: &Connection, capabilities: &Capabilities)
-        -> PsqlpackResult<Option<Package>> {
+    pub fn from_connection(
+        log: &Logger,
+        connection: &Connection,
+        capabilities: &Capabilities,
+    ) -> PsqlpackResult<Option<Package>> {
         let log = log.new(o!("package" => "from_connection"));
 
-        trace!(
-            log,
-            "Checking for database `{}`",
-            &connection.database()[..]
-        );
+        trace!(log, "Checking for database `{}`", &connection.database()[..]);
         if !capabilities.database_exists {
             return Ok(None);
         }
@@ -213,10 +209,14 @@ impl Package {
         trace!(log, "Connecting to database");
         let db_conn = connection.connect_database()?;
 
-        let extensions = capabilities.extensions
+        let extensions = capabilities
+            .extensions
             .iter()
             .filter(|e| e.installed)
-            .map(|e| Dependency { name: e.name.clone(), version: Some(e.version) })
+            .map(|e| Dependency {
+                name: e.name.clone(),
+                version: Some(e.version),
+            })
             .collect::<Vec<_>>();
 
         // TODO: Refactor connection so we only need to pass through that
@@ -248,9 +248,7 @@ impl Package {
         if let Some(parent) = destination.parent() {
             match fs::create_dir_all(parent) {
                 Ok(_) => {}
-                Err(e) => bail!(GenerationError(
-                    format!("Failed to create package directory: {}", e)
-                )),
+                Err(e) => bail!(GenerationError(format!("Failed to create package directory: {}", e))),
             }
         }
 
@@ -325,10 +323,7 @@ impl Package {
         // Make sure the public schema exists
         let mut has_public = false;
         for schema in &mut self.schemas {
-            if project
-                .default_schema
-                .eq_ignore_ascii_case(&schema.name[..])
-            {
+            if project.default_schema.eq_ignore_ascii_case(&schema.name[..]) {
                 has_public = true;
                 break;
             }
@@ -384,7 +379,10 @@ impl Package {
 
             // Primary keys may also be specified against the column directly. We promote these to table constraints.`
             for column in table.columns.iter_mut() {
-                let pk = column.constraints.iter().position(|c| c.eq(&ColumnConstraint::PrimaryKey));
+                let pk = column
+                    .constraints
+                    .iter()
+                    .position(|c| c.eq(&ColumnConstraint::PrimaryKey));
                 if pk.is_some() {
                     // Make sure it is not null
                     ensure_not_null_column(column);
@@ -436,7 +434,10 @@ impl Package {
         for table in &mut self.tables {
             // Primary keys may also be specified against the column directly. We promote these to table constraints.`
             for column in table.columns.iter_mut() {
-                let pk_pos = column.constraints.iter().position(|c| c.eq(&ColumnConstraint::PrimaryKey));
+                let pk_pos = column
+                    .constraints
+                    .iter()
+                    .position(|c| c.eq(&ColumnConstraint::PrimaryKey));
                 if let Some(pk_pos) = pk_pos {
                     // Remove the PK constraint
                     column.constraints.remove(pk_pos);
@@ -503,27 +504,25 @@ impl Package {
 
     pub fn validate(&self) -> PsqlpackResult<()> {
         // 1. Validate schema existence
-        let schemata = self.schemas
-            .iter()
-            .map(|schema| &schema.name[..])
-            .collect::<Vec<_>>();
-        let names = self.tables
+        let schemata = self.schemas.iter().map(|schema| &schema.name[..]).collect::<Vec<_>>();
+        let names = self
+            .tables
             .iter()
             .map(|t| &t.name)
             .chain(self.functions.iter().map(|f| &f.name))
             .collect::<Vec<_>>();
         let mut errors = names
             .iter()
-            .filter(|o| if let Some(ref s) = o.schema {
-                !schemata.contains(&&s[..])
-            } else {
-                false
-            })
-            .map(|o| {
-                ValidationKind::SchemaMissing {
-                    schema: o.schema.clone().unwrap(),
-                    object: o.name.to_owned(),
+            .filter(|o| {
+                if let Some(ref s) = o.schema {
+                    !schemata.contains(&&s[..])
+                } else {
+                    false
                 }
+            })
+            .map(|o| ValidationKind::SchemaMissing {
+                schema: o.schema.clone().unwrap(),
+                object: o.name.to_owned(),
             })
             .collect::<Vec<_>>();
 
@@ -533,21 +532,24 @@ impl Package {
             t.columns
                 .iter()
                 .filter_map(|c| match c.sql_type {
-                    SqlType::Custom(ref name, ref _opts, _dim) => if !custom_types.contains(&&name) {
-                        Some(ValidationKind::UnknownType {
-                            ty: name.to_owned(),
-                            table: t.name.to_string(),
-                        })
-                    } else {
-                        None
-                    },
+                    SqlType::Custom(ref name, ref _opts, _dim) => {
+                        if !custom_types.contains(&&name) {
+                            Some(ValidationKind::UnknownType {
+                                ty: name.to_owned(),
+                                table: t.name.to_string(),
+                            })
+                        } else {
+                            None
+                        }
+                    }
                     _ => None,
                 })
                 .collect::<Vec<_>>()
         }));
 
         // 3. Validate constraints map to known tables
-        let foreign_keys = self.tables
+        let foreign_keys = self
+            .tables
             .iter()
             .flat_map(|t| t.constraints.clone())
             .filter_map(|c| match c {
@@ -567,15 +569,13 @@ impl Package {
         errors.extend(
             foreign_keys
                 .iter()
-                .filter(|&&(_, _, ref table, _)| {
-                    !self.tables.iter().any(|t| t.name.eq(table))
-                })
-                .map(|&(ref name, _, ref table, _)| {
-                    ValidationKind::TableConstraintInvalidReferenceTable {
+                .filter(|&&(_, _, ref table, _)| !self.tables.iter().any(|t| t.name.eq(table)))
+                .map(
+                    |&(ref name, _, ref table, _)| ValidationKind::TableConstraintInvalidReferenceTable {
                         constraint: name.to_owned(),
                         table: table.to_string(),
-                    }
-                }),
+                    },
+                ),
         );
         // ii. Reference table exists, but the reference column doesn't.
         errors.extend(
@@ -584,41 +584,38 @@ impl Package {
                 .filter(|&&(_, _, ref table, ref columns)| {
                     let table = self.tables.iter().find(|t| t.name.eq(table));
                     match table {
-                        Some(t) => !columns
-                            .iter()
-                            .all(|rc| t.columns.iter().any(|c| c.name.eq(rc))),
+                        Some(t) => !columns.iter().all(|rc| t.columns.iter().any(|c| c.name.eq(rc))),
                         None => false,
                     }
                 })
-                .map(|&(ref name, _, ref table, ref columns)| {
-                    ValidationKind::TableConstraintInvalidReferenceColumns {
+                .map(
+                    |&(ref name, _, ref table, ref columns)| ValidationKind::TableConstraintInvalidReferenceColumns {
                         constraint: name.to_owned(),
                         table: table.to_string(),
                         columns: columns.clone(),
-                    }
-                }),
+                    },
+                ),
         );
         // iii. Source column doesn't exist
         errors.extend(
             foreign_keys
                 .iter()
                 .filter(|&&(ref constraint, ref columns, _, _)| {
-                    let table = self.tables
+                    let table = self
+                        .tables
                         .iter()
                         .find(|t| t.constraints.iter().any(|c| c.name() == constraint));
                     match table {
-                        Some(t) => !columns
-                            .iter()
-                            .all(|rc| t.columns.iter().any(|c| c.name.eq(rc))),
+                        Some(t) => !columns.iter().all(|rc| t.columns.iter().any(|c| c.name.eq(rc))),
                         None => false,
                     }
                 })
-                .map(|&(ref name, ref columns, _, _)| {
-                    ValidationKind::TableConstraintInvalidSourceColumns {
+                .map(
+                    |&(ref name, ref columns, _, _)| ValidationKind::TableConstraintInvalidSourceColumns {
                         constraint: name.to_owned(),
                         columns: columns.clone(),
-                    }
-                }),
+                    },
+                ),
         );
         // iv. (Future) Source column match type is not compatible with reference column type
 
@@ -627,14 +624,10 @@ impl Package {
         errors.extend(
             self.indexes
                 .iter()
-                .filter(|&index| {
-                    !self.tables.iter().any(|t| t.name.eq(&index.table))
-                })
-                .map(|ref index| {
-                    ValidationKind::IndexInvalidReferenceTable {
-                        index: index.name.to_string(),
-                        table: index.table.to_string(),
-                    }
+                .filter(|&index| !self.tables.iter().any(|t| t.name.eq(&index.table)))
+                .map(|ref index| ValidationKind::IndexInvalidReferenceTable {
+                    index: index.name.to_string(),
+                    table: index.table.to_string(),
                 }),
         );
         // ii. reference table exists but columns missing
@@ -644,18 +637,17 @@ impl Package {
                 .filter(|&index| {
                     let table = self.tables.iter().find(|t| t.name.eq(&index.table));
                     match table {
-                        Some(t) => !index.columns
+                        Some(t) => !index
+                            .columns
                             .iter()
                             .all(|rc| t.columns.iter().any(|c| c.name.eq(&rc.name))),
                         None => false,
                     }
                 })
-                .map(|ref index| {
-                    ValidationKind::IndexInvalidReferenceColumns {
-                        index: index.name.to_string(),
-                        table: index.table.to_string(),
-                        columns: index.columns.iter().map(|c| c.name.to_string()).collect(),
-                    }
+                .map(|ref index| ValidationKind::IndexInvalidReferenceColumns {
+                    index: index.name.to_string(),
+                    table: index.table.to_string(),
+                    columns: index.columns.iter().map(|c| c.name.to_string()).collect(),
                 }),
         );
 
@@ -686,11 +678,27 @@ impl Package {
     }
 }
 
+impl Default for Package {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(Debug)]
 pub enum ValidationKind {
-    IndexInvalidReferenceTable { index: String, table: String },
-    IndexInvalidReferenceColumns { index: String, table: String, columns: Vec<String> },
-    TableConstraintInvalidReferenceTable { constraint: String, table: String },
+    IndexInvalidReferenceTable {
+        index: String,
+        table: String,
+    },
+    IndexInvalidReferenceColumns {
+        index: String,
+        table: String,
+        columns: Vec<String>,
+    },
+    TableConstraintInvalidReferenceTable {
+        constraint: String,
+        table: String,
+    },
     TableConstraintInvalidReferenceColumns {
         constraint: String,
         table: String,
@@ -700,26 +708,33 @@ pub enum ValidationKind {
         constraint: String,
         columns: Vec<String>,
     },
-    SchemaMissing { schema: String, object: String },
-    UnknownType { ty: ObjectName, table: String },
-    UnsupportedFunctionLanguage{ language: FunctionLanguage, name: ObjectName },
+    SchemaMissing {
+        schema: String,
+        object: String,
+    },
+    UnknownType {
+        ty: ObjectName,
+        table: String,
+    },
+    UnsupportedFunctionLanguage {
+        language: FunctionLanguage,
+        name: ObjectName,
+    },
 }
 
 impl fmt::Display for ValidationKind {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            ValidationKind::IndexInvalidReferenceTable {
-                ref index,
-                ref table,
-            } => write!(f, "Index `{}` uses unknown reference table `{}`",
-                index,
-                table
-            ),
+            ValidationKind::IndexInvalidReferenceTable { ref index, ref table } => {
+                write!(f, "Index `{}` uses unknown reference table `{}`", index, table)
+            }
             ValidationKind::IndexInvalidReferenceColumns {
                 ref index,
                 ref table,
                 ref columns,
-            } => write!(f, "Index `{}` uses unknown reference column(s) on table `{}` (`{}`)",
+            } => write!(
+                f,
+                "Index `{}` uses unknown reference column(s) on table `{}` (`{}`)",
                 index,
                 table,
                 columns.join("`, `")
@@ -730,8 +745,7 @@ impl fmt::Display for ValidationKind {
             } => write!(
                 f,
                 "Foreign Key constraint `{}` uses unknown reference table `{}`",
-                constraint,
-                table
+                constraint, table
             ),
             ValidationKind::TableConstraintInvalidReferenceColumns {
                 ref constraint,
@@ -753,23 +767,17 @@ impl fmt::Display for ValidationKind {
                 constraint,
                 columns.join("`, `")
             ),
-            ValidationKind::SchemaMissing {
-                ref schema,
-                ref object,
-            } => write!(f, "Schema `{}` missing for object `{}`", schema, object),
-            ValidationKind::UnknownType {
-                ref ty,
-                ref table
-            } => write!(f, "Unknown type `{}` used on table `{}`", ty, table),
-            ValidationKind::UnsupportedFunctionLanguage {
-                ref language,
-                ref name
-            } => write!(
+            ValidationKind::SchemaMissing { ref schema, ref object } => {
+                write!(f, "Schema `{}` missing for object `{}`", schema, object)
+            }
+            ValidationKind::UnknownType { ref ty, ref table } => {
+                write!(f, "Unknown type `{}` used on table `{}`", ty, table)
+            }
+            ValidationKind::UnsupportedFunctionLanguage { ref language, ref name } => write!(
                 f,
                 "Unsupported function language `{}` used on function `{}`",
-                language,
-                name,
-            )
+                language, name,
+            ),
         }
     }
 }
@@ -787,12 +795,9 @@ impl<'def> fmt::Display for Node<'def> {
         match *self {
             Node::Table(table) => write!(f, "Table:      {}", table.name.to_string()),
             Node::Column(table, column) => write!(f, "Column:     {}.{}", table.name.to_string(), column.name),
-            Node::Constraint(table, constraint) => write!(
-                f,
-                "Constraint: {}.{}",
-                table.name.to_string(),
-                constraint.name()
-            ),
+            Node::Constraint(table, constraint) => {
+                write!(f, "Constraint: {}.{}", table.name.to_string(), constraint.name())
+            }
             Node::Function(function) => write!(f, "Function:   {}", function.name.to_string()),
         }
     }
@@ -880,9 +885,7 @@ impl Graphable for TableConstraint {
         };
         match *self {
             TableConstraint::Primary {
-                ref name,
-                ref columns,
-                ..
+                ref name, ref columns, ..
             } => {
                 let log = log.new(o!("primary constraint" => name.to_owned()));
                 // Primary relies on the columns existing (of course)
@@ -890,11 +893,7 @@ impl Graphable for TableConstraint {
                 let constraint = graph.add_node(Node::Constraint(table, self));
                 for column_name in columns {
                     trace!(log, "Adding edge to column"; "column" => &column_name);
-                    let column = table
-                        .columns
-                        .iter()
-                        .find(|x| &x.name == column_name)
-                        .unwrap();
+                    let column = table.columns.iter().find(|x| &x.name == column_name).unwrap();
                     graph.add_edge(Node::Column(table, column), constraint, ());
                 }
                 graph.add_edge(table_node, constraint, ());
@@ -914,11 +913,7 @@ impl Graphable for TableConstraint {
                 // Add edges to the columns in this table.
                 for column_name in columns {
                     trace!(log, "Adding edge to column"; "column" => &column_name);
-                    let column = table
-                        .columns
-                        .iter()
-                        .find(|x| &x.name == column_name)
-                        .unwrap();
+                    let column = table.columns.iter().find(|x| &x.name == column_name).unwrap();
                     graph.add_edge(Node::Column(table, column), constraint, ());
                 }
                 // Find the details of the referenced table.
@@ -937,11 +932,7 @@ impl Graphable for TableConstraint {
                                 "table" => ref_table.to_string(),
                                 "column" => &ref_column_name);
 
-                    let ref_column = table_def
-                        .columns
-                        .iter()
-                        .find(|x| &x.name == ref_column_name)
-                        .unwrap();
+                    let ref_column = table_def.columns.iter().find(|x| &x.name == ref_column_name).unwrap();
                     graph.add_edge(Node::Column(table_def, ref_column), constraint, ());
 
                     // If required, add an edge to any primary keys.
@@ -962,11 +953,11 @@ impl Graphable for TableConstraint {
 
 #[cfg(test)]
 mod tests {
-    use errors::PsqlpackError;
-    use errors::PsqlpackErrorKind::*;
-    use model::*;
-    use sql::{ast, lexer};
-    use sql::parser::StatementListParser;
+    use crate::errors::PsqlpackError;
+    use crate::errors::PsqlpackErrorKind::*;
+    use crate::model::*;
+    use crate::sql::parser::StatementListParser;
+    use crate::sql::{ast, lexer};
 
     use slog::{Discard, Drain, Logger};
     use spectral::prelude::*;
@@ -978,16 +969,18 @@ mod tests {
         };
         let mut package = Package::new();
         match StatementListParser::new().parse(tokens) {
-            Ok(statement_list) => for statement in statement_list {
-                match statement {
-                    ast::Statement::Error(kind) => panic!("Unhandled error detected: {}", kind),
-                    ast::Statement::Function(function_definition) => package.push_function(function_definition),
-                    ast::Statement::Index(index_definition) => package.push_index(index_definition),
-                    ast::Statement::Schema(schema_definition) => package.push_schema(schema_definition),
-                    ast::Statement::Table(table_definition) => package.push_table(table_definition),
-                    ast::Statement::Type(type_definition) => package.push_type(type_definition),
+            Ok(statement_list) => {
+                for statement in statement_list {
+                    match statement {
+                        ast::Statement::Error(kind) => panic!("Unhandled error detected: {}", kind),
+                        ast::Statement::Function(function_definition) => package.push_function(function_definition),
+                        ast::Statement::Index(index_definition) => package.push_index(index_definition),
+                        ast::Statement::Schema(schema_definition) => package.push_schema(schema_definition),
+                        ast::Statement::Table(table_definition) => package.push_table(table_definition),
+                        ast::Statement::Type(type_definition) => package.push_type(type_definition),
+                    }
                 }
-            },
+            }
             Err(err) => panic!("Failed to parse sql: {:?}", err),
         }
         package
@@ -1002,8 +995,8 @@ mod tests {
             match $graph[$index] {
                 Node::Table(table) => {
                     assert_that!(table.name.to_string()).is_equal_to($name.to_owned());
-                },
-                _ => panic!("Expected a table at index {}", $index)
+                }
+                _ => panic!("Expected a table at index {}", $index),
             }
         };
     }
@@ -1014,8 +1007,8 @@ mod tests {
                 Node::Column(table, column) => {
                     assert_that!(table.name.to_string()).is_equal_to($table_name.to_owned());
                     assert_that!(column.name.to_string()).is_equal_to($column_name.to_owned());
-                },
-                _ => panic!("Expected a column at index {}", $index)
+                }
+                _ => panic!("Expected a column at index {}", $index),
             }
         };
     }
@@ -1028,11 +1021,11 @@ mod tests {
                     match *constraint {
                         ast::TableConstraint::Primary { ref name, .. } => {
                             assert_that!(name.to_string()).is_equal_to($constraint_name.to_owned());
-                        },
-                        _ => panic!("Expected a primary key constraint at index {}", $index)
+                        }
+                        _ => panic!("Expected a primary key constraint at index {}", $index),
                     }
-                },
-                _ => panic!("Expected a constraint at index {}", $index)
+                }
+                _ => panic!("Expected a constraint at index {}", $index),
             }
         };
     }
@@ -1045,11 +1038,11 @@ mod tests {
                     match *constraint {
                         ast::TableConstraint::Foreign { ref name, .. } => {
                             assert_that!(name.to_string()).is_equal_to($constraint_name.to_owned());
-                        },
-                        _ => panic!("Expected a foreign key constraint at index {}", $index)
+                        }
+                        _ => panic!("Expected a foreign key constraint at index {}", $index),
                     }
-                },
-                _ => panic!("Expected a constraint at index {}", $index)
+                }
+                _ => panic!("Expected a constraint at index {}", $index),
             }
         };
     }
@@ -1114,8 +1107,12 @@ mod tests {
         assert_that!(index.columns).has_length(1);
         let col = &index.columns[0];
         assert_that!(col.name).is_equal_to("name".to_owned());
-        assert_that!(col.order).is_some().is_equal_to(ast::IndexOrder::Ascending);
-        assert_that!(col.null_position).is_some().is_equal_to(ast::IndexPosition::Last);
+        assert_that!(col.order)
+            .is_some()
+            .is_equal_to(ast::IndexOrder::Ascending);
+        assert_that!(col.null_position)
+            .is_some()
+            .is_equal_to(ast::IndexPosition::Last);
     }
 
     #[test]
@@ -1172,7 +1169,8 @@ mod tests {
                 CONSTRAINT fk_public_transaction__allocation_id FOREIGN KEY (allocation_id)
                 REFERENCES public.allocation (id) MATCH SIMPLE
                 ON UPDATE NO ACTION ON DELETE NO ACTION
-            );");
+            );",
+        );
         let logger = empty_logger();
         let graph = package.generate_dependency_graph(&logger);
 
@@ -1203,10 +1201,7 @@ mod tests {
         };
         assert_that!(validation_errors).has_length(1);
         match validation_errors[0] {
-            ValidationKind::SchemaMissing {
-                ref schema,
-                ref object,
-            } => {
+            ValidationKind::SchemaMissing { ref schema, ref object } => {
                 assert_that!(*schema).is_equal_to("my".to_owned());
                 assert_that!(*object).is_equal_to("items".to_owned());
             }
@@ -1214,9 +1209,7 @@ mod tests {
         }
 
         // Add the schema and try again
-        package.schemas.push(ast::SchemaDefinition {
-            name: "my".to_owned(),
-        });
+        package.schemas.push(ast::SchemaDefinition { name: "my".to_owned() });
         assert_that!(package.validate()).is_ok();
     }
 
@@ -1241,7 +1234,7 @@ mod tests {
             ValidationKind::UnknownType { ref ty, ref table } => {
                 assert_that!(*ty).is_equal_to(ast::ObjectName {
                     schema: Some("public".to_string()),
-                    name: "mytype".to_string()
+                    name: "mytype".to_string(),
                 });
                 assert_that!(*table).is_equal_to("my.items".to_owned());
             }
@@ -1252,7 +1245,7 @@ mod tests {
         package.types.push(ast::TypeDefinition {
             name: ast::ObjectName {
                 schema: Some("public".to_string()),
-                name: "mytype".to_string()
+                name: "mytype".to_string(),
             },
             kind: ast::TypeDefinitionKind::Enum(Vec::new()),
         });
@@ -1294,13 +1287,11 @@ mod tests {
                 schema: Some("my".to_owned()),
                 name: "parent".to_owned(),
             },
-            columns: vec![
-                ast::ColumnDefinition {
-                    name: "id".to_owned(),
-                    sql_type: ast::SqlType::Simple(ast::SimpleSqlType::Serial, None),
-                    constraints: Vec::new(),
-                },
-            ],
+            columns: vec![ast::ColumnDefinition {
+                name: "id".to_owned(),
+                sql_type: ast::SqlType::Simple(ast::SimpleSqlType::Serial, None),
+                constraints: Vec::new(),
+            }],
             constraints: Vec::new(),
         });
         assert_that!(package.validate()).is_ok();
@@ -1341,11 +1332,7 @@ mod tests {
 
         // Add the column and try again
         {
-            let parent = package
-                .tables
-                .iter_mut()
-                .find(|t| t.name.name.eq("parent"))
-                .unwrap();
+            let parent = package.tables.iter_mut().find(|t| t.name.name.eq("parent")).unwrap();
             parent.columns.push(ast::ColumnDefinition {
                 name: "parent_id".to_owned(),
                 sql_type: ast::SqlType::Simple(ast::SimpleSqlType::Integer, None),
@@ -1388,11 +1375,7 @@ mod tests {
 
         // Add the column and try again
         {
-            let child = package
-                .tables
-                .iter_mut()
-                .find(|t| t.name.name.eq("child"))
-                .unwrap();
+            let child = package.tables.iter_mut().find(|t| t.name.name.eq("child")).unwrap();
             child.columns.push(ast::ColumnDefinition {
                 name: "par_id".to_owned(),
                 sql_type: ast::SqlType::Simple(ast::SimpleSqlType::Integer, None),
@@ -1402,13 +1385,12 @@ mod tests {
         assert_that!(package.validate()).is_ok();
     }
 
-
     #[test]
     fn it_validates_missing_reference_table_in_index() {
         let mut package = package_sql(
             "CREATE SCHEMA my;
              CREATE TABLE my.person(id int, name varchar(50));
-             CREATE UNIQUE INDEX idx_company_name ON my.company (name);"
+             CREATE UNIQUE INDEX idx_company_name ON my.company (name);",
         );
         let result = package.validate();
 
@@ -1420,10 +1402,7 @@ mod tests {
         };
         assert_that!(validation_errors).has_length(1);
         match validation_errors[0] {
-            ValidationKind::IndexInvalidReferenceTable {
-                ref index,
-                ref table,
-            } => {
+            ValidationKind::IndexInvalidReferenceTable { ref index, ref table } => {
                 assert_that!(*index).is_equal_to("idx_company_name".to_owned());
                 assert_that!(*table).is_equal_to("my.company".to_owned());
             }
@@ -1485,11 +1464,7 @@ mod tests {
 
         // Add the column and try again
         {
-            let person = package
-                .tables
-                .iter_mut()
-                .find(|t| t.name.name.eq("person"))
-                .unwrap();
+            let person = package.tables.iter_mut().find(|t| t.name.name.eq("person")).unwrap();
             person.columns.push(ast::ColumnDefinition {
                 name: "number".to_owned(),
                 sql_type: ast::SqlType::Simple(ast::SimpleSqlType::Integer, None),

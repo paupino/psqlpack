@@ -24,36 +24,28 @@ extern crate glob;
 extern crate zip;
 
 mod errors;
-pub use errors::*;
+pub use crate::errors::*;
 mod connection;
-mod sql;
 mod model;
 mod semver;
+mod sql;
 
 pub mod ast {
-    pub use sql::ast::*;
+    pub use crate::sql::ast::*;
 }
-pub use connection::ConnectionBuilder;
-pub use errors::{PsqlpackErrorKind, PsqlpackResult};
-pub use model::{
-    Capabilities,
-    Delta,
-    Dependency,
-    GenerationOptions,
-    Package,
-    Project,
-    PublishProfile,
-    Toggle,
-    template,
+pub use crate::connection::ConnectionBuilder;
+pub use crate::errors::{PsqlpackErrorKind, PsqlpackResult};
+pub use crate::model::{
+    template, Capabilities, Delta, Dependency, GenerationOptions, Package, Project, PublishProfile, Toggle,
 };
-pub use semver::Semver;
+pub use crate::semver::Semver;
 
 /// Allows usage of no logging, std `log`, or slog.
 pub enum LogConfig {
     NoLogging,
     StdLog,
 }
-pub use LogConfig::*;
+pub use crate::LogConfig::*;
 
 impl From<LogConfig> for slog::Logger {
     fn from(config: LogConfig) -> Self {

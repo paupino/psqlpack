@@ -9,15 +9,15 @@ mod operation;
 
 use std::env;
 use std::path::Path;
-use std::time::Instant;
-use std::str::FromStr;
-use std::sync::{atomic, Arc};
-use std::sync::atomic::Ordering;
 use std::result;
+use std::str::FromStr;
+use std::sync::atomic::Ordering;
+use std::sync::{atomic, Arc};
+use std::time::Instant;
 
 use clap::{App, Arg, ArgMatches, SubCommand};
-use slog::{Drain, Logger};
 use psqlpack::{ChainedError, PsqlpackResult, Semver};
+use slog::{Drain, Logger};
 
 /// A thread safe toggle.
 #[derive(Clone)]
@@ -45,10 +45,7 @@ struct TraceFilter<D: Drain> {
 
 impl<D: Drain> TraceFilter<D> {
     pub fn new(drain: D, toggle: Toggle) -> TraceFilter<D> {
-        TraceFilter {
-            drain,
-            toggle,
-        }
+        TraceFilter { drain, toggle }
     }
 }
 
@@ -318,25 +315,15 @@ fn main() {
             );
         }
         HandleResult::InvalidArgument(arg, reason) => {
-            error!(
-                log,
-                "Invalid argument for {}\n{}",
-                arg,
-                reason,
-            );
+            error!(log, "Invalid argument for {}\n{}", arg, reason,);
         }
         HandleResult::Outcome(action, Err(error)) => {
-            error!(
-                log,
-                "encountered during {} command:\n{}",
-                action,
-                error.display_chain()
-            );
+            error!(log, "encountered during {} command:\n{}", action, error.display_chain());
         }
         HandleResult::Outcome(action, _) => {
             // Capture how long was elapsed
             let elapsed = time_stamp.elapsed();
-            let elapsed = elapsed.as_secs() as f64 + elapsed.subsec_nanos() as f64 / 1000_000_000.0;
+            let elapsed = elapsed.as_secs() as f64 + f64::from(elapsed.subsec_nanos()) / 1_000_000_000.0;
             info!(log, "Completed {} command in {}s", action, elapsed);
         }
     }
@@ -362,17 +349,19 @@ fn handle(log: &Logger, matches: &ArgMatches) -> HandleResult {
                 Some(version) => {
                     let v = match Semver::from_str(version) {
                         Ok(v) => v,
-                        Err(_) => return HandleResult::InvalidArgument(
-                            "version".into(),
-                            "Unable to parse version string".into(),
-                        ),
+                        Err(_) => {
+                            return HandleResult::InvalidArgument(
+                                "version".into(),
+                                "Unable to parse version string".into(),
+                            )
+                        }
                     };
                     Some(v)
-                },
+                }
                 None => None,
             };
             info!(log, "Extension"; "name" => &name);
-            let result = operation::extract_extension(log, &source, output, name, version);
+            let result = operation::extract_extension(log, &source, output, &name, version);
             HandleResult::Outcome(command.to_owned(), result)
         }
         (command @ "extract", Some(extract)) => {
@@ -392,9 +381,7 @@ fn handle(log: &Logger, matches: &ArgMatches) -> HandleResult {
             info!(log, "Output path"; "output" => output.to_str().unwrap());
             let name = match new.value_of("NAME") {
                 Some(cmd_name) => cmd_name.into(),
-                None => {
-                    output.file_name().unwrap().to_str().unwrap().to_owned()
-                }
+                None => output.file_name().unwrap().to_str().unwrap().to_owned(),
             };
             info!(log, "Template name"; "name" => &name);
             let result = operation::generate_template(log, &template, &output, &name);

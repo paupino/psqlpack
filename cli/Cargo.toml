@@ -4,6 +4,7 @@ version = "0.3.0"
 authors = ["Paul Mason <paul@form1.co.nz>", "Justin Latimer <justinlatimer@gmail.com>"]
 license = "MIT/Apache-2.0"
 readme = "../README.md"
+edition = "2018"
 
 [[bin]]
 name = "psqlpack"

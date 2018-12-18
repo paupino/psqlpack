@@ -13,11 +13,7 @@ pub struct Semver {
 
 impl Semver {
     pub fn new(major: u32, minor: u32, revision: Option<u32>) -> Self {
-        Semver {
-            major,
-            minor,
-            revision,
-        }
+        Semver { major, minor, revision }
     }
 }
 
@@ -73,8 +69,8 @@ impl cmp::Ord for Semver {
 
 impl serde::Serialize for Semver {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where
-            S: serde::Serializer,
+    where
+        S: serde::Serializer,
     {
         serializer.serialize_str(&self.to_string())
     }
@@ -82,8 +78,8 @@ impl serde::Serialize for Semver {
 
 impl<'de> serde::Deserialize<'de> for Semver {
     fn deserialize<D>(deserializer: D) -> Result<Semver, D::Error>
-        where
-            D: serde::de::Deserializer<'de>,
+    where
+        D: serde::de::Deserializer<'de>,
     {
         deserializer.deserialize_str(SemverVisitor)
     }
@@ -95,15 +91,12 @@ impl<'de> serde::de::Visitor<'de> for SemverVisitor {
     type Value = Semver;
 
     fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            formatter,
-            "a semantically versioned string"
-        )
+        write!(formatter, "a semantically versioned string")
     }
 
     fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
-        where
-            E: serde::de::Error,
+    where
+        E: serde::de::Error,
     {
         Semver::from_str(value).map_err(|_| E::invalid_value(serde::de::Unexpected::Str(value), &self))
     }
@@ -116,7 +109,7 @@ impl<'a> Into<Semver> for &'a str {
 }
 
 lazy_static! {
-    static ref VERSION : Regex = Regex::new("(\\d+)(\\.(\\d+))?(\\.(\\d+))?").unwrap();
+    static ref VERSION: Regex = Regex::new("(\\d+)(\\.(\\d+))?(\\.(\\d+))?").unwrap();
 }
 
 impl FromStr for Semver {
@@ -126,12 +119,10 @@ impl FromStr for Semver {
         fn get_u32(caps: &::regex::Captures<'_>, pos: usize, optional: bool) -> Option<u32> {
             if let Some(rev) = caps.get(pos) {
                 Some(rev.as_str().parse::<u32>().unwrap())
+            } else if !optional {
+                Some(0)
             } else {
-                if optional {
-                    None
-                } else {
-                    Some(0)
-                }
+                None
             }
         }
 
@@ -148,18 +139,14 @@ impl FromStr for Semver {
             None => return Err("Unexpected minor part".into()),
         };
         let revision = get_u32(&caps, 5, true);
-        Ok(Semver {
-            major,
-            minor,
-            revision,
-        })
+        Ok(Semver { major, minor, revision })
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
     use super::Semver;
+    use std::str::FromStr;
 
     use spectral::prelude::*;
 

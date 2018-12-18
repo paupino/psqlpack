@@ -1,7 +1,7 @@
-use connection::Connection;
-use errors::PsqlpackResult;
-use model::{Capabilities, DefinableCatalog, MetaInfo, Package, SourceInfo};
-use semver::Semver;
+use crate::connection::Connection;
+use crate::errors::PsqlpackResult;
+use crate::model::{Capabilities, DefinableCatalog, MetaInfo, Package, SourceInfo};
+use crate::semver::Semver;
 
 use slog::Logger;
 
@@ -13,11 +13,12 @@ pub struct Extension {
 }
 
 impl Extension {
-    pub fn build_package_from_connection(&self,
-                                         log: &Logger,
-                                         connection: &Connection,
-                                         capabilities: &Capabilities) -> PsqlpackResult<Package> {
-
+    pub fn build_package_from_connection(
+        &self,
+        log: &Logger,
+        connection: &Connection,
+        capabilities: &Capabilities,
+    ) -> PsqlpackResult<Package> {
         trace!(log, "Connecting to database");
         let db_conn = connection.connect_database()?;
         let meta = MetaInfo::new(SourceInfo::Extension);
