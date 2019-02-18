@@ -9,6 +9,7 @@ edition = "2018"
 
 [dependencies]
 chrono = { version = "0.4", features = ["serde"] }
+dirs = "1"
 error-chain = "0.12"
 glob = "0.2"
 lazy_static = "1.2"

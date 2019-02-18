@@ -5,6 +5,7 @@ use std::path::Path;
 use std::str::FromStr;
 
 use chrono::prelude::*;
+use glob::glob;
 use petgraph;
 use serde_json;
 use slog::Logger;
@@ -45,6 +46,9 @@ macro_rules! zip_collection {
     }};
 }
 
+// Search paths for extensions
+const DEFAULT_SEARCH_PATHS: [&str; 2] = [ "./lib", "~/.psqlpack/lib" ];
+
 #[derive(Debug)]
 pub struct Package {
     pub meta: MetaInfo,
@@ -55,6 +59,8 @@ pub struct Package {
     pub scripts: Vec<ScriptDefinition>,
     pub tables: Vec<TableDefinition>,
     pub types: Vec<TypeDefinition>,
+
+    references: Vec<Package>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -188,6 +194,8 @@ impl Package {
             scripts,
             tables,
             types,
+
+            references: Vec::new(),
         };
         package.promote_primary_keys_to_table_constraints();
         Ok(package)
@@ -238,6 +246,8 @@ impl Package {
             scripts: Vec::new(), // Scripts can't be known from a connection
             tables,
             types,
+
+            references: Vec::new(),
         };
         package.promote_primary_keys_to_table_constraints();
 
@@ -288,6 +298,8 @@ impl Package {
             scripts: Vec::new(),
             tables: Vec::new(),
             types: Vec::new(),
+
+            references: Vec::new(),
         }
     }
 
@@ -460,7 +472,7 @@ impl Package {
         }
     }
 
-    pub fn generate_dependency_graph<'out>(&'out self, log: &Logger) -> PsqlpackResult<Vec<Node<'out>>> {
+    pub fn generate_dependency_graph(&self, log: &Logger) -> PsqlpackResult<Vec<Node>> {
         let log = log.new(o!("graph" => "generate"));
 
         let mut graph = Graph::new();
@@ -500,6 +512,120 @@ impl Package {
                 Ok(index_order)
             }
         }
+    }
+
+    // TODO: Stop moving string, consider making this a utility
+    fn expand_tilde(input: &str) -> String {
+        if input.starts_with("~") {
+            let after_tilde = &input[1..];
+            if after_tilde.is_empty() || after_tilde.starts_with("/") {
+                if let Some(hd) = dirs::home_dir() {
+                    let result = format!("{}{}", hd.display(), after_tilde);
+                    result.into()
+                } else {
+                    input.into()
+                }
+            } else {
+                input.into()
+            }
+        } else {
+            input.into()
+        }
+    }
+
+    pub fn load_references(&mut self, project: &Project, log: &Logger) {
+        let log = log.new(o!("package" => "load_references"));
+
+        // Clear the references first
+        self.references.clear();
+
+        // Get the search paths to look for. We favor project level paths first if they exist.
+        trace!(log, "Setting up search paths");
+        let mut search_paths = Vec::new();
+        if let Some(ref user_search_paths) = project.reference_search_paths {
+            for path in user_search_paths {
+                if let Ok(p) = Path::new(&Self::expand_tilde(path)).canonicalize() {
+                    search_paths.push(p);
+                } else {
+                    error!(log, "Path not found: {}", path);
+                }
+            }
+        }
+        for path in &DEFAULT_SEARCH_PATHS {
+            if let Ok(p) = Path::new(&Self::expand_tilde(path)).canonicalize() {
+                search_paths.push(p);
+            } else {
+                error!(log, "Path not found: {}", path);
+            }
+        }
+
+        // Firstly, load extensions
+        trace!(log, "Loading extensions");
+        for extension in &self.extensions {
+            let find_package = |path: &Path| {
+                if let Some(version) = extension.version {
+                    // If the extension specifies a version we search for name-version.psqlpack.
+                    let mut path = path.to_path_buf();
+                    path.push(format!("{}-{}.psqlpack", extension.name, version));
+                    if path.exists() && path.is_file() {
+                        match Package::from_packaged_file(&log, &path) {
+                            Ok(package) => return Some(package),
+                            Err(e) => {
+                                error!(log, "Failed to load extension: {}", e);
+                            }
+                        }
+                    }
+                    None
+                } else {
+                    // If no version is specified then we search for either the non-versioned extension
+                    // or the highest versioned extension.
+                    // Try to find the globs matching ext_name*.psqlpack
+                    let mut search_path = path.to_path_buf();
+                    search_path.push(format!("{}*.psqlpack", extension.name));
+                    let search_path = search_path.to_str().unwrap();
+                    let mut count = 0;
+                    for glob_path in glob(search_path).unwrap() {
+                        count += 1;
+                        if let Ok(path) = glob_path {
+                            if path.is_file() {
+                                match Package::from_packaged_file(&log, &path) {
+                                    Ok(package) => {
+                                        trace!(log, "Found {}!", extension.name);
+                                        return Some(package);
+                                    },
+                                    Err(e) => {
+                                        error!(log, "Failed to load extension: {}", e);
+                                    }
+                                }
+                            }
+                        } else {
+                            error!(log, "Glob result had an error: {}", glob_path.err().unwrap().error());
+                        }
+                    }
+                    if count == 0 {
+                        error!(log, "No packages matched: {}", search_path);
+                    } else if count > 1 {
+                        trace!(log, "TODO: Search for highest version");
+                    }
+
+                    None
+                }
+            };
+            let mut found = false;
+            for path in &search_paths {
+                if let Some(package) = find_package(path) {
+                    self.references.push(package);
+                    found = true;
+                    break;
+                }
+            }
+
+            if !found {
+                trace!(log, "Extension not found: {}", extension);
+            }
+        }
+
+        // TODO: load passed references
     }
 
     pub fn validate(&self) -> PsqlpackResult<()> {
