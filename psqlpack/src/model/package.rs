@@ -605,6 +605,7 @@ impl Package {
                     if count == 0 {
                         error!(log, "No packages matched: {}", search_path);
                     } else if count > 1 {
+                        // TODO: Search for the highest version
                         trace!(log, "TODO: Search for highest version");
                     }
 
@@ -653,7 +654,12 @@ impl Package {
             .collect::<Vec<_>>();
 
         // 2. Validate custom type are known
-        let custom_types = self.types.iter().map(|ty| &ty.name).collect::<Vec<_>>();
+        let mut custom_types = self.types.iter().map(|ty| &ty.name).collect::<Vec<_>>();
+        for reference in &self.references {
+            for ty in &reference.types {
+                custom_types.push(&ty.name);
+            }
+        }
         errors.extend(self.tables.iter().flat_map(|t| {
             t.columns
                 .iter()
