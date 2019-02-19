@@ -30,13 +30,16 @@ impl Extension {
         let indexes = context.indexes(&db_conn)?;
         dbtry!(db_conn.finish());
 
-        let mut package = Package::new();
-        package.meta = meta;
-        package.functions = functions;
-        package.indexes = indexes;
-        package.schemas = schemas;
-        package.tables = tables;
-        package.types = types;
+        let mut package = Package {
+            meta,
+            extensions: Vec::new(),
+            functions,
+            indexes,
+            schemas,
+            scripts: Vec::new(),
+            tables,
+            types,
+        };
 
         package.promote_primary_keys_to_table_constraints();
         Ok(package)

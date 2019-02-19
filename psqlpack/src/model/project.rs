@@ -248,9 +248,9 @@ impl Project {
         trace!(log, "Setting defaults");
         package.set_defaults(self);
         trace!(log, "Load references");
-        package.load_references(self, &log);
+        let references = package.load_references(self, &log);
         trace!(log, "Validating package");
-        package.validate()?;
+        package.validate(&references)?;
 
         Ok(package)
     }

@@ -59,8 +59,6 @@ pub struct Package {
     pub scripts: Vec<ScriptDefinition>,
     pub tables: Vec<TableDefinition>,
     pub types: Vec<TypeDefinition>,
-
-    references: Vec<Package>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -194,8 +192,6 @@ impl Package {
             scripts,
             tables,
             types,
-
-            references: Vec::new(),
         };
         package.promote_primary_keys_to_table_constraints();
         Ok(package)
@@ -246,8 +242,6 @@ impl Package {
             scripts: Vec::new(), // Scripts can't be known from a connection
             tables,
             types,
-
-            references: Vec::new(),
         };
         package.promote_primary_keys_to_table_constraints();
 
@@ -298,8 +292,6 @@ impl Package {
             scripts: Vec::new(),
             tables: Vec::new(),
             types: Vec::new(),
-
-            references: Vec::new(),
         }
     }
 
@@ -533,11 +525,10 @@ impl Package {
         }
     }
 
-    pub fn load_references(&mut self, project: &Project, log: &Logger) {
+    pub fn load_references(&self, project: &Project, log: &Logger) -> Vec<&Package> {
         let log = log.new(o!("package" => "load_references"));
 
-        // Clear the references first
-        self.references.clear();
+        let mut references = Vec::new();
 
         // Get the search paths to look for. We favor project level paths first if they exist.
         trace!(log, "Setting up search paths");
@@ -561,6 +552,7 @@ impl Package {
 
         // Firstly, load extensions
         trace!(log, "Loading extensions");
+
         for extension in &self.extensions {
             let find_package = |path: &Path| {
                 if let Some(version) = extension.version {
@@ -569,7 +561,7 @@ impl Package {
                     path.push(format!("{}-{}.psqlpack", extension.name, version));
                     if path.exists() && path.is_file() {
                         match Package::from_packaged_file(&log, &path) {
-                            Ok(package) => return Some(package),
+                            Ok(ref package) => return Some(package),
                             Err(e) => {
                                 error!(log, "Failed to load extension: {}", e);
                             }
@@ -583,15 +575,14 @@ impl Package {
                     let mut search_path = path.to_path_buf();
                     search_path.push(format!("{}*.psqlpack", extension.name));
                     let search_path = search_path.to_str().unwrap();
-                    let mut count = 0;
+                    let mut found_packages = Vec::new();
                     for glob_path in glob(search_path).unwrap() {
-                        count += 1;
                         if let Ok(path) = glob_path {
                             if path.is_file() {
                                 match Package::from_packaged_file(&log, &path) {
                                     Ok(package) => {
                                         trace!(log, "Found {}!", extension.name);
-                                        return Some(package);
+                                        found_packages.push(&package);
                                     },
                                     Err(e) => {
                                         error!(log, "Failed to load extension: {}", e);
@@ -602,20 +593,23 @@ impl Package {
                             error!(log, "Glob result had an error: {}", glob_path.err().unwrap().error());
                         }
                     }
-                    if count == 0 {
+                    if found_packages.is_empty() {
                         error!(log, "No packages matched: {}", search_path);
-                    } else if count > 1 {
+                        None
+                    } else if found_packages.len() > 1 {
                         // TODO: Search for the highest version
                         trace!(log, "TODO: Search for highest version");
+                        None
+                    } else {
+                        Some(found_packages[0])
                     }
-
-                    None
                 }
             };
             let mut found = false;
             for path in &search_paths {
-                if let Some(package) = find_package(path) {
-                    self.references.push(package);
+                let package = find_package(path);
+                if let Some(ref package) = package {
+                    references.push(*package);
                     found = true;
                     break;
                 }
@@ -627,9 +621,10 @@ impl Package {
         }
 
         // TODO: load passed references
+        references
     }
 
-    pub fn validate(&self) -> PsqlpackResult<()> {
+    pub fn validate(&self, references: &Vec<&Package>) -> PsqlpackResult<()> {
         // 1. Validate schema existence
         let schemata = self.schemas.iter().map(|schema| &schema.name[..]).collect::<Vec<_>>();
         let names = self
@@ -655,7 +650,7 @@ impl Package {
 
         // 2. Validate custom type are known
         let mut custom_types = self.types.iter().map(|ty| &ty.name).collect::<Vec<_>>();
-        for reference in &self.references {
+        for reference in references {
             for ty in &reference.types {
                 custom_types.push(&ty.name);
             }
