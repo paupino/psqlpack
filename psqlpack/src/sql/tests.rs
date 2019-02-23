@@ -213,7 +213,7 @@ fn it_can_parse_function_arguments() {
                     schema: None,
                     name: "geometry".to_string(),
                 },
-                None,
+                vec![],
                 None,
             ),
             default: None,

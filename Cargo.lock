@@ -902,7 +902,7 @@ dependencies = [
 
 [[package]]
 name = "psqlpack"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "chrono 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "dirs 1.0.4 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -926,10 +926,10 @@ dependencies = [
 
 [[package]]
 name = "psqlpack-cli"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "clap 2.32.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "psqlpack 0.3.0",
+ "psqlpack 0.4.0",
  "slog 2.4.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "slog-term 2.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
