@@ -1332,7 +1332,7 @@ mod tests {
     #[test]
     fn it_validates_missing_schema_references() {
         let mut package = package_sql("CREATE TABLE my.items(id int);");
-        let result = package.validate();
+        let result = package.validate(&Vec::new());
 
         // `my` schema is missing
         assert_that!(result).is_err();
@@ -1351,7 +1351,7 @@ mod tests {
 
         // Add the schema and try again
         package.schemas.push(ast::SchemaDefinition { name: "my".to_owned() });
-        assert_that!(package.validate()).is_ok();
+        assert_that!(package.validate(&Vec::new())).is_ok();
     }
 
     #[test]
@@ -1362,7 +1362,7 @@ mod tests {
         );
         let project = Project::default();
         package.set_defaults(&project);
-        let result = package.validate();
+        let result = package.validate(&Vec::new());
 
         // `mytype` is missing
         assert_that!(result).is_err();
@@ -1390,7 +1390,7 @@ mod tests {
             },
             kind: ast::TypeDefinitionKind::Enum(Vec::new()),
         });
-        assert_that!(package.validate()).is_ok();
+        assert_that!(package.validate(&Vec::new())).is_ok();
     }
 
     #[test]
@@ -1402,7 +1402,7 @@ mod tests {
                REFERENCES my.parent(id)
                MATCH SIMPLE ON UPDATE NO ACTION ON DELETE NO ACTION);",
         );
-        let result = package.validate();
+        let result = package.validate(&Vec::new());
 
         // `my.parent` does not exist
         assert_that!(result).is_err();
@@ -1435,7 +1435,7 @@ mod tests {
             }],
             constraints: Vec::new(),
         });
-        assert_that!(package.validate()).is_ok();
+        assert_that!(package.validate(&Vec::new())).is_ok();
     }
 
     #[test]
@@ -1448,7 +1448,7 @@ mod tests {
                MATCH SIMPLE ON UPDATE NO ACTION ON DELETE NO ACTION);
                CREATE TABLE my.parent(id int);",
         );
-        let result = package.validate();
+        let result = package.validate(&Vec::new());
 
         // Column `parent_id` is invalid
         assert_that!(result).is_err();
@@ -1480,7 +1480,7 @@ mod tests {
                 constraints: Vec::new(),
             });
         }
-        assert_that!(package.validate()).is_ok();
+        assert_that!(package.validate(&Vec::new())).is_ok();
     }
 
     #[test]
@@ -1493,7 +1493,7 @@ mod tests {
                MATCH SIMPLE ON UPDATE NO ACTION ON DELETE NO ACTION);
                CREATE TABLE my.parent(id int);",
         );
-        let result = package.validate();
+        let result = package.validate(&Vec::new());
 
         // Column `par_id` is invalid
         assert_that!(result).is_err();
@@ -1523,7 +1523,7 @@ mod tests {
                 constraints: Vec::new(),
             });
         }
-        assert_that!(package.validate()).is_ok();
+        assert_that!(package.validate(&Vec::new())).is_ok();
     }
 
     #[test]
@@ -1533,7 +1533,7 @@ mod tests {
              CREATE TABLE my.person(id int, name varchar(50));
              CREATE UNIQUE INDEX idx_company_name ON my.company (name);",
         );
-        let result = package.validate();
+        let result = package.validate(&Vec::new());
 
         // `my.company` does not exist
         assert_that!(result).is_err();
@@ -1570,7 +1570,7 @@ mod tests {
             ],
             constraints: Vec::new(),
         });
-        assert_that!(package.validate()).is_ok();
+        assert_that!(package.validate(&Vec::new())).is_ok();
     }
 
     #[test]
@@ -1580,7 +1580,7 @@ mod tests {
              CREATE TABLE my.person(id int, name varchar(50));
              CREATE UNIQUE INDEX idx_person_number ON my.person (number);",
         );
-        let result = package.validate();
+        let result = package.validate(&Vec::new());
 
         // Column `person.number` is invalid
         assert_that!(result).is_err();
@@ -1612,6 +1612,6 @@ mod tests {
                 constraints: Vec::new(),
             });
         }
-        assert_that!(package.validate()).is_ok();
+        assert_that!(package.validate(&Vec::new())).is_ok();
     }
 }

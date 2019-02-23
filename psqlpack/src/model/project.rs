@@ -333,6 +333,7 @@ mod tests {
             extensions: None,
             include_globs: None,
             exclude_globs: Some(vec!["**/*org*".into()]),
+            reference_search_paths: None,
         };
         let result = project.walk_files(&parent);
 
@@ -361,6 +362,7 @@ mod tests {
             extensions: None,
             include_globs: None,
             exclude_globs: Some(vec!["**/geo/**/*.sql".into(), "**/geo.*".into()]),
+            reference_search_paths: None,
         };
         let result = project.walk_files(&parent);
 
@@ -387,6 +389,7 @@ mod tests {
             extensions: None,
             include_globs: Some(vec!["**/*org*.sql".into()]),
             exclude_globs: None,
+            reference_search_paths: None,
         };
         let result = project.walk_files(&parent);
 
