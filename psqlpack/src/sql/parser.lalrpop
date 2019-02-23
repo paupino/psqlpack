@@ -373,12 +373,26 @@ pub SqlType: SqlType = {
     <SimpleType> => SqlType::Simple(<>, None),
     <simple:SimpleType> <dim:ArrayDimension> => SqlType::Simple(simple, Some(dim)),
 
-    <name:ObjectName> => SqlType::Custom(name, None, None),
-    <name:ObjectName> <dim:ArrayDimension> => SqlType::Custom(name, None, Some(dim)),
-    <name:ObjectName> "(" <options:Ident> ")" =>
-        SqlType::Custom(name, Some(options), None),
-    <name:ObjectName> "(" <options:Ident> ")" <dim:ArrayDimension> =>
-        SqlType::Custom(name, Some(options), Some(dim)),
+    <name:ObjectName> => SqlType::Custom(name, vec![], None),
+    <name:ObjectName> <dim:ArrayDimension> => SqlType::Custom(name, vec![], Some(dim)),
+    <name:ObjectName> "(" <modifiers:TypeModifierList> ")" =>
+        SqlType::Custom(name, modifiers, None),
+    <name:ObjectName> "(" <modifiers:TypeModifierList> ")" <dim:ArrayDimension> =>
+        SqlType::Custom(name, modifiers, Some(dim)),
+};
+
+TypeModifierList: Vec<TypeModifier> = {
+    <v:TypeModifierList> "," <t:TypeModifier> => {
+        let mut v = v;
+        v.push(t);
+        v
+    },
+    <TypeModifier> => vec!(<>),
+};
+
+TypeModifier: TypeModifier = {
+    <name:Ident> => TypeModifier::Ident(name),
+    <d:Digit> => TypeModifier::Integer(d),
 };
 
 SimpleType: SimpleSqlType = {

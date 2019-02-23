@@ -5,6 +5,7 @@ use std::path::Path;
 use std::str::FromStr;
 
 use chrono::prelude::*;
+use glob::glob;
 use petgraph;
 use serde_json;
 use slog::Logger;
@@ -45,6 +46,9 @@ macro_rules! zip_collection {
     }};
 }
 
+// Search paths for extensions
+const DEFAULT_SEARCH_PATHS: [&str; 2] = [ "./lib", "~/.psqlpack/lib" ];
+
 #[derive(Debug)]
 pub struct Package {
     pub meta: MetaInfo,
@@ -67,11 +71,15 @@ pub struct MetaInfo {
 
 impl MetaInfo {
     pub fn new(source: SourceInfo) -> Self {
+        let publishable = match source {
+            SourceInfo::Extension(..) => false,
+            _ => true,
+        };
         MetaInfo {
             version: crate_version(),
             generated_at: Utc::now(),
             source,
-            publishable: source != SourceInfo::Extension,
+            publishable,
         }
     }
 }
@@ -86,11 +94,21 @@ fn crate_version() -> Semver {
     .unwrap()
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum SourceInfo {
     Database,
-    Extension,
+    Extension(String),
     Project,
+}
+
+impl fmt::Display for SourceInfo {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            SourceInfo::Database => write!(f, "database"),
+            SourceInfo::Extension(ref name) => write!(f, "extension {}", name),
+            SourceInfo::Project => write!(f, "project"),
+        }
+    }
 }
 
 impl Package {
@@ -460,7 +478,7 @@ impl Package {
         }
     }
 
-    pub fn generate_dependency_graph<'out>(&'out self, log: &Logger) -> PsqlpackResult<Vec<Node<'out>>> {
+    pub fn generate_dependency_graph(&self, log: &Logger) -> PsqlpackResult<Vec<Node>> {
         let log = log.new(o!("graph" => "generate"));
 
         let mut graph = Graph::new();
@@ -502,7 +520,125 @@ impl Package {
         }
     }
 
-    pub fn validate(&self) -> PsqlpackResult<()> {
+    // TODO: Stop moving string, consider making this a utility
+    fn expand_tilde(input: &str) -> String {
+        if input.starts_with("~") {
+            let after_tilde = &input[1..];
+            if after_tilde.is_empty() || after_tilde.starts_with("/") {
+                if let Some(hd) = dirs::home_dir() {
+                    let result = format!("{}{}", hd.display(), after_tilde);
+                    result.into()
+                } else {
+                    input.into()
+                }
+            } else {
+                input.into()
+            }
+        } else {
+            input.into()
+        }
+    }
+
+    pub fn load_references(&self, project: &Project, log: &Logger) -> Vec<Package> {
+        let log = log.new(o!("package" => "load_references"));
+
+        let mut references = Vec::new();
+
+        // Get the search paths to look for. We favor project level paths first if they exist.
+        trace!(log, "Setting up search paths");
+        let mut search_paths = Vec::new();
+        if let Some(ref user_search_paths) = project.reference_search_paths {
+            for path in user_search_paths {
+                if let Ok(p) = Path::new(&Self::expand_tilde(path)).canonicalize() {
+                    search_paths.push(p);
+                } else {
+                    warn!(log, "Path not found: {}", path);
+                }
+            }
+        }
+        for path in &DEFAULT_SEARCH_PATHS {
+            if let Ok(p) = Path::new(&Self::expand_tilde(path)).canonicalize() {
+                search_paths.push(p);
+            } else {
+                warn!(log, "Path not found: {}", path);
+            }
+        }
+
+        // Firstly, load extensions
+        trace!(log, "Loading extensions");
+
+        for extension in &self.extensions {
+            let mut found = false;
+            for path in &search_paths {
+                if let Some(version) = extension.version {
+                    // If the extension specifies a version we search for name-version.psqlpack.
+                    let mut path = path.to_path_buf();
+                    path.push(format!("{}-{}.psqlpack", extension.name, version));
+                    if path.exists() && path.is_file() {
+                        match Package::from_packaged_file(&log, &path) {
+                            Ok(package) => {
+                                references.push(package);
+                                found = true;
+                                break;
+                            },
+                            Err(e) => {
+                                error!(log, "Failed to load extension: {}", e);
+                                break;
+                            }
+                        }
+                    }
+                } else {
+                    // If no version is specified then we search for either the non-versioned extension
+                    // or the highest versioned extension.
+                    // Try to find the globs matching ext_name*.psqlpack
+                    let mut search_path = path.to_path_buf();
+                    search_path.push(format!("{}*.psqlpack", extension.name));
+                    let search_path = search_path.to_str().unwrap();
+                    let mut found_packages = Vec::new();
+                    for glob_path in glob(search_path).unwrap() {
+                        if let Ok(path) = glob_path {
+                            if path.is_file() {
+                                match Package::from_packaged_file(&log, &path) {
+                                    Ok(package) => {
+                                        trace!(log, "Found {} {}", package.meta.source, package.meta.version);
+                                        found_packages.push(package);
+                                    },
+                                    Err(e) => {
+                                        error!(log, "Failed to load extension: {}", e);
+                                    }
+                                }
+                            }
+                        } else {
+                            error!(log, "Glob result had an error: {}", glob_path.err().unwrap().error());
+                        }
+                    }
+                    if found_packages.is_empty() {
+                        trace!(log, "No packages matched: {}", search_path);
+                        break;
+                    } else if found_packages.len() > 1 {
+                        trace!(log, "Search for highest version");
+                        found_packages.sort_by(|a, b| a.meta.version.cmp(&b.meta.version));
+                        references.extend(found_packages.drain(..1));
+                        break;
+                    } else {
+                        // Only one item in there so just drain and extend
+                        references.extend(found_packages.drain(..));
+                        found = true;
+                        break;
+                    }
+                }
+            }
+
+            if !found {
+                warn!(log, "Extension not found: {}", extension);
+            }
+        }
+
+        // TODO: load passed references
+        references
+    }
+
+    pub fn validate(&self, references: &Vec<Package>) -> PsqlpackResult<()> {
         // 1. Validate schema existence
         let schemata = self.schemas.iter().map(|schema| &schema.name[..]).collect::<Vec<_>>();
         let names = self
@@ -527,7 +663,12 @@ impl Package {
             .collect::<Vec<_>>();
 
         // 2. Validate custom type are known
-        let custom_types = self.types.iter().map(|ty| &ty.name).collect::<Vec<_>>();
+        let mut custom_types = self.types.iter().map(|ty| &ty.name).collect::<Vec<_>>();
+        for reference in references {
+            for ty in &reference.types {
+                custom_types.push(&ty.name);
+            }
+        }
         errors.extend(self.tables.iter().flat_map(|t| {
             t.columns
                 .iter()
@@ -1191,7 +1332,7 @@ mod tests {
     #[test]
     fn it_validates_missing_schema_references() {
         let mut package = package_sql("CREATE TABLE my.items(id int);");
-        let result = package.validate();
+        let result = package.validate(&Vec::new());
 
         // `my` schema is missing
         assert_that!(result).is_err();
@@ -1210,7 +1351,7 @@ mod tests {
 
         // Add the schema and try again
         package.schemas.push(ast::SchemaDefinition { name: "my".to_owned() });
-        assert_that!(package.validate()).is_ok();
+        assert_that!(package.validate(&Vec::new())).is_ok();
     }
 
     #[test]
@@ -1221,7 +1362,7 @@ mod tests {
         );
         let project = Project::default();
         package.set_defaults(&project);
-        let result = package.validate();
+        let result = package.validate(&Vec::new());
 
         // `mytype` is missing
         assert_that!(result).is_err();
@@ -1249,7 +1390,7 @@ mod tests {
             },
             kind: ast::TypeDefinitionKind::Enum(Vec::new()),
         });
-        assert_that!(package.validate()).is_ok();
+        assert_that!(package.validate(&Vec::new())).is_ok();
     }
 
     #[test]
@@ -1261,7 +1402,7 @@ mod tests {
                REFERENCES my.parent(id)
                MATCH SIMPLE ON UPDATE NO ACTION ON DELETE NO ACTION);",
         );
-        let result = package.validate();
+        let result = package.validate(&Vec::new());
 
         // `my.parent` does not exist
         assert_that!(result).is_err();
@@ -1294,7 +1435,7 @@ mod tests {
             }],
             constraints: Vec::new(),
         });
-        assert_that!(package.validate()).is_ok();
+        assert_that!(package.validate(&Vec::new())).is_ok();
     }
 
     #[test]
@@ -1307,7 +1448,7 @@ mod tests {
                MATCH SIMPLE ON UPDATE NO ACTION ON DELETE NO ACTION);
                CREATE TABLE my.parent(id int);",
         );
-        let result = package.validate();
+        let result = package.validate(&Vec::new());
 
         // Column `parent_id` is invalid
         assert_that!(result).is_err();
@@ -1339,7 +1480,7 @@ mod tests {
                 constraints: Vec::new(),
             });
         }
-        assert_that!(package.validate()).is_ok();
+        assert_that!(package.validate(&Vec::new())).is_ok();
     }
 
     #[test]
@@ -1352,7 +1493,7 @@ mod tests {
                MATCH SIMPLE ON UPDATE NO ACTION ON DELETE NO ACTION);
                CREATE TABLE my.parent(id int);",
         );
-        let result = package.validate();
+        let result = package.validate(&Vec::new());
 
         // Column `par_id` is invalid
         assert_that!(result).is_err();
@@ -1382,7 +1523,7 @@ mod tests {
                 constraints: Vec::new(),
             });
         }
-        assert_that!(package.validate()).is_ok();
+        assert_that!(package.validate(&Vec::new())).is_ok();
     }
 
     #[test]
@@ -1392,7 +1533,7 @@ mod tests {
              CREATE TABLE my.person(id int, name varchar(50));
              CREATE UNIQUE INDEX idx_company_name ON my.company (name);",
         );
-        let result = package.validate();
+        let result = package.validate(&Vec::new());
 
         // `my.company` does not exist
         assert_that!(result).is_err();
@@ -1429,7 +1570,7 @@ mod tests {
             ],
             constraints: Vec::new(),
         });
-        assert_that!(package.validate()).is_ok();
+        assert_that!(package.validate(&Vec::new())).is_ok();
     }
 
     #[test]
@@ -1439,7 +1580,7 @@ mod tests {
              CREATE TABLE my.person(id int, name varchar(50));
              CREATE UNIQUE INDEX idx_person_number ON my.person (number);",
         );
-        let result = package.validate();
+        let result = package.validate(&Vec::new());
 
         // Column `person.number` is invalid
         assert_that!(result).is_err();
@@ -1471,6 +1612,6 @@ mod tests {
                 constraints: Vec::new(),
             });
         }
-        assert_that!(package.validate()).is_ok();
+        assert_that!(package.validate(&Vec::new())).is_ok();
     }
 }

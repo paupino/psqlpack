@@ -1,4 +1,5 @@
 use std::default::Default;
+use std::fmt;
 use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -60,13 +61,27 @@ pub struct Project {
     /// An array of globs representing files/folders to be excluded within your project.
     #[serde(rename = "fileExcludeGlobs", skip_serializing_if = "Option::is_none")]
     pub exclude_globs: Option<Vec<String>>,
+
+    /// An array of search paths to look in outside of the standard paths (./lib, ~/.psqlpack/lib).
+    #[serde(rename = "referenceSearchPaths", skip_serializing_if = "Option::is_none")]
+    pub reference_search_paths: Option<Vec<String>>,
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 pub struct Dependency {
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub version: Option<Semver>,
+}
+
+impl fmt::Display for Dependency {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        if let Some(version) = self.version {
+            write!(f, "{}-{}", self.name, version)
+        } else {
+            write!(f, "{}", self.name)
+        }
+    }
 }
 
 impl Default for Project {
@@ -80,6 +95,7 @@ impl Default for Project {
             extensions: None,
             include_globs: None,
             exclude_globs: None,
+            reference_search_paths: None,
         }
     }
 }
@@ -229,9 +245,12 @@ impl Project {
         }
 
         // Update any missing defaults, then try to validate the project
+        trace!(log, "Setting defaults");
         package.set_defaults(self);
+        trace!(log, "Load references");
+        let references = package.load_references(self, &log);
         trace!(log, "Validating package");
-        package.validate()?;
+        package.validate(&references)?;
 
         Ok(package)
     }
@@ -314,6 +333,7 @@ mod tests {
             extensions: None,
             include_globs: None,
             exclude_globs: Some(vec!["**/*org*".into()]),
+            reference_search_paths: None,
         };
         let result = project.walk_files(&parent);
 
@@ -342,6 +362,7 @@ mod tests {
             extensions: None,
             include_globs: None,
             exclude_globs: Some(vec!["**/geo/**/*.sql".into(), "**/geo.*".into()]),
+            reference_search_paths: None,
         };
         let result = project.walk_files(&parent);
 
@@ -368,6 +389,7 @@ mod tests {
             extensions: None,
             include_globs: Some(vec!["**/*org*.sql".into()]),
             exclude_globs: None,
+            reference_search_paths: None,
         };
         let result = project.walk_files(&parent);
 

@@ -89,7 +89,7 @@ macro_rules! generate_simple_package {
                 storage_parameters: None,
             });
             package.set_defaults(&Project::default());
-            package.validate().unwrap();
+            package.validate(&Vec::new()).unwrap();
             package
         }
     }};

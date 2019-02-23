@@ -32,7 +32,13 @@ pub enum Statement {
 #[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
 pub enum SqlType {
     Simple(SimpleSqlType, Option<u32>),              // type, dim
-    Custom(ObjectName, Option<String>, Option<u32>), // type, options, dim
+    Custom(ObjectName, Vec<TypeModifier>, Option<u32>), // type, options, dim
+}
+
+#[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
+pub enum TypeModifier {
+    Ident(String),
+    Integer(i32),
 }
 
 #[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
@@ -424,11 +430,24 @@ impl fmt::Display for SqlType {
         }
         match *self {
             SqlType::Simple(ref simple_type, dim) => write!(f, "{}{}", simple_type, dimensions(dim)),
-            SqlType::Custom(ref custom_type, ref options, dim) => {
-                if let Some(ref opt) = *options {
-                    write!(f, "{}({}){}", custom_type, opt, dimensions(dim))
-                } else {
+            SqlType::Custom(ref custom_type, ref modifiers, dim) => {
+                if modifiers.is_empty() {
                     write!(f, "{}{}", custom_type, dimensions(dim))
+                } else {
+                    write!(f, "{}(", custom_type)?;
+                    let mut first = true;
+                    for modifier in modifiers {
+                        if first {
+                            first = false;
+                        } else {
+                            write!(f, ",")?;
+                        }
+                        match modifier {
+                            TypeModifier::Ident(ident) => write!(f, "{}", ident)?,
+                            TypeModifier::Integer(integer) => write!(f, "{}", integer)?,
+                        }
+                    }
+                    write!(f, "){}", dimensions(dim))
                 }
             }
         }
