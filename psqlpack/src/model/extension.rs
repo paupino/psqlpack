@@ -21,7 +21,7 @@ impl Extension {
     ) -> PsqlpackResult<Package> {
         trace!(log, "Connecting to database");
         let db_conn = connection.connect_database()?;
-        let meta = MetaInfo::new(SourceInfo::Extension);
+        let meta = MetaInfo::new(SourceInfo::Extension(self.name.to_owned()));
         let context = capabilities.with_context(self);
         let schemas = context.schemata(&db_conn, connection.database())?;
         let types = context.types(&db_conn)?;

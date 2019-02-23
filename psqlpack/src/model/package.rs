@@ -71,11 +71,15 @@ pub struct MetaInfo {
 
 impl MetaInfo {
     pub fn new(source: SourceInfo) -> Self {
+        let publishable = match source {
+            SourceInfo::Extension(..) => false,
+            _ => true,
+        };
         MetaInfo {
             version: crate_version(),
             generated_at: Utc::now(),
             source,
-            publishable: source != SourceInfo::Extension,
+            publishable,
         }
     }
 }
@@ -90,11 +94,21 @@ fn crate_version() -> Semver {
     .unwrap()
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum SourceInfo {
     Database,
-    Extension,
+    Extension(String),
     Project,
+}
+
+impl fmt::Display for SourceInfo {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            SourceInfo::Database => write!(f, "database"),
+            SourceInfo::Extension(ref name) => write!(f, "extension {}", name),
+            SourceInfo::Project => write!(f, "project"),
+        }
+    }
 }
 
 impl Package {
@@ -525,7 +539,7 @@ impl Package {
         }
     }
 
-    pub fn load_references(&self, project: &Project, log: &Logger) -> Vec<&Package> {
+    pub fn load_references(&self, project: &Project, log: &Logger) -> Vec<Package> {
         let log = log.new(o!("package" => "load_references"));
 
         let mut references = Vec::new();
@@ -554,20 +568,25 @@ impl Package {
         trace!(log, "Loading extensions");
 
         for extension in &self.extensions {
-            let find_package = |path: &Path| {
+            let mut found = false;
+            for path in &search_paths {
                 if let Some(version) = extension.version {
                     // If the extension specifies a version we search for name-version.psqlpack.
                     let mut path = path.to_path_buf();
                     path.push(format!("{}-{}.psqlpack", extension.name, version));
                     if path.exists() && path.is_file() {
                         match Package::from_packaged_file(&log, &path) {
-                            Ok(ref package) => return Some(package),
+                            Ok(package) => {
+                                references.push(package);
+                                found = true;
+                                break;
+                            },
                             Err(e) => {
                                 error!(log, "Failed to load extension: {}", e);
+                                break;
                             }
                         }
                     }
-                    None
                 } else {
                     // If no version is specified then we search for either the non-versioned extension
                     // or the highest versioned extension.
@@ -581,8 +600,8 @@ impl Package {
                             if path.is_file() {
                                 match Package::from_packaged_file(&log, &path) {
                                     Ok(package) => {
-                                        trace!(log, "Found {}!", extension.name);
-                                        found_packages.push(&package);
+                                        trace!(log, "Found {} {}", package.meta.source, package.meta.version);
+                                        found_packages.push(package);
                                     },
                                     Err(e) => {
                                         error!(log, "Failed to load extension: {}", e);
@@ -595,23 +614,18 @@ impl Package {
                     }
                     if found_packages.is_empty() {
                         error!(log, "No packages matched: {}", search_path);
-                        None
+                        break;
                     } else if found_packages.len() > 1 {
-                        // TODO: Search for the highest version
-                        trace!(log, "TODO: Search for highest version");
-                        None
+                        trace!(log, "Search for highest version");
+                        found_packages.sort_by(|a, b| a.meta.version.cmp(&b.meta.version));
+                        references.extend(found_packages.drain(..1));
+                        break;
                     } else {
-                        Some(found_packages[0])
+                        // Only one item in there so just drain and extend
+                        references.extend(found_packages.drain(..));
+                        found = true;
+                        break;
                     }
-                }
-            };
-            let mut found = false;
-            for path in &search_paths {
-                let package = find_package(path);
-                if let Some(ref package) = package {
-                    references.push(*package);
-                    found = true;
-                    break;
                 }
             }
 
@@ -624,7 +638,7 @@ impl Package {
         references
     }
 
-    pub fn validate(&self, references: &Vec<&Package>) -> PsqlpackResult<()> {
+    pub fn validate(&self, references: &Vec<Package>) -> PsqlpackResult<()> {
         // 1. Validate schema existence
         let schemata = self.schemas.iter().map(|schema| &schema.name[..]).collect::<Vec<_>>();
         let names = self
