@@ -552,7 +552,7 @@ impl Package {
                 if let Ok(p) = Path::new(&Self::expand_tilde(path)).canonicalize() {
                     search_paths.push(p);
                 } else {
-                    error!(log, "Path not found: {}", path);
+                    warn!(log, "Path not found: {}", path);
                 }
             }
         }
@@ -560,7 +560,7 @@ impl Package {
             if let Ok(p) = Path::new(&Self::expand_tilde(path)).canonicalize() {
                 search_paths.push(p);
             } else {
-                error!(log, "Path not found: {}", path);
+                warn!(log, "Path not found: {}", path);
             }
         }
 
@@ -613,7 +613,7 @@ impl Package {
                         }
                     }
                     if found_packages.is_empty() {
-                        error!(log, "No packages matched: {}", search_path);
+                        trace!(log, "No packages matched: {}", search_path);
                         break;
                     } else if found_packages.len() > 1 {
                         trace!(log, "Search for highest version");
@@ -630,7 +630,7 @@ impl Package {
             }
 
             if !found {
-                trace!(log, "Extension not found: {}", extension);
+                warn!(log, "Extension not found: {}", extension);
             }
         }
 

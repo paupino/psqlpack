@@ -1042,9 +1042,9 @@ impl<'input> ChangeInstruction<'input> {
             // ExtensionRequest level
             ChangeInstruction::CreateExtension(ref name, ref version) => {
                 if let Some(ref version) = version {
-                    format!("CREATE EXTENSION {} WITH VERSION \"{}\"", name, version)
+                    format!("CREATE EXTENSION IF NOT EXISTS {} WITH VERSION \"{}\"", name, version)
                 } else {
-                    format!("CREATE EXTENSION {}", name)
+                    format!("CREATE EXTENSION IF NOT EXISTS {}", name)
                 }
             }
             ChangeInstruction::UpgradeExtension(ref name, ref version) => {
