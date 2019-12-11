@@ -34,7 +34,7 @@ Indexes | [![Partial]](https://github.com/paupino/psqlpack/issues?q=is%3Aopen+is
 Views | [![NotStarted]](https://github.com/paupino/psqlpack/issues?q=is%3Aopen+is%3Aissue+label%3Afeature-views)
 Materialized Views | [![NotStarted]](https://github.com/paupino/psqlpack/issues?q=is%3Aopen+is%3Aissue+label%3Afeature-materialized-views)
 Security Objects | [![NotStarted]](https://github.com/paupino/psqlpack/issues?q=is%3Aopen+is%3Aissue+label%3Afeature-security)
-Extensions | [![Partial]](https://github.com/paupino/psqlpack/issues?q=is%3Aopen+is%3Aissue+label%3Afeature-extensions)
+Extensions | [![Supported]](https://github.com/paupino/psqlpack/issues?q=is%3Aopen+is%3Aissue+label%3Afeature-extensions)
 Triggers | [![NotStarted]](https://github.com/paupino/psqlpack/issues?q=is%3Aopen+is%3Aissue+label%3Afeature-triggers)
 
 ## License
