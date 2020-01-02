@@ -24,15 +24,14 @@ macro_rules! dump_capabilities {
 
 macro_rules! create_db {
     ($connection:expr) => {{
-        let conn = $connection.connect_host().unwrap();
-        let result = conn
+        let mut client = $connection.connect_host().unwrap();
+        let result = client
             .query("SELECT 1 FROM pg_database WHERE datname=$1", &[&$connection.database()])
             .unwrap();
         if result.is_empty() {
-            conn.batch_execute(&format!("CREATE DATABASE {}", $connection.database()))
+            client.batch_execute(&format!("CREATE DATABASE {}", $connection.database()))
                 .unwrap();
         }
-        conn.finish().unwrap();
         $connection.connect_database().unwrap()
     }};
 }

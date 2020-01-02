@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use postgres::{Connection as PostgresConnection, TlsMode};
+use postgres::{Client as PostgresClient, NoTls};
 
 error_chain! {
     types {
@@ -34,16 +34,12 @@ impl Connection {
         &self.database
     }
 
-    pub fn tls_mode(&self) -> TlsMode {
-        TlsMode::None
+    pub fn connect_host(&self) -> ConnectionResult<PostgresClient> {
+        Ok(PostgresClient::connect(&self.uri, NoTls)?)
     }
 
-    pub fn connect_host(&self) -> ConnectionResult<PostgresConnection> {
-        Ok(PostgresConnection::connect(self.uri.clone(), self.tls_mode())?)
-    }
-
-    pub fn connect_database(&self) -> ConnectionResult<PostgresConnection> {
-        Ok(PostgresConnection::connect(self.uri_with_database(), self.tls_mode())?)
+    pub fn connect_database(&self) -> ConnectionResult<PostgresClient> {
+        Ok(PostgresClient::connect(&self.uri_with_database(), NoTls)?)
     }
 
     fn uri_with_database(&self) -> String {

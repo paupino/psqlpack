@@ -225,7 +225,7 @@ impl Package {
 
         // We do a few SQL queries to get the package details
         trace!(log, "Connecting to database");
-        let db_conn = connection.connect_database()?;
+        let mut client = connection.connect_database()?;
 
         let extensions = capabilities
             .extensions
@@ -238,14 +238,11 @@ impl Package {
             .collect::<Vec<_>>();
 
         // TODO: Refactor connection so we only need to pass through that
-        let schemas = capabilities.schemata(&db_conn, connection.database())?;
-        let types = capabilities.types(&db_conn)?;
-        let functions = capabilities.functions(&db_conn)?;
-        let tables = capabilities.tables(&db_conn)?;
-        let indexes = capabilities.indexes(&db_conn)?;
-
-        // Close the connection
-        dbtry!(db_conn.finish());
+        let schemas = capabilities.schemata(&mut client, connection.database())?;
+        let types = capabilities.types(&mut client)?;
+        let functions = capabilities.functions(&mut client)?;
+        let tables = capabilities.tables(&mut client)?;
+        let indexes = capabilities.indexes(&mut client)?;
 
         let mut package = Package {
             meta: MetaInfo::new(SourceInfo::Database),

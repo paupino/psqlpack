@@ -10,9 +10,9 @@ use crate::semver::Semver;
 use crate::sql::lexer;
 use crate::sql::parser::{FunctionArgumentListParser, FunctionReturnTypeParser, SqlTypeParser};
 
-use postgres::rows::Row;
-use postgres::types::{FromSql, Type, TEXT};
-use postgres::Connection as PostgresConnection;
+use postgres::row::Row;
+use postgres::types::{FromSql, Type};
+use postgres::Client as PostgresClient;
 use regex::Regex;
 use slog::Logger;
 
@@ -27,27 +27,24 @@ impl Capabilities {
         let log = log.new(o!("capabilities" => "from_connection"));
 
         trace!(log, "Connecting to host");
-        let mut db_conn = connection.connect_host()?;
+        let mut client = connection.connect_host()?;
 
-        let version = Self::server_version(&db_conn)?;
+        let version = Self::server_version(&mut client)?;
 
-        let db_result = dbtry!(db_conn.query(Q_DATABASE_EXISTS, &[&connection.database()]));
+        let db_result = dbtry!(client.query(Q_DATABASE_EXISTS, &[&connection.database()]));
         let exists = !db_result.is_empty();
 
         // If it exists, then connect directly as we'll get better results
         if exists {
-            dbtry!(db_conn.finish());
-            db_conn = connection.connect_database()?;
+            client = connection.connect_database()?;
         }
 
-        let extensions = db_conn
+        let extensions = client
             .query(Q_EXTENSIONS, &[])
             .chain_err(|| QueryExtensionsError)?
             .iter()
             .map(|row| row.into())
             .collect();
-
-        dbtry!(db_conn.finish());
 
         Ok(Capabilities {
             server_version: version,
@@ -56,8 +53,8 @@ impl Capabilities {
         })
     }
 
-    fn server_version(conn: &PostgresConnection) -> PsqlpackResult<Semver> {
-        let rows = conn
+    fn server_version(client: &mut PostgresClient) -> PsqlpackResult<Semver> {
+        let rows = client
             .query("SHOW SERVER_VERSION;", &[])
             .map_err(|e| DatabaseError(format!("Failed to retrieve server version: {}", e)))?;
         let row = rows.iter().last();
@@ -94,16 +91,16 @@ pub(crate) struct ExtensionCapabilities<'a> {
 }
 
 pub trait DefinableCatalog {
-    fn schemata(&self, conn: &PostgresConnection, database: &str) -> PsqlpackResult<Vec<SchemaDefinition>>;
-    fn types(&self, conn: &PostgresConnection) -> PsqlpackResult<Vec<TypeDefinition>>;
-    fn functions(&self, conn: &PostgresConnection) -> PsqlpackResult<Vec<FunctionDefinition>>;
-    fn tables(&self, conn: &PostgresConnection) -> PsqlpackResult<Vec<TableDefinition>>;
-    fn indexes(&self, conn: &PostgresConnection) -> PsqlpackResult<Vec<IndexDefinition>>;
+    fn schemata(&self, client: &mut PostgresClient, database: &str) -> PsqlpackResult<Vec<SchemaDefinition>>;
+    fn types(&self, client: &mut PostgresClient) -> PsqlpackResult<Vec<TypeDefinition>>;
+    fn functions(&self, client: &mut PostgresClient) -> PsqlpackResult<Vec<FunctionDefinition>>;
+    fn tables(&self, client: &mut PostgresClient) -> PsqlpackResult<Vec<TableDefinition>>;
+    fn indexes(&self, client: &mut PostgresClient) -> PsqlpackResult<Vec<IndexDefinition>>;
 }
 
 impl DefinableCatalog for Capabilities {
-    fn schemata(&self, conn: &PostgresConnection, database: &str) -> PsqlpackResult<Vec<SchemaDefinition>> {
-        let schemata = conn
+    fn schemata(&self, client: &mut PostgresClient, database: &str) -> PsqlpackResult<Vec<SchemaDefinition>> {
+        let schemata = client
             .query(Q_SCHEMAS, &[&database])
             .chain_err(|| PackageQuerySchemasError)?
             .iter()
@@ -112,9 +109,9 @@ impl DefinableCatalog for Capabilities {
         Ok(schemata)
     }
 
-    fn types(&self, conn: &PostgresConnection) -> PsqlpackResult<Vec<TypeDefinition>> {
-        let types = conn
-            .query(&format!("{} {}", CTE_TYPES, Q_CTE_STANDARD), &[])
+    fn types(&self, client: &mut PostgresClient) -> PsqlpackResult<Vec<TypeDefinition>> {
+        let types = client
+            .query(&format!("{} {}", CTE_TYPES, Q_CTE_STANDARD)[..], &[])
             .chain_err(|| PackageQueryTypesError)?
             .iter()
             .map(|row| row.into())
@@ -122,10 +119,10 @@ impl DefinableCatalog for Capabilities {
         Ok(types)
     }
 
-    fn functions(&self, conn: &PostgresConnection) -> PsqlpackResult<Vec<FunctionDefinition>> {
+    fn functions(&self, client: &mut PostgresClient) -> PsqlpackResult<Vec<FunctionDefinition>> {
         let mut functions = Vec::new();
-        let query = &conn
-            .query(&format!("{} {}", CTE_FUNCTIONS, Q_CTE_STANDARD), &[])
+        let query = &client
+            .query(&format!("{} {}", CTE_FUNCTIONS, Q_CTE_STANDARD)[..], &[])
             .chain_err(|| PackageQueryFunctionsError)?;
         for row in query {
             let function = parse_function(&row)?;
@@ -134,10 +131,10 @@ impl DefinableCatalog for Capabilities {
         Ok(functions)
     }
 
-    fn tables(&self, conn: &PostgresConnection) -> PsqlpackResult<Vec<TableDefinition>> {
+    fn tables(&self, client: &mut PostgresClient) -> PsqlpackResult<Vec<TableDefinition>> {
         let mut tables = HashMap::new();
-        let query = &conn
-            .query(&format!("{} {}", CTE_TABLES, Q_CTE_STANDARD), &[])
+        let query = &client
+            .query(&format!("{} {}", CTE_TABLES, Q_CTE_STANDARD)[..], &[])
             .chain_err(|| PackageQueryTablesError)?;
         for row in query {
             let table: TableDefinition = row.into();
@@ -145,8 +142,8 @@ impl DefinableCatalog for Capabilities {
         }
 
         // Get a list of columns and map them to the appropriate tables
-        let query = &conn
-            .query(&format!("{} {} ORDER BY fqn, num", CTE_COLUMNS, Q_CTE_STANDARD), &[])
+        let query = &client
+            .query(&format!("{} {} ORDER BY fqn, num", CTE_COLUMNS, Q_CTE_STANDARD)[..], &[])
             .chain_err(|| PackageQueryColumnsError)?;
         for row in query {
             let fqn: String = row.get(1);
@@ -156,9 +153,9 @@ impl DefinableCatalog for Capabilities {
         }
 
         // Get a list of table constraints
-        let query = &conn
+        let query = &client
             .query(
-                &format!("{} {} ORDER BY fqn", CTE_TABLE_CONSTRAINTS, Q_CTE_STANDARD),
+                &format!("{} {} ORDER BY fqn", CTE_TABLE_CONSTRAINTS, Q_CTE_STANDARD)[..],
                 &[],
             )
             .chain_err(|| PackageQueryTableConstraintsError)?;
@@ -172,15 +169,15 @@ impl DefinableCatalog for Capabilities {
         Ok(tables.into_iter().map(|(_, b)| b).collect())
     }
 
-    fn indexes(&self, conn: &PostgresConnection) -> PsqlpackResult<Vec<IndexDefinition>> {
+    fn indexes(&self, client: &mut PostgresClient) -> PsqlpackResult<Vec<IndexDefinition>> {
         // Get a list of indexes
         let mut indexes = Vec::new();
         let cte = match self.server_version.cmp(&Semver::new(9, 6, None)) {
             ::std::cmp::Ordering::Less => CTE_INDEXES_94_THRU_96,
             _ => CTE_INDEXES,
         };
-        let query = &conn
-            .query(&format!("{} {}", cte, Q_CTE_STANDARD), &[])
+        let query = &client
+            .query(&format!("{} {}", cte, Q_CTE_STANDARD)[..], &[])
             .chain_err(|| PackageQueryIndexesError)?;
         for row in query {
             let index: IndexDefinition = row.into();
@@ -191,14 +188,14 @@ impl DefinableCatalog for Capabilities {
 }
 
 impl<'a> DefinableCatalog for ExtensionCapabilities<'a> {
-    fn schemata(&self, _conn: &PostgresConnection, _database: &str) -> PsqlpackResult<Vec<SchemaDefinition>> {
+    fn schemata(&self, _client: &mut PostgresClient, _database: &str) -> PsqlpackResult<Vec<SchemaDefinition>> {
         // Schema is hard to retrieve. Let's assume it's not necessary for extensions for now.
         Ok(Vec::new())
     }
 
-    fn types(&self, conn: &PostgresConnection) -> PsqlpackResult<Vec<TypeDefinition>> {
-        let types = conn
-            .query(&format!("{} {}", CTE_TYPES, Q_CTE_EXTENSION), &[&self.extension.name])
+    fn types(&self, client: &mut PostgresClient) -> PsqlpackResult<Vec<TypeDefinition>> {
+        let types = client
+            .query(&format!("{} {}", CTE_TYPES, Q_CTE_EXTENSION)[..], &[&self.extension.name])
             .chain_err(|| PackageQueryTypesError)?
             .iter()
             .map(|row| row.into())
@@ -206,11 +203,11 @@ impl<'a> DefinableCatalog for ExtensionCapabilities<'a> {
         Ok(types)
     }
 
-    fn functions(&self, conn: &PostgresConnection) -> PsqlpackResult<Vec<FunctionDefinition>> {
+    fn functions(&self, client: &mut PostgresClient) -> PsqlpackResult<Vec<FunctionDefinition>> {
         let mut functions = Vec::new();
-        let query = &conn
+        let query = &client
             .query(
-                &format!("{} {}", CTE_FUNCTIONS, Q_CTE_EXTENSION),
+                &format!("{} {}", CTE_FUNCTIONS, Q_CTE_EXTENSION)[..],
                 &[&self.extension.name],
             )
             .chain_err(|| PackageQueryFunctionsError)?;
@@ -221,10 +218,10 @@ impl<'a> DefinableCatalog for ExtensionCapabilities<'a> {
         Ok(functions)
     }
 
-    fn tables(&self, conn: &PostgresConnection) -> PsqlpackResult<Vec<TableDefinition>> {
+    fn tables(&self, client: &mut PostgresClient) -> PsqlpackResult<Vec<TableDefinition>> {
         let mut tables = HashMap::new();
-        let query = &conn
-            .query(&format!("{} {}", CTE_TABLES, Q_CTE_EXTENSION), &[&self.extension.name])
+        let query = &client
+            .query(&format!("{} {}", CTE_TABLES, Q_CTE_EXTENSION)[..], &[&self.extension.name])
             .chain_err(|| PackageQueryTablesError)?;
         for row in query {
             let table: TableDefinition = row.into();
@@ -232,9 +229,9 @@ impl<'a> DefinableCatalog for ExtensionCapabilities<'a> {
         }
 
         // Get a list of columns and map them to the appropriate tables
-        let query = &conn
+        let query = &client
             .query(
-                &format!("{} {} ORDER BY fqn, num", CTE_COLUMNS, Q_CTE_EXTENSION),
+                &format!("{} {} ORDER BY fqn, num", CTE_COLUMNS, Q_CTE_EXTENSION)[..],
                 &[&self.extension.name],
             )
             .chain_err(|| PackageQueryColumnsError)?;
@@ -246,9 +243,9 @@ impl<'a> DefinableCatalog for ExtensionCapabilities<'a> {
         }
 
         // Get a list of table constraints
-        let query = &conn
+        let query = &client
             .query(
-                &format!("{} {} ORDER BY fqn", CTE_TABLE_CONSTRAINTS, Q_CTE_EXTENSION),
+                &format!("{} {} ORDER BY fqn", CTE_TABLE_CONSTRAINTS, Q_CTE_EXTENSION)[..],
                 &[&self.extension.name],
             )
             .chain_err(|| PackageQueryTableConstraintsError)?;
@@ -262,15 +259,15 @@ impl<'a> DefinableCatalog for ExtensionCapabilities<'a> {
         Ok(tables.into_iter().map(|(_, b)| b).collect())
     }
 
-    fn indexes(&self, conn: &PostgresConnection) -> PsqlpackResult<Vec<IndexDefinition>> {
+    fn indexes(&self, client: &mut PostgresClient) -> PsqlpackResult<Vec<IndexDefinition>> {
         // Get a list of indexes
         let mut indexes = Vec::new();
         let cte = match self.capabilities.server_version.cmp(&Semver::new(9, 6, None)) {
             ::std::cmp::Ordering::Less => CTE_INDEXES_94_THRU_96,
             _ => CTE_INDEXES,
         };
-        let query = &conn
-            .query(&format!("{} {}", cte, Q_CTE_EXTENSION), &[&self.extension.name])
+        let query = &client
+            .query(&format!("{} {}", cte, Q_CTE_EXTENSION)[..], &[&self.extension.name])
             .chain_err(|| PackageQueryIndexesError)?;
         for row in query {
             let index: IndexDefinition = row.into();
@@ -280,15 +277,15 @@ impl<'a> DefinableCatalog for ExtensionCapabilities<'a> {
     }
 }
 
-impl FromSql for Semver {
+impl<'a> FromSql<'a> for Semver {
     // TODO: Better error handling
-    fn from_sql(_: &Type, raw: &[u8]) -> Result<Semver, Box<::std::error::Error + Sync + Send>> {
+    fn from_sql(_: &Type, raw: &[u8]) -> Result<Semver, Box<dyn ::std::error::Error + Sync + Send>> {
         let version = String::from_utf8_lossy(raw);
         Ok(Semver::from_str(&version).unwrap())
     }
 
     fn accepts(ty: &Type) -> bool {
-        *ty == TEXT
+        *ty == Type::TEXT
     }
 }
 
@@ -306,8 +303,8 @@ static Q_CTE_EXTENSION: &'static str = "
     INNER JOIN pg_extension e ON d.refobjid = e.oid
     WHERE d.deptype = 'e' and e.extname = $1";
 
-impl<'row> From<Row<'row>> for Extension {
-    fn from(row: Row) -> Self {
+impl<'row> From<&Row> for Extension {
+    fn from(row: &Row) -> Self {
         Extension {
             name: row.get(0),
             version: row.get(1),
@@ -318,8 +315,8 @@ impl<'row> From<Row<'row>> for Extension {
 
 static Q_SCHEMAS: &'static str = "SELECT schema_name FROM information_schema.schemata
                                   WHERE catalog_name = $1 AND schema_name !~* 'pg_|information_schema'";
-impl<'row> From<Row<'row>> for SchemaDefinition {
-    fn from(row: Row) -> Self {
+impl<'row> From<&Row> for SchemaDefinition {
+    fn from(row: &Row) -> Self {
         SchemaDefinition { name: row.get(0) }
     }
 }
@@ -346,8 +343,8 @@ static CTE_TYPES: &'static str = "
     )
 ";
 
-impl<'row> From<Row<'row>> for TypeDefinition {
-    fn from(row: Row) -> Self {
+impl<'row> From<&Row> for TypeDefinition {
+    fn from(row: &Row) -> Self {
         let category: i8 = row.get(1);
         let category = category as u8;
         let schema = row.get(2);
@@ -455,8 +452,8 @@ static CTE_TABLES: &'static str = "
               nspname !~* 'pg_|information_schema'
     )";
 
-impl<'row> From<Row<'row>> for TableDefinition {
-    fn from(row: Row) -> Self {
+impl<'row> From<&Row> for TableDefinition {
+    fn from(row: &Row) -> Self {
         TableDefinition {
             name: ObjectName {
                 schema: Some(row.get(1)),
@@ -500,8 +497,8 @@ static CTE_COLUMNS: &'static str = "
         ORDER BY pgc.relname, a.attnum
     )";
 
-impl<'row> From<Row<'row>> for ColumnDefinition {
-    fn from(row: Row) -> Self {
+impl<'row> From<&Row> for ColumnDefinition {
+    fn from(row: &Row) -> Self {
         // Do the column constraints first
         let mut constraints = Vec::new();
         let not_null: bool = row.get(7);
@@ -589,8 +586,8 @@ fn parse_index_parameters(raw_parameters: Option<Vec<String>>) -> Option<Vec<Ind
     }
 }
 
-impl<'row> From<Row<'row>> for TableConstraint {
-    fn from(row: Row) -> Self {
+impl<'row> From<&Row> for TableConstraint {
+    fn from(row: &Row) -> Self {
         let schema: String = row.get(2);
         let constraint_type: String = row.get(4);
         let constraint_name: String = row.get(5);
@@ -721,8 +718,8 @@ static CTE_INDEXES: &'static str = "
     )
 ";
 
-impl<'row> From<Row<'row>> for IndexDefinition {
-    fn from(row: Row) -> Self {
+impl<'row> From<&Row> for IndexDefinition {
+    fn from(row: &Row) -> Self {
         let schema: String = row.get(1);
         let table: String = row.get(2);
         let name: String = row.get(3);
