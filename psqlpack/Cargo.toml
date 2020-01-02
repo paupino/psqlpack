@@ -1,6 +1,6 @@
 [package]
 name = "psqlpack"
-version = "0.4.0"
+version = "0.5.0"
 authors = ["Paul Mason <paul@form1.co.nz>", "Justin Latimer <justinlatimer@gmail.com>"]
 build = "build.rs"
 license = "MIT/Apache-2.0"
@@ -9,24 +9,24 @@ edition = "2018"
 
 [dependencies]
 chrono = { version = "0.4", features = ["serde"] }
-dirs = "1"
+dirs = "2"
 error-chain = "0.12"
-glob = "0.2"
-lazy_static = "1.2"
-lalrpop-util = "0.16"
-slog = { version = "2.4", features = ["max_level_trace", "release_max_level_trace"] }
-slog-stdlog = "3.0"
-postgres = { version = "0.15", features = ["with-serde_json"] }
+glob = "0.3"
+lazy_static = "1.4"
+lalrpop-util = "0.17"
+slog = { version = "2.5", features = ["max_level_trace", "release_max_level_trace"] }
+slog-stdlog = "4.0"
+postgres = { version = "0.17", features = ["with-serde_json-1"] }
 regex = "1.0"
-rust_decimal = "0.10"
+rust_decimal = "1.1"
 serde = "1.0"
 serde_derive = "1.0"
 serde_json = "1.0"
-zip = "0.4"
-petgraph = "0.4"
+zip = "0.5"
+petgraph = "0.5"
 
 [build-dependencies]
-lalrpop = "0.16"
+lalrpop = "0.17"
 
 [dev-dependencies]
 spectral = "0.6.0"

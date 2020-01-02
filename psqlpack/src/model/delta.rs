@@ -661,6 +661,7 @@ impl<'package> Delta<'package> {
         // If we always recreate then add a drop and set to false
         let mut target = target;
         if target.is_some() && publish_profile.generation_options.always_recreate_database {
+            change_set.push(ChangeInstruction::KillConnections(target_database_name.to_owned()));
             change_set.push(ChangeInstruction::DropDatabase(target_database_name.to_owned()));
             target = None;
         }
@@ -805,7 +806,6 @@ impl<'package> Delta<'package> {
 
         for change in change_set.iter() {
             if let ChangeInstruction::UseDatabase(..) = *change {
-                conn.finish().chain_err(|| DatabaseConnectionFinishError)?;
                 conn = connection.connect_database()?;
                 continue;
             }
@@ -815,9 +815,6 @@ impl<'package> Delta<'package> {
             let sql = change.to_sql(&log);
             conn.batch_execute(&sql).chain_err(|| DatabaseExecuteError(sql))?;
         }
-
-        // Close the connection
-        conn.finish().chain_err(|| DatabaseConnectionFinishError)?;
 
         Ok(())
     }
@@ -866,6 +863,7 @@ impl<'package> Delta<'package> {
 #[derive(Debug, Serialize)]
 pub enum ChangeInstruction<'input> {
     // Databases
+    KillConnections(String),
     DropDatabase(String),
     CreateDatabase(String),
     UseDatabase(String),
@@ -927,6 +925,7 @@ impl<'input> fmt::Display for ChangeInstruction<'input> {
 
         match *self {
             // Databases
+            KillConnections(ref database) => write!(f, "Kill connections: {}", database),
             DropDatabase(ref database) => write!(f, "Drop database: {}", database),
             CreateDatabase(ref database) => write!(f, "Create database: {}", database),
             UseDatabase(ref database) => write!(f, "Use database: {}", database),
@@ -1028,15 +1027,15 @@ impl<'input> ChangeInstruction<'input> {
     fn to_sql(&self, log: &Logger) -> String {
         match *self {
             // Database level
-            ChangeInstruction::CreateDatabase(ref db) => format!("CREATE DATABASE {}", db),
-            ChangeInstruction::DropDatabase(ref db) => {
+            ChangeInstruction::KillConnections(ref db) => {
                 let mut drop = String::new();
                 drop.push_str("SELECT pg_terminate_backend(pg_stat_activity.pid) ");
                 drop.push_str("FROM pg_stat_activity ");
                 drop.push_str(&format!("WHERE pg_stat_activity.datname = '{}';", db));
-                drop.push_str(&format!("DROP DATABASE {}", db));
                 drop
             }
+            ChangeInstruction::CreateDatabase(ref db) => format!("CREATE DATABASE {}", db),
+            ChangeInstruction::DropDatabase(ref db) => format!("DROP DATABASE {}", db),
             ChangeInstruction::UseDatabase(ref db) => format!("-- Using database `{}`", db),
 
             // ExtensionRequest level

@@ -20,15 +20,14 @@ impl Extension {
         capabilities: &Capabilities,
     ) -> PsqlpackResult<Package> {
         trace!(log, "Connecting to database");
-        let db_conn = connection.connect_database()?;
+        let mut client = connection.connect_database()?;
         let meta = MetaInfo::new(SourceInfo::Extension(self.name.to_owned()));
         let context = capabilities.with_context(self);
-        let schemas = context.schemata(&db_conn, connection.database())?;
-        let types = context.types(&db_conn)?;
-        let functions = context.functions(&db_conn)?;
-        let tables = context.tables(&db_conn)?;
-        let indexes = context.indexes(&db_conn)?;
-        dbtry!(db_conn.finish());
+        let schemas = context.schemata(&mut client, connection.database())?;
+        let types = context.types(&mut client)?;
+        let functions = context.functions(&mut client)?;
+        let tables = context.tables(&mut client)?;
+        let indexes = context.indexes(&mut client)?;
 
         let mut package = Package {
             meta,
