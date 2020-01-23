@@ -484,7 +484,7 @@ static CTE_COLUMNS: &str = "
             a.attnum as num,
             a.attname as name,
             CASE WHEN a.atttypid = ANY ('{int,int8,int2}'::regtype[])
-                  AND def.adsrc = 'nextval('''
+                  AND pg_get_expr(def.adbin, def.adrelid) = 'nextval('''
                         || (pg_get_serial_sequence (a.attrelid::regclass::text, a.attname))::regclass
                         || '''::regclass)'
                 THEN CASE a.atttypid
@@ -496,7 +496,7 @@ static CTE_COLUMNS: &str = "
             END AS data_type,
             a.attnotnull as notnull,
             coalesce(i.indisprimary,false) as primary_key,
-            def.adsrc as default
+            pg_get_expr(def.adbin, def.adrelid) as default
         FROM pg_attribute a
         INNER JOIN pg_class pgc ON pgc.oid = a.attrelid
         INNER JOIN pg_namespace ns ON ns.oid = pgc.relnamespace
@@ -560,8 +560,8 @@ static CTE_TABLE_CONSTRAINTS: &str = "
         WHERE
             constraint_type in ('PRIMARY KEY','FOREIGN KEY')
         GROUP BY
-            oid,
-             fqn,
+            tcls.oid,
+            fqn,
             tc.constraint_schema,
             tc.table_name,
             tc.constraint_type,
