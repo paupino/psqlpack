@@ -4,7 +4,7 @@ use std::str::FromStr;
 
 use regex::Regex;
 
-#[derive(Clone, Copy, Debug, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Hash)]
 pub struct Semver {
     major: u32,
     minor: u32,
