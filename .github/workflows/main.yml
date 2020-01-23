@@ -12,12 +12,12 @@ jobs:
           - beta
           - nightly
         postgres:
-          - 9.4-alpine
-          - 9.5-alpine
-          - 9.6-alpine
-          - 10-alpine
-          - 11-alpine
-          - 12-alpine
+          - postgres:9.4
+          - postgres:9.5
+          - postgres:9.6
+          - postgres:10
+          - postgres:11
+          - postgres:12
 
     services:
       postgres:
