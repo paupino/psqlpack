@@ -606,8 +606,7 @@ impl<'a> Diffable<'a, TypeDefinition> for &'a TypeDefinition {
                             .collect::<Vec<_>>();
 
                         // Detect what needs adding
-                        let mut index = 0;
-                        for value in source_values {
+                        for (index, value) in source_values.iter().enumerate() {
                             if !working.contains(&value) {
                                 if index == 0 {
                                     change_set.push(ChangeInstruction::ModifyType(
@@ -629,7 +628,6 @@ impl<'a> Diffable<'a, TypeDefinition> for &'a TypeDefinition {
                                     working.insert(index, value);
                                 }
                             }
-                            index += 1;
                         }
                     }
                     ref unknown_target_kind => panic!("Unknown target kind: {}", unknown_target_kind), // TODO

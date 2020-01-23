@@ -153,7 +153,7 @@ impl ConnectionBuilder {
             };
             Ok(Connection {
                 database: self.database.clone(),
-                uri: uri.to_owned(),
+                uri,
             })
         }
     }

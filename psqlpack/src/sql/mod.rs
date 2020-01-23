@@ -1,7 +1,8 @@
 pub mod ast;
 pub mod lexer;
-#[cfg_attr(rustfmt, rustfmt_skip)]
-pub mod parser;
+mod bootstrap;
+
+pub use bootstrap::parser;
 
 #[cfg(test)]
 mod tests;
