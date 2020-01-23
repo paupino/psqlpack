@@ -47,7 +47,7 @@ macro_rules! zip_collection {
 }
 
 // Search paths for extensions
-const DEFAULT_SEARCH_PATHS: [&str; 2] = [ "./lib", "~/.psqlpack/lib" ];
+const DEFAULT_SEARCH_PATHS: [&str; 2] = ["./lib", "~/.psqlpack/lib"];
 
 #[derive(Debug)]
 pub struct Package {
@@ -519,12 +519,11 @@ impl Package {
 
     // TODO: Stop moving string, consider making this a utility
     fn expand_tilde(input: &str) -> String {
-        if input.starts_with("~") {
+        if input.starts_with('~') {
             let after_tilde = &input[1..];
-            if after_tilde.is_empty() || after_tilde.starts_with("/") {
+            if after_tilde.is_empty() || after_tilde.starts_with('/') {
                 if let Some(hd) = dirs::home_dir() {
-                    let result = format!("{}{}", hd.display(), after_tilde);
-                    result.into()
+                    format!("{}{}", hd.display(), after_tilde)
                 } else {
                     input.into()
                 }
@@ -577,7 +576,7 @@ impl Package {
                                 references.push(package);
                                 found = true;
                                 break;
-                            },
+                            }
                             Err(e) => {
                                 error!(log, "Failed to load extension: {}", e);
                                 break;
@@ -599,7 +598,7 @@ impl Package {
                                     Ok(package) => {
                                         trace!(log, "Found {} {}", package.meta.source, package.meta.version);
                                         found_packages.push(package);
-                                    },
+                                    }
                                     Err(e) => {
                                         error!(log, "Failed to load extension: {}", e);
                                     }
@@ -635,7 +634,7 @@ impl Package {
         references
     }
 
-    pub fn validate(&self, references: &Vec<Package>) -> PsqlpackResult<()> {
+    pub fn validate(&self, references: &[Package]) -> PsqlpackResult<()> {
         // 1. Validate schema existence
         let schemata = self.schemas.iter().map(|schema| &schema.name[..]).collect::<Vec<_>>();
         let names = self

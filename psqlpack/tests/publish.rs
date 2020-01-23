@@ -94,13 +94,15 @@ fn it_can_add_a_new_column_to_an_existing_table() {
     dump_capabilities!(connection);
     let mut client = create_db!(connection);
     drop_table!(client, NAMESPACE, "contacts");
-    client.batch_execute(&format!("CREATE SCHEMA IF NOT EXISTS {}", NAMESPACE))
+    client
+        .batch_execute(&format!("CREATE SCHEMA IF NOT EXISTS {}", NAMESPACE))
         .unwrap();
-    client.batch_execute(&format!(
-        "CREATE TABLE {}.contacts (id serial PRIMARY KEY NOT NULL)",
-        NAMESPACE
-    ))
-    .unwrap();
+    client
+        .batch_execute(&format!(
+            "CREATE TABLE {}.contacts (id serial PRIMARY KEY NOT NULL)",
+            NAMESPACE
+        ))
+        .unwrap();
 
     // Publish with basic assert
     let package = generate_simple_package!(NAMESPACE);
@@ -120,13 +122,15 @@ fn it_can_modify_an_existing_column_on_a_table() {
     dump_capabilities!(connection);
     let mut client = create_db!(connection);
     drop_table!(client, NAMESPACE, "contacts");
-    client.batch_execute(&format!("CREATE SCHEMA IF NOT EXISTS {}", NAMESPACE))
+    client
+        .batch_execute(&format!("CREATE SCHEMA IF NOT EXISTS {}", NAMESPACE))
         .unwrap();
-    client.batch_execute(&format!(
-        "CREATE TABLE {}.contacts (id serial PRIMARY KEY NOT NULL, name character varying(10) NULL)",
-        NAMESPACE
-    ))
-    .unwrap();
+    client
+        .batch_execute(&format!(
+            "CREATE TABLE {}.contacts (id serial PRIMARY KEY NOT NULL, name character varying(10) NULL)",
+            NAMESPACE
+        ))
+        .unwrap();
 
     // Publish with basic assert
     let package = generate_simple_package!(NAMESPACE);
@@ -146,7 +150,8 @@ fn it_can_drop_an_existing_column_on_a_table() {
     dump_capabilities!(connection);
     let mut client = create_db!(connection);
     drop_table!(client, NAMESPACE, "contacts");
-    client.batch_execute(&format!("CREATE SCHEMA IF NOT EXISTS {}", NAMESPACE))
+    client
+        .batch_execute(&format!("CREATE SCHEMA IF NOT EXISTS {}", NAMESPACE))
         .unwrap();
     client.batch_execute(&format!("CREATE TABLE {}.contacts (id serial PRIMARY KEY NOT NULL, name character varying(50) NOT NULL, last_name character varying(10))", NAMESPACE)).unwrap();
 
@@ -168,13 +173,15 @@ fn it_can_add_a_new_index_to_an_existing_table() {
     dump_capabilities!(connection);
     let mut client = create_db!(connection);
     drop_table!(client, NAMESPACE, "contacts");
-    client.batch_execute(&format!("CREATE SCHEMA IF NOT EXISTS {}", NAMESPACE))
+    client
+        .batch_execute(&format!("CREATE SCHEMA IF NOT EXISTS {}", NAMESPACE))
         .unwrap();
-    client.batch_execute(&format!(
-        "CREATE TABLE {}.contacts (id serial PRIMARY KEY NOT NULL, name character varying(50) NULL)",
-        NAMESPACE
-    ))
-    .unwrap();
+    client
+        .batch_execute(&format!(
+            "CREATE TABLE {}.contacts (id serial PRIMARY KEY NOT NULL, name character varying(50) NULL)",
+            NAMESPACE
+        ))
+        .unwrap();
 
     // Publish with basic assert
     let package = generate_simple_package!(NAMESPACE);
@@ -194,14 +201,16 @@ fn it_can_modify_an_index_on_a_table() {
     dump_capabilities!(connection);
     let mut client = create_db!(connection);
     drop_table!(client, NAMESPACE, "contacts");
-    client.batch_execute(&format!("CREATE SCHEMA IF NOT EXISTS {}", NAMESPACE))
+    client
+        .batch_execute(&format!("CREATE SCHEMA IF NOT EXISTS {}", NAMESPACE))
         .unwrap();
     client.batch_execute(&format!("CREATE TABLE {}.contacts (id serial PRIMARY KEY NOT NULL, name character varying(50) NULL, name2 character varying(50) NULL)", NAMESPACE)).unwrap();
-    client.batch_execute(&format!(
-        "CREATE INDEX idx_contacts_name ON {}.contacts (name, name2)",
-        NAMESPACE
-    ))
-    .unwrap();
+    client
+        .batch_execute(&format!(
+            "CREATE INDEX idx_contacts_name ON {}.contacts (name, name2)",
+            NAMESPACE
+        ))
+        .unwrap();
 
     // Publish with basic assert
     let package = generate_simple_package!(NAMESPACE);
@@ -221,19 +230,22 @@ fn it_can_drop_an_index_on_a_table() {
     dump_capabilities!(connection);
     let mut client = create_db!(connection);
     drop_table!(client, NAMESPACE, "contacts");
-    client.batch_execute(&format!("CREATE SCHEMA IF NOT EXISTS {}", NAMESPACE))
+    client
+        .batch_execute(&format!("CREATE SCHEMA IF NOT EXISTS {}", NAMESPACE))
         .unwrap();
     client.batch_execute(&format!("CREATE TABLE {}.contacts (id serial PRIMARY KEY NOT NULL, name character varying(50) NOT NULL, name2 character varying(50) NULL)", NAMESPACE)).unwrap();
-    client.batch_execute(&format!(
-        "CREATE INDEX idx_contacts_name ON {}.contacts (name)",
-        NAMESPACE
-    ))
-    .unwrap();
-    client.batch_execute(&format!(
-        "CREATE INDEX idx_contacts_name_2 ON {}.contacts (name2)",
-        NAMESPACE
-    ))
-    .unwrap();
+    client
+        .batch_execute(&format!(
+            "CREATE INDEX idx_contacts_name ON {}.contacts (name)",
+            NAMESPACE
+        ))
+        .unwrap();
+    client
+        .batch_execute(&format!(
+            "CREATE INDEX idx_contacts_name_2 ON {}.contacts (name2)",
+            NAMESPACE
+        ))
+        .unwrap();
 
     // Publish with basic assert
     let package = generate_simple_package!(NAMESPACE);

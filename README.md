@@ -1,7 +1,8 @@
-# psqlpack &emsp; [![Build Status]][travis]
+# psqlpack &emsp; [![Build Status]][actions]
 
-[Build Status]: https://api.travis-ci.org/paupino/psqlpack.svg?branch=master
-[travis]: https://travis-ci.org/paupino/psqlpack
+
+[Build Status]: https://img.shields.io/endpoint.svg?url=https%3A%2F%2Factions-badge.atrox.dev%2Fpaupino%2Fpsqlpack%2Fbadge&label=build&logo=none
+[actions]: https://actions-badge.atrox.dev/paupino/psqlpack/goto
 [Supported]: docs/images/supported.svg
 [Partial]: docs/images/partially-supported.svg
 [NotStarted]: docs/images/not-started.svg

@@ -123,7 +123,7 @@ mod context {
 
         pub fn peek_state(&self) -> LexerState {
             if let Some(item) = self.state.last() {
-                return *item;
+                *item
             } else {
                 panic!("Nothing left in the stack");
             }

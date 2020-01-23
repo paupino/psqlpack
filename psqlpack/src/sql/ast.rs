@@ -31,7 +31,7 @@ pub enum Statement {
 
 #[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
 pub enum SqlType {
-    Simple(SimpleSqlType, Option<u32>),              // type, dim
+    Simple(SimpleSqlType, Option<u32>),                 // type, dim
     Custom(ObjectName, Vec<TypeModifier>, Option<u32>), // type, options, dim
 }
 

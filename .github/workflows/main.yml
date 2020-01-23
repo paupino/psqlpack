@@ -1,0 +1,59 @@
+on: push
+
+name: Continuous integration
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        rust:
+          - stable
+          - beta
+        postgres:
+          - postgres:9.4
+          - postgres:9.5
+          - postgres:9.6
+          - postgres:10
+          - postgres:11
+
+    services:
+      postgres:
+        image: ${{ matrix.postgres }}
+        env:
+          POSTGRES_PASSWORD:
+        ports:
+          - 5432:5432
+        options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Install postgres development libs
+        run: |
+          sudo apt-get -y install libpq-dev
+      - name: Install toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: ${{ matrix.rust }}
+          override: true
+          components: rustfmt, clippy
+
+      - name: Build psqlpack
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --all --all-features
+
+      - name: Run tests
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: --all --all-features -- --test-threads=1
+
+      - name: Check file formatting
+        uses: actions-rs/cargo@v1
+        with:
+          command: fmt
+          args: --all -- --check

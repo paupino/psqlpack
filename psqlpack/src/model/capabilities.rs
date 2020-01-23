@@ -143,7 +143,10 @@ impl DefinableCatalog for Capabilities {
 
         // Get a list of columns and map them to the appropriate tables
         let query = &client
-            .query(&format!("{} {} ORDER BY fqn, num", CTE_COLUMNS, Q_CTE_STANDARD)[..], &[])
+            .query(
+                &format!("{} {} ORDER BY fqn, num", CTE_COLUMNS, Q_CTE_STANDARD)[..],
+                &[],
+            )
             .chain_err(|| PackageQueryColumnsError)?;
         for row in query {
             let fqn: String = row.get(1);
@@ -195,7 +198,10 @@ impl<'a> DefinableCatalog for ExtensionCapabilities<'a> {
 
     fn types(&self, client: &mut PostgresClient) -> PsqlpackResult<Vec<TypeDefinition>> {
         let types = client
-            .query(&format!("{} {}", CTE_TYPES, Q_CTE_EXTENSION)[..], &[&self.extension.name])
+            .query(
+                &format!("{} {}", CTE_TYPES, Q_CTE_EXTENSION)[..],
+                &[&self.extension.name],
+            )
             .chain_err(|| PackageQueryTypesError)?
             .iter()
             .map(|row| row.into())
@@ -221,7 +227,10 @@ impl<'a> DefinableCatalog for ExtensionCapabilities<'a> {
     fn tables(&self, client: &mut PostgresClient) -> PsqlpackResult<Vec<TableDefinition>> {
         let mut tables = HashMap::new();
         let query = &client
-            .query(&format!("{} {}", CTE_TABLES, Q_CTE_EXTENSION)[..], &[&self.extension.name])
+            .query(
+                &format!("{} {}", CTE_TABLES, Q_CTE_EXTENSION)[..],
+                &[&self.extension.name],
+            )
             .chain_err(|| PackageQueryTablesError)?;
         for row in query {
             let table: TableDefinition = row.into();
@@ -289,14 +298,14 @@ impl<'a> FromSql<'a> for Semver {
     }
 }
 
-static Q_DATABASE_EXISTS: &'static str = "SELECT 1 FROM pg_database WHERE datname=$1;";
-static Q_EXTENSIONS: &'static str = "SELECT name, version, installed, requires
+static Q_DATABASE_EXISTS: &str = "SELECT 1 FROM pg_database WHERE datname=$1;";
+static Q_EXTENSIONS: &str = "SELECT name, version, installed, requires
                                      FROM pg_available_extension_versions ";
-static Q_CTE_STANDARD: &'static str = "
+static Q_CTE_STANDARD: &str = "
     SELECT c.*
     FROM cte c
     WHERE NOT EXISTS (SELECT 1 FROM pg_depend WHERE pg_depend.objid=c.oid AND deptype IN ('e','i'))";
-static Q_CTE_EXTENSION: &'static str = "
+static Q_CTE_EXTENSION: &str = "
     SELECT c.*
     FROM cte c
     INNER JOIN pg_depend d ON d.objid=c.oid
@@ -313,7 +322,7 @@ impl<'row> From<&Row> for Extension {
     }
 }
 
-static Q_SCHEMAS: &'static str = "SELECT schema_name FROM information_schema.schemata
+static Q_SCHEMAS: &str = "SELECT schema_name FROM information_schema.schemata
                                   WHERE catalog_name = $1 AND schema_name !~* 'pg_|information_schema'";
 impl<'row> From<&Row> for SchemaDefinition {
     fn from(row: &Row) -> Self {
@@ -323,7 +332,7 @@ impl<'row> From<&Row> for SchemaDefinition {
 
 // Types: https://www.postgresql.org/docs/9.6/sql-createtype.html
 // typcategory: https://www.postgresql.org/docs/9.6/catalog-pg-type.html#CATALOG-TYPCATEGORY-TABLE
-static CTE_TYPES: &'static str = "
+static CTE_TYPES: &str = "
     WITH cte AS (
         SELECT pg_type.oid, typcategory, nspname, typname, array_agg(labels.enumlabel) AS enumlabels
         FROM pg_type
@@ -365,7 +374,7 @@ impl<'row> From<&Row> for TypeDefinition {
     }
 }
 
-static CTE_FUNCTIONS: &'static str = "
+static CTE_FUNCTIONS: &str = "
     WITH cte AS (
         SELECT
             pg_proc.oid,
@@ -440,7 +449,7 @@ fn parse_function(row: &Row) -> PsqlpackResult<FunctionDefinition> {
     })
 }
 
-static CTE_TABLES: &'static str = "
+static CTE_TABLES: &str = "
     WITH cte AS (
         SELECT
             pg_class.oid,
@@ -465,7 +474,7 @@ impl<'row> From<&Row> for TableDefinition {
     }
 }
 
-static CTE_COLUMNS: &'static str = "
+static CTE_COLUMNS: &str = "
     WITH cte AS (
         SELECT DISTINCT
             pgc.oid,
@@ -522,7 +531,7 @@ impl<'row> From<&Row> for ColumnDefinition {
     }
 }
 
-static CTE_TABLE_CONSTRAINTS: &'static str = "
+static CTE_TABLE_CONSTRAINTS: &str = "
     WITH cte AS (
         SELECT
             tcls.oid,
@@ -653,7 +662,7 @@ impl<'row> From<&Row> for TableConstraint {
     }
 }
 
-static CTE_INDEXES_94_THRU_96: &'static str = "
+static CTE_INDEXES_94_THRU_96: &str = "
     WITH cte AS (
         SELECT
             tc.oid,
@@ -686,7 +695,7 @@ static CTE_INDEXES_94_THRU_96: &'static str = "
 ";
 
 // Index query >= 9.6
-static CTE_INDEXES: &'static str = "
+static CTE_INDEXES: &str = "
     WITH cte AS (
         SELECT
             tc.oid,

@@ -399,5 +399,4 @@ mod tests {
         let result: Vec<&str> = result.iter().map(|x| x.to_str().unwrap()).collect();
         assert_that!(result).contains_all_of(&vec![&"../samples/simple/public/tables/public.organisation.sql"]);
     }
-
 }
