@@ -16,7 +16,6 @@ jobs:
           - postgres:9.6
           - postgres:10
           - postgres:11
-          - postgres:12
 
     services:
       postgres:
