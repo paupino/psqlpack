@@ -29,7 +29,8 @@ macro_rules! create_db {
             .query("SELECT 1 FROM pg_database WHERE datname=$1", &[&$connection.database()])
             .unwrap();
         if result.is_empty() {
-            client.batch_execute(&format!("CREATE DATABASE {}", $connection.database()))
+            client
+                .batch_execute(&format!("CREATE DATABASE {}", $connection.database()))
                 .unwrap();
         }
         $connection.connect_database().unwrap()

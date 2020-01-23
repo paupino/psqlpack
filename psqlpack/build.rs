@@ -1,7 +1,5 @@
 extern crate lalrpop;
 
 fn main() {
-    lalrpop::Configuration::new()
-        .process()
-        .unwrap();
+    lalrpop::Configuration::new().process().unwrap();
 }

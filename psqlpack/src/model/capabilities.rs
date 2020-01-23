@@ -143,7 +143,10 @@ impl DefinableCatalog for Capabilities {
 
         // Get a list of columns and map them to the appropriate tables
         let query = &client
-            .query(&format!("{} {} ORDER BY fqn, num", CTE_COLUMNS, Q_CTE_STANDARD)[..], &[])
+            .query(
+                &format!("{} {} ORDER BY fqn, num", CTE_COLUMNS, Q_CTE_STANDARD)[..],
+                &[],
+            )
             .chain_err(|| PackageQueryColumnsError)?;
         for row in query {
             let fqn: String = row.get(1);
@@ -195,7 +198,10 @@ impl<'a> DefinableCatalog for ExtensionCapabilities<'a> {
 
     fn types(&self, client: &mut PostgresClient) -> PsqlpackResult<Vec<TypeDefinition>> {
         let types = client
-            .query(&format!("{} {}", CTE_TYPES, Q_CTE_EXTENSION)[..], &[&self.extension.name])
+            .query(
+                &format!("{} {}", CTE_TYPES, Q_CTE_EXTENSION)[..],
+                &[&self.extension.name],
+            )
             .chain_err(|| PackageQueryTypesError)?
             .iter()
             .map(|row| row.into())
@@ -221,7 +227,10 @@ impl<'a> DefinableCatalog for ExtensionCapabilities<'a> {
     fn tables(&self, client: &mut PostgresClient) -> PsqlpackResult<Vec<TableDefinition>> {
         let mut tables = HashMap::new();
         let query = &client
-            .query(&format!("{} {}", CTE_TABLES, Q_CTE_EXTENSION)[..], &[&self.extension.name])
+            .query(
+                &format!("{} {}", CTE_TABLES, Q_CTE_EXTENSION)[..],
+                &[&self.extension.name],
+            )
             .chain_err(|| PackageQueryTablesError)?;
         for row in query {
             let table: TableDefinition = row.into();

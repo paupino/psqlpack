@@ -185,10 +185,7 @@ fn write_err(f: &mut Formatter, error: &ParseError<(), lexer::Token, &'static st
             writeln!(f, "Unexpected {:?}", token.1)?;
             write!(f, "   Expected one of:\n   {}", expected.join(", "))
         }
-        ParseError::UnrecognizedEOF {
-            ref expected,
-            ..
-        } => {
+        ParseError::UnrecognizedEOF { ref expected, .. } => {
             writeln!(f, "Unexpected end of file")?;
             write!(f, "   Expected one of:\n   {}", expected.join(", "))
         }

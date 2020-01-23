@@ -1,6 +1,6 @@
 pub mod ast;
-pub mod lexer;
 mod bootstrap;
+pub mod lexer;
 
 pub use bootstrap::parser;
 

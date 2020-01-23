@@ -47,7 +47,7 @@ macro_rules! zip_collection {
 }
 
 // Search paths for extensions
-const DEFAULT_SEARCH_PATHS: [&str; 2] = [ "./lib", "~/.psqlpack/lib" ];
+const DEFAULT_SEARCH_PATHS: [&str; 2] = ["./lib", "~/.psqlpack/lib"];
 
 #[derive(Debug)]
 pub struct Package {
@@ -576,7 +576,7 @@ impl Package {
                                 references.push(package);
                                 found = true;
                                 break;
-                            },
+                            }
                             Err(e) => {
                                 error!(log, "Failed to load extension: {}", e);
                                 break;
@@ -598,7 +598,7 @@ impl Package {
                                     Ok(package) => {
                                         trace!(log, "Found {} {}", package.meta.source, package.meta.version);
                                         found_packages.push(package);
-                                    },
+                                    }
                                     Err(e) => {
                                         error!(log, "Failed to load extension: {}", e);
                                     }
