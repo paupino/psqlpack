@@ -1,13 +1,11 @@
-{
-  "version": "1.0",
-  "generationOptions": {
-    "alwaysRecreateDatabase": false,
-    "dropEnumValues": "Error",
-    "dropFunctions": "Error",
-    "dropTables": "Error",
-    "dropColumns": "Error",
-    "dropPrimaryKeyConstraints": "Error",
-    "dropForeignKeyConstraints": "Allow",
-    "dropIndexes": "Ignore"
-  }
-}
+version = "1.0"
+
+[generationOptions]
+always_recreate_database = false
+drop_enum_values = "Error"
+drop_functions = "Error"
+drop_tables = "Error"
+drop_columns = "Error"
+drop_primary_key_constraints = "Error"
+drop_foreign_key_constraints = "Allow"
+drop_indexes = "Ignore"

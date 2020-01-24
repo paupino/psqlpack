@@ -1,7 +1,7 @@
 use std::default::Default;
 use std::fmt;
 use std::fs::File;
-use std::io::Read;
+use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
 
 use glob::glob;
@@ -39,15 +39,15 @@ pub struct Project {
     pub version: Semver,
 
     /// The default schema for the database. Typically `public`
-    #[serde(rename = "defaultSchema")]
+    #[serde(alias = "defaultSchema")]
     pub default_schema: String,
 
     /// An array of scripts to run before anything is deployed
-    #[serde(rename = "preDeployScripts")]
+    #[serde(alias = "preDeployScripts")]
     pub pre_deploy_scripts: Vec<String>,
 
     /// An array of scripts to run after everything has been deployed
-    #[serde(rename = "postDeployScripts")]
+    #[serde(alias = "postDeployScripts")]
     pub post_deploy_scripts: Vec<String>,
 
     /// An array of extensions to include within this project
@@ -55,15 +55,23 @@ pub struct Project {
     pub extensions: Option<Vec<Dependency>>,
 
     /// An array of globs representing files/folders to be included within your project. Defaults to `["**/*.sql"]`.
-    #[serde(rename = "fileIncludeGlobs", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        alias = "fileIncludeGlobs",
+        alias = "file_include_globs",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub include_globs: Option<Vec<String>>,
 
     /// An array of globs representing files/folders to be excluded within your project.
-    #[serde(rename = "fileExcludeGlobs", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        alias = "fileExcludeGlobs",
+        alias = "file_exclude_globs",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub exclude_globs: Option<Vec<String>>,
 
     /// An array of search paths to look in outside of the standard paths (./lib, ~/.psqlpack/lib).
-    #[serde(rename = "referenceSearchPaths", skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "referenceSearchPaths", skip_serializing_if = "Option::is_none")]
     pub reference_search_paths: Option<Vec<String>>,
 }
 
@@ -108,7 +116,7 @@ impl Project {
             .chain_err(|| ProjectReadError(project_file_path.to_path_buf()))
             .and_then(|file| {
                 trace!(log, "Parsing project file");
-                serde_json::from_reader(file).chain_err(|| ProjectParseError(project_file_path.to_path_buf()))
+                Self::from_reader(file)
             })
             .and_then(|mut project: Project| {
                 project.project_file_path = Some(project_file_path.to_path_buf());
@@ -117,6 +125,28 @@ impl Project {
                 }
                 Ok(project)
             })
+    }
+
+    fn from_reader<R>(reader: R) -> PsqlpackResult<Project>
+    where
+        R: Read,
+    {
+        let mut buffered_reader = BufReader::new(reader);
+        let mut contents = String::new();
+        if buffered_reader
+            .read_to_string(&mut contents)
+            .chain_err(|| ProjectParseError("Failed to read contents".into()))?
+            == 0
+        {
+            bail!(ProjectParseError("Data was empty".into()))
+        }
+
+        let trimmed = contents.trim_start();
+        if trimmed.starts_with('{') {
+            serde_json::from_str(&contents).chain_err(|| ProjectParseError("Failed to read JSON".into()))
+        } else {
+            toml::from_str(&contents).chain_err(|| ProjectParseError("Failed to read TOML".into()))
+        }
     }
 
     pub fn build_package(&self, log: &Logger) -> PsqlpackResult<Package> {
@@ -297,7 +327,8 @@ impl Project {
 #[cfg(test)]
 mod tests {
 
-    use super::Project;
+    use crate::model::project::Project;
+    use crate::{Dependency, Semver};
     use spectral::prelude::*;
     use std::path::Path;
 
@@ -398,5 +429,121 @@ mod tests {
         let result = result.unwrap();
         let result: Vec<&str> = result.iter().map(|x| x.to_str().unwrap()).collect();
         assert_that!(result).contains_all_of(&vec![&"../samples/simple/public/tables/public.organisation.sql"]);
+    }
+
+    #[test]
+    fn it_can_add_read_a_project_in_json_format() {
+        const DATA: &str = r#"
+            {
+                "version": "1.0",
+                "defaultSchema": "public",
+                "preDeployScripts": [
+                    "scripts/pre-deploy/drop-something.sql"
+                ],
+                "postDeployScripts": [
+                    "scripts/seed/seed1.sql",
+                    "scripts/seed/seed2.sql"
+                ],
+                "fileExcludeGlobs": [
+                    "**/ex/**/*.sql",
+                    "**/ex.*"
+                ],
+                "extensions": [
+                    { "name": "postgis" },
+                    { "name": "postgis_topology" },
+                    { "name": "postgis_tiger_geocoder" }
+                ]
+            }
+        "#;
+        let project = Project::from_reader(DATA.as_bytes());
+        let project = project.unwrap();
+        assert_that!(project.version).is_equal_to(Semver::new(1, 0, None));
+        assert_that!(project.default_schema).is_equal_to("public".to_owned());
+
+        assert_that!(project.pre_deploy_scripts).has_length(1);
+        assert_that!(project.pre_deploy_scripts[0]).is_equal_to("scripts/pre-deploy/drop-something.sql".to_owned());
+
+        assert_that!(project.post_deploy_scripts).has_length(2);
+        assert_that!(project.post_deploy_scripts[0]).is_equal_to("scripts/seed/seed1.sql".to_owned());
+        assert_that!(project.post_deploy_scripts[1]).is_equal_to("scripts/seed/seed2.sql".to_owned());
+
+        assert_that!(project.exclude_globs).is_some();
+        let exclude_globs = project.exclude_globs.unwrap();
+        assert_that!(exclude_globs).has_length(2);
+        assert_that!(exclude_globs[0]).is_equal_to("**/ex/**/*.sql".to_owned());
+        assert_that!(exclude_globs[1]).is_equal_to("**/ex.*".to_owned());
+
+        assert_that!(project.extensions).is_some();
+        let extensions = project.extensions.unwrap();
+        assert_that!(extensions).has_length(3);
+        assert_that!(extensions[0]).is_equal_to(Dependency {
+            name: "postgis".into(),
+            version: None,
+        });
+        assert_that!(extensions[1]).is_equal_to(Dependency {
+            name: "postgis_topology".into(),
+            version: None,
+        });
+        assert_that!(extensions[2]).is_equal_to(Dependency {
+            name: "postgis_tiger_geocoder".into(),
+            version: None,
+        });
+    }
+
+    #[test]
+    fn it_can_add_read_a_project_in_toml_format() {
+        const DATA: &str = r#"
+            version = "1.0"
+            default_schema = "public"
+            pre_deploy_scripts = [
+                "scripts/pre-deploy/drop-something.sql"
+            ]
+            post_deploy_scripts = [
+                "scripts/seed/seed1.sql",
+                "scripts/seed/seed2.sql"
+            ]
+            file_exclude_globs = [
+                "**/ex/**/*.sql",
+                "**/ex.*"
+            ]
+            extensions = [
+                { name = "postgis" },
+                { name = "postgis_topology" },
+                { name = "postgis_tiger_geocoder" }
+            ]
+        "#;
+        let project = Project::from_reader(DATA.as_bytes());
+        let project = project.unwrap();
+        assert_that!(project.version).is_equal_to(Semver::new(1, 0, None));
+        assert_that!(project.default_schema).is_equal_to("public".to_owned());
+
+        assert_that!(project.pre_deploy_scripts).has_length(1);
+        assert_that!(project.pre_deploy_scripts[0]).is_equal_to("scripts/pre-deploy/drop-something.sql".to_owned());
+
+        assert_that!(project.post_deploy_scripts).has_length(2);
+        assert_that!(project.post_deploy_scripts[0]).is_equal_to("scripts/seed/seed1.sql".to_owned());
+        assert_that!(project.post_deploy_scripts[1]).is_equal_to("scripts/seed/seed2.sql".to_owned());
+
+        assert_that!(project.exclude_globs).is_some();
+        let exclude_globs = project.exclude_globs.unwrap();
+        assert_that!(exclude_globs).has_length(2);
+        assert_that!(exclude_globs[0]).is_equal_to("**/ex/**/*.sql".to_owned());
+        assert_that!(exclude_globs[1]).is_equal_to("**/ex.*".to_owned());
+
+        assert_that!(project.extensions).is_some();
+        let extensions = project.extensions.unwrap();
+        assert_that!(extensions).has_length(3);
+        assert_that!(extensions[0]).is_equal_to(Dependency {
+            name: "postgis".into(),
+            version: None,
+        });
+        assert_that!(extensions[1]).is_equal_to(Dependency {
+            name: "postgis_topology".into(),
+            version: None,
+        });
+        assert_that!(extensions[2]).is_equal_to(Dependency {
+            name: "postgis_tiger_geocoder".into(),
+            version: None,
+        });
     }
 }

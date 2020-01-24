@@ -1,6 +1,4 @@
-{
-    "version": "1.0",
-    "defaultSchema": "public",
-    "preDeployScripts": [],
-    "postDeployScripts": []
-}
+version = "1.0"
+default_schema = "public"
+pre_deploy_scripts = []
+post_deploy_scripts = []
