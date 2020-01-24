@@ -1,26 +1,24 @@
-{
-    "version": "1.0",
-    "defaultSchema": "public",
-    "preDeployScripts": [],
-    "postDeployScripts": [
-        "scripts/seed/data.constant_values.sql",
-        "scripts/seed/data.constant_versions.sql",
-        "scripts/seed/data.idents.sql",
-        "scripts/seed/data.parameters.sql",
-        "scripts/seed/data.table_coefficients.sql",
-        "scripts/seed/data.table_versions.sql",
-        "scripts/seed/data.taxes.sql",
-        "scripts/seed/reference_data.countries.sql",
-        "scripts/seed/reference_data.states.sql"
-    ],
-    "fileExcludeGlobs": [
-        "**/geo/**/*.sql",
-        "**/geo.*"
-    ],
-    "extensions": [
-        { "name": "postgis" },
-        { "name": "postgis_topology" },
-        { "name": "fuzzystrmatch" },
-        { "name": "postgis_tiger_geocoder" }
-    ]
-}
+version = "1.0"
+default_schema = "public"
+pre_deploy_scripts = []
+post_deploy_scripts = [
+    "scripts/seed/data.constant_values.sql",
+    "scripts/seed/data.constant_versions.sql",
+    "scripts/seed/data.idents.sql",
+    "scripts/seed/data.parameters.sql",
+    "scripts/seed/data.table_coefficients.sql",
+    "scripts/seed/data.table_versions.sql",
+    "scripts/seed/data.taxes.sql",
+    "scripts/seed/reference_data.countries.sql",
+    "scripts/seed/reference_data.states.sql"
+]
+file_exclude_globs = [
+    "**/geo/**/*.sql",
+    "**/geo.*"
+]
+extensions = [
+    { name = "postgis" },
+    { name = "postgis_topology" },
+    { name = "fuzzystrmatch" },
+    { name = "postgis_tiger_geocoder" }
+]

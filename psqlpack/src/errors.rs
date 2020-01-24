@@ -22,9 +22,9 @@ error_chain! {
             description("Couldn't read project file")
             display("Couldn't read project file: {}", path.as_path().display())
         }
-        ProjectParseError(path: PathBuf) {
+        ProjectParseError(message: String) {
             description("Couldn't parse project file")
-            display("Couldn't parse project file: {}", path.as_path().display())
+            display("Couldn't parse project file: {}", message)
         }
         InvalidScriptPath(path: String) {
             description("Invalid script path in project file")
@@ -34,9 +34,9 @@ error_chain! {
             description("Couldn't read publish profile file")
             display("Couldn't read publish profile file: {}", path.as_path().display())
         }
-        PublishProfileParseError(path: PathBuf) {
-            description("Couldn't parse publish profile file")
-            display("Couldn't parse publish profile file: {}", path.as_path().display())
+        PublishProfileParseError(message: String) {
+            description("Couldn't parse publish profile")
+            display("Couldn't parse publish profile: {}", message)
         }
         PackageCreationError(message: String) {
             description("Failed to create package")
