@@ -29,7 +29,9 @@ pub enum Toggle {
 }
 
 impl Toggle {
-    fn allow() -> Toggle { Toggle::Allow }
+    fn allow() -> Toggle {
+        Toggle::Allow
+    }
     fn ignore() -> Toggle {
         Toggle::Ignore
     }
@@ -122,12 +124,16 @@ impl PublishProfile {
     }
 
     fn from_reader<R>(reader: R) -> PsqlpackResult<PublishProfile>
-        where R: Read {
-
+    where
+        R: Read,
+    {
         let mut buffered_reader = BufReader::new(reader);
         let mut contents = String::new();
-        if buffered_reader.read_to_string(&mut contents)
-            .chain_err(|| PublishProfileParseError("Failed to read contents".into()))? == 0 {
+        if buffered_reader
+            .read_to_string(&mut contents)
+            .chain_err(|| PublishProfileParseError("Failed to read contents".into()))?
+            == 0
+        {
             bail!(PublishProfileParseError("Data was empty".into()))
         }
 
@@ -138,13 +144,12 @@ impl PublishProfile {
             toml::from_str(&contents).chain_err(|| PublishProfileParseError("Failed to read TOML".into()))
         }
     }
-
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::{PublishProfile, Semver};
     use crate::model::Toggle;
+    use crate::{PublishProfile, Semver};
     use spectral::prelude::*;
 
     #[test]

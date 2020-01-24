@@ -55,11 +55,19 @@ pub struct Project {
     pub extensions: Option<Vec<Dependency>>,
 
     /// An array of globs representing files/folders to be included within your project. Defaults to `["**/*.sql"]`.
-    #[serde(alias = "fileIncludeGlobs", alias = "file_include_globs", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        alias = "fileIncludeGlobs",
+        alias = "file_include_globs",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub include_globs: Option<Vec<String>>,
 
     /// An array of globs representing files/folders to be excluded within your project.
-    #[serde(alias = "fileExcludeGlobs", alias = "file_exclude_globs", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        alias = "fileExcludeGlobs",
+        alias = "file_exclude_globs",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub exclude_globs: Option<Vec<String>>,
 
     /// An array of search paths to look in outside of the standard paths (./lib, ~/.psqlpack/lib).
@@ -120,11 +128,16 @@ impl Project {
     }
 
     fn from_reader<R>(reader: R) -> PsqlpackResult<Project>
-        where R: Read {
+    where
+        R: Read,
+    {
         let mut buffered_reader = BufReader::new(reader);
         let mut contents = String::new();
-        if buffered_reader.read_to_string(&mut contents)
-            .chain_err(|| ProjectParseError("Failed to read contents".into()))? == 0 {
+        if buffered_reader
+            .read_to_string(&mut contents)
+            .chain_err(|| ProjectParseError("Failed to read contents".into()))?
+            == 0
+        {
             bail!(ProjectParseError("Data was empty".into()))
         }
 
@@ -315,7 +328,7 @@ impl Project {
 mod tests {
 
     use crate::model::project::Project;
-    use crate::{Semver, Dependency};
+    use crate::{Dependency, Semver};
     use spectral::prelude::*;
     use std::path::Path;
 
@@ -463,9 +476,18 @@ mod tests {
         assert_that!(project.extensions).is_some();
         let extensions = project.extensions.unwrap();
         assert_that!(extensions).has_length(3);
-        assert_that!(extensions[0]).is_equal_to(Dependency { name: "postgis".into(), version: None });
-        assert_that!(extensions[1]).is_equal_to(Dependency { name: "postgis_topology".into(), version: None });
-        assert_that!(extensions[2]).is_equal_to(Dependency { name: "postgis_tiger_geocoder".into(), version: None });
+        assert_that!(extensions[0]).is_equal_to(Dependency {
+            name: "postgis".into(),
+            version: None,
+        });
+        assert_that!(extensions[1]).is_equal_to(Dependency {
+            name: "postgis_topology".into(),
+            version: None,
+        });
+        assert_that!(extensions[2]).is_equal_to(Dependency {
+            name: "postgis_tiger_geocoder".into(),
+            version: None,
+        });
     }
 
     #[test]
@@ -511,8 +533,17 @@ mod tests {
         assert_that!(project.extensions).is_some();
         let extensions = project.extensions.unwrap();
         assert_that!(extensions).has_length(3);
-        assert_that!(extensions[0]).is_equal_to(Dependency { name: "postgis".into(), version: None });
-        assert_that!(extensions[1]).is_equal_to(Dependency { name: "postgis_topology".into(), version: None });
-        assert_that!(extensions[2]).is_equal_to(Dependency { name: "postgis_tiger_geocoder".into(), version: None });
+        assert_that!(extensions[0]).is_equal_to(Dependency {
+            name: "postgis".into(),
+            version: None,
+        });
+        assert_that!(extensions[1]).is_equal_to(Dependency {
+            name: "postgis_topology".into(),
+            version: None,
+        });
+        assert_that!(extensions[2]).is_equal_to(Dependency {
+            name: "postgis_tiger_geocoder".into(),
+            version: None,
+        });
     }
 }
