@@ -171,6 +171,8 @@ pub enum Token {
     INT4,
     INT8,
     INTEGER,
+    IS,
+    ISNULL,
     KEY,
     LANGUAGE,
     LAST,
@@ -178,6 +180,7 @@ pub enum Token {
     MONEY,
     NO,
     NOT,
+    NOTNULL,
     NULL,
     NULLS,
     NUMERIC,
@@ -217,6 +220,7 @@ pub enum Token {
     VARCHAR,
     VARIADIC,
     VARYING,
+    WHERE,
     WITH,
     WITHOUT,
     ZONE,
@@ -281,6 +285,8 @@ impl fmt::Display for Token {
             Token::INT4 => write!(f, "INT4"),
             Token::INT8 => write!(f, "INT8"),
             Token::INTEGER => write!(f, "INTEGER"),
+            Token::IS => write!(f, "IS"),
+            Token::ISNULL => write!(f, "ISNULL"),
             Token::KEY => write!(f, "KEY"),
             Token::LANGUAGE => write!(f, "LANGUAGE"),
             Token::LAST => write!(f, "LAST"),
@@ -288,6 +294,7 @@ impl fmt::Display for Token {
             Token::MONEY => write!(f, "MONEY"),
             Token::NO => write!(f, "NO"),
             Token::NOT => write!(f, "NOT"),
+            Token::NOTNULL => write!(f, "NOTNULL"),
             Token::NULL => write!(f, "NULL"),
             Token::NULLS => write!(f, "NULLS"),
             Token::NUMERIC => write!(f, "NUMERIC"),
@@ -327,6 +334,7 @@ impl fmt::Display for Token {
             Token::VARCHAR => write!(f, "VARCHAR"),
             Token::VARIADIC => write!(f, "VARIADIC"),
             Token::VARYING => write!(f, "VARYING"),
+            Token::WHERE => write!(f, "WHERE"),
             Token::WITH => write!(f, "WITH"),
             Token::WITHOUT => write!(f, "WITHOUT"),
             Token::ZONE => write!(f, "ZONE"),
@@ -460,6 +468,8 @@ fn create_normal_token(context: &mut Context) -> Option<Token> {
     match_keyword!(value, INT4);
     match_keyword!(value, INT8);
     match_keyword!(value, INTEGER);
+    match_keyword!(value, IS);
+    match_keyword!(value, ISNULL);
     match_keyword!(value, KEY);
     match_keyword!(value, LANGUAGE);
     match_keyword!(value, LAST);
@@ -467,6 +477,7 @@ fn create_normal_token(context: &mut Context) -> Option<Token> {
     match_keyword!(value, MONEY);
     match_keyword!(value, NO);
     match_keyword!(value, NOT);
+    match_keyword!(value, NOTNULL);
     match_keyword!(value, NULL);
     match_keyword!(value, NULLS);
     match_keyword!(value, NUMERIC);
@@ -504,6 +515,7 @@ fn create_normal_token(context: &mut Context) -> Option<Token> {
     match_keyword!(value, VARCHAR);
     match_keyword!(value, VARIADIC);
     match_keyword!(value, VARYING);
+    match_keyword!(value, WHERE);
     match_keyword!(value, WITH);
     match_keyword!(value, WITHOUT);
     match_keyword!(value, ZONE);

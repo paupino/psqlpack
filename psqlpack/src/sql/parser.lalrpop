@@ -56,6 +56,8 @@ extern {
         INT4 => lexer::Token::INT4,
         INT8 => lexer::Token::INT8,
         INTEGER => lexer::Token::INTEGER,
+        IS => lexer::Token::IS,
+        ISNULL => lexer::Token::ISNULL,
         KEY => lexer::Token::KEY,
         LANGUAGE => lexer::Token::LANGUAGE,
         LAST => lexer::Token::LAST,
@@ -63,6 +65,7 @@ extern {
         MONEY => lexer::Token::MONEY,
         NO => lexer::Token::NO,
         NOT => lexer::Token::NOT,
+        NOTNULL => lexer::Token::NOTNULL,
         NULL => lexer::Token::NULL,
         NULLS => lexer::Token::NULLS,
         NUMERIC => lexer::Token::NUMERIC,
@@ -102,6 +105,7 @@ extern {
         VARCHAR => lexer::Token::VARCHAR,
         VARYING => lexer::Token::VARYING,
         VARIADIC => lexer::Token::VARIADIC,
+        WHERE => lexer::Token::WHERE,
         WITH => lexer::Token::WITH,
         WITHOUT => lexer::Token::WITHOUT,
         ZONE => lexer::Token::ZONE,
@@ -140,14 +144,20 @@ Statement: Statement = {
         body,
         language: lang,
     }),
-    CREATE <unique:UNIQUE?> INDEX <name:Ident> ON <table:ObjectName> <index_type:IndexType?> "(" <columns:IndexColumnList> ")" <storage_parameters:WithIndexParameters?> ";"? => Statement::Index(IndexDefinition {
-        name,
-        table,
-        columns,
-        unique: unique.is_some(),
-        index_type,
-        storage_parameters,
-    }),
+    CREATE <unique:UNIQUE?> INDEX <name:Ident> ON <table:ObjectName> <index_type:IndexType?>
+        "(" <columns:IndexColumnList> ")"
+        <storage_parameters:WithIndexParameters?>
+        <predicate:IndexPredicate?>
+        ";"? => Statement::Index(IndexDefinition {
+            name,
+            table,
+            columns,
+            unique: unique.is_some(),
+            index_type,
+            storage_parameters,
+            predicate,
+        }
+    ),
     CREATE SCHEMA <name:Ident> ";"? => Statement::Schema(SchemaDefinition {
         name,
     }),
@@ -182,12 +192,12 @@ ColumnDefinitionList: Vec<ColumnDefinition> = {
 };
 
 ColumnDefinition: ColumnDefinition = {
-    <name:Ident> <t:SqlType> <constraints:ColumnConstraintList> => ColumnDefinition {
+    <name:ColId> <t:SqlType> <constraints:ColumnConstraintList> => ColumnDefinition {
         name: name,
         sql_type: t,
         constraints: constraints,
     },
-    <name:Ident> <t:SqlType> => ColumnDefinition {
+    <name:ColId> <t:SqlType> => ColumnDefinition {
         name: name,
         sql_type: t,
         constraints: Vec::new(),
@@ -195,12 +205,16 @@ ColumnDefinition: ColumnDefinition = {
 };
 
 ColumnList: Vec<String> = {
-    <v:ColumnList> "," <c:Ident> => {
+    <v:ColumnList> "," <c:ColId> => {
         let mut v = v;
         v.push(c);
         v
     },
     <Ident> => vec!(<>),
+};
+
+ColId: String = {
+    <name:Ident> => <>,
 };
 
 pub FunctionArgumentList: Vec<FunctionArgument> = {
@@ -367,6 +381,10 @@ IndexType: IndexType = {
     USING GIN => IndexType::Gin,
 };
 
+IndexPredicate: Expr = {
+    WHERE <expr:Expr> => expr,
+};
+
 pub SqlType: SqlType = {
     <SimpleType> => SqlType::Simple(<>, None),
     <simple:SimpleType> <dim:ArrayDimension> => SqlType::Simple(simple, Some(dim)),
@@ -517,3 +535,11 @@ EnumValueList: Vec<String> = {
     },
     <String> => vec!(<>),
 };
+
+// TODO: Update these to be much more complete as in gram.y. As it is, this is very basic and restrictive.
+Expr: Expr = {
+    <ColId> IS NULL => Expr::IsNull(<>),
+    <ColId> ISNULL => Expr::IsNull(<>),
+    <ColId> IS NOT NULL => Expr::IsNotNull(<>),
+    <ColId> NOTNULL => Expr::IsNotNull(<>),
+}

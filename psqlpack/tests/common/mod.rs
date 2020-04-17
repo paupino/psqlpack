@@ -87,6 +87,7 @@ macro_rules! generate_simple_package {
                 unique: false,
                 index_type: None,
                 storage_parameters: None,
+                predicate: None,
             });
             package.set_defaults(&Project::default());
             package.validate(&Vec::new()).unwrap();

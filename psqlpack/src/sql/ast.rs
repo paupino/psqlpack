@@ -260,6 +260,8 @@ pub struct IndexDefinition {
     pub unique: bool,
     pub index_type: Option<IndexType>,
     pub storage_parameters: Option<Vec<IndexParameter>>,
+
+    pub predicate: Option<Expr>,
 }
 
 impl IndexDefinition {
@@ -301,6 +303,12 @@ pub enum IndexOrder {
 pub enum IndexPosition {
     First,
     Last,
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub enum Expr {
+    IsNull(String),
+    IsNotNull(String),
 }
 
 impl fmt::Display for AnyValue {

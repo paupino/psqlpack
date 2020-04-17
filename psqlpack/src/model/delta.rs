@@ -2626,6 +2626,7 @@ mod tests {
             unique: true,
             index_type: Some(IndexType::BTree),
             storage_parameters: None,
+            predicate: None,
         };
 
         // Create a database with no indexes defined.
@@ -2688,6 +2689,7 @@ mod tests {
                 unique: true,
                 index_type: Some(IndexType::BTree),
                 storage_parameters: None,
+                predicate: None,
             });
             Some(existing_database)
         }
@@ -2769,6 +2771,7 @@ mod tests {
             unique: false,
             index_type: Some(IndexType::BTree),
             storage_parameters: None,
+            predicate: None,
         };
 
         // Create a database with a single index defined.
@@ -2787,6 +2790,7 @@ mod tests {
             unique: true,
             index_type: Some(IndexType::BTree),
             storage_parameters: None,
+            predicate: None,
         });
         let capabilities = Capabilities {
             server_version: Semver::new(9, 6, None),

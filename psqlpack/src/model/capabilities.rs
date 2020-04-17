@@ -785,6 +785,8 @@ impl<'row> From<&Row> for IndexDefinition {
             index_type,
 
             storage_parameters,
+
+            predicate: None, // TODO: Implement
         }
     }
 }
