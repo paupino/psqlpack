@@ -1,2 +1,2 @@
 [workspace]
-members = ["psqlpack", "cli"]
+members = ["psqlpack", "cli", "pg_query"]
