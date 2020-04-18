@@ -79,9 +79,10 @@ impl<'de> Deserialize<'de> for Struct {
                         .collect(),
                     None => return Err(A::Error::missing_field("fields")),
                 };
+                // Make comment optional
                 let comment = match comment {
                     Some(comment) => comment,
-                    None => return Err(A::Error::missing_field("comment")),
+                    None => None,
                 };
 
                 Ok(Struct {
@@ -265,9 +266,10 @@ impl<'de> Deserialize<'de> for Enum {
                         .collect(),
                     None => return Err(A::Error::missing_field("values")),
                 };
+                // Make comment optional
                 let comment = match comment {
                     Some(comment) => comment,
-                    None => return Err(A::Error::missing_field("comment")),
+                    None => None,
                 };
 
                 Ok(Enum {

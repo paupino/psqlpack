@@ -7,7 +7,8 @@ use std::io::{BufReader, BufWriter, Write};
 use std::process::{Command, Stdio};
 use std::path::PathBuf;
 
-use types::{Enum};
+use types::{Enum, Struct};
+use std::env::var;
 
 const VERSION: &'static str = "10-1.0.2";
 
@@ -44,20 +45,28 @@ fn compile_pg_query() -> PathBuf {
 }
 
 fn generate_pg_query_types(dir: &PathBuf) {
-    //let struct_defs = File::open(dir.join("struct_defs.json")).unwrap();
-    //let struct_defs = BufReader::new(struct_defs);
 
-    //let struct_defs: HashMap<String, HashMap<String, Struct>> =
-    //    serde_json::from_reader(struct_defs).unwrap();
+    // Common out dir
+    let out_dir = PathBuf::from(env::var_os("OUT_DIR").unwrap());
 
+    // First do enums
     let enum_defs = File::open(dir.join("enum_defs.json")).unwrap();
     let enum_defs = BufReader::new(enum_defs);
     let enum_defs: HashMap<String, HashMap<String, Enum>> =
         serde_json::from_reader(enum_defs).unwrap();
-    let out_dir = PathBuf::from(env::var_os("OUT_DIR").unwrap());
-    let out = File::create(out_dir.join("enums.rs")).unwrap();
-    let mut out = BufWriter::new(out);
-    make_enums(&enum_defs, &mut out);
+    let enum_file = File::create(out_dir.join("enums.rs")).unwrap();
+    let mut enum_file = BufWriter::new(enum_file);
+    make_enums(&enum_defs, &mut enum_file);
+
+    // Next do structs
+    let struct_defs = File::open(dir.join("struct_defs.json")).unwrap();
+    let struct_defs = BufReader::new(struct_defs);
+    let struct_defs: HashMap<String, HashMap<String, Struct>> =
+        serde_json::from_reader(struct_defs).unwrap();
+    let node_file = File::create(out_dir.join("nodes.rs")).unwrap();
+    let mut node_file = BufWriter::new(node_file);
+    make_nodes(&struct_defs, &mut node_file);
+
 }
 
 fn make_enums(enum_defs: &HashMap<String, HashMap<String, Enum>>, out: &mut BufWriter<File>) {
@@ -76,6 +85,83 @@ fn make_enums(enum_defs: &HashMap<String, HashMap<String, Enum>>, out: &mut BufW
             }
         }
         write!(out, "}}\n\n").unwrap();
+    }
+}
+
+fn make_nodes(struct_defs: &HashMap<String, HashMap<String, Struct>>, out: &mut BufWriter<File>) {
+    write!(out, "pub enum Node {{\n").unwrap();
+    for (name, def) in &struct_defs["nodes/parsenodes"] {
+        if let Some(comment) = &def.comment {
+            write!(out, "{}", comment).unwrap();
+        }
+        write!(out, "    {} {{\n", name).unwrap();
+
+        for field in &def.fields {
+            let (name, c_type) = match (&field.name, &field.c_type) {
+                (&Some(ref name), &Some(ref c_type)) => (name, c_type),
+                _ => continue,
+            };
+
+            if name == "type" {
+                continue;
+            }
+            write!(out, "        {}: {},\n",
+                   remove_reserved_keyword(name), c_to_rust_type(c_type)).unwrap();
+        }
+
+        write!(out, "    }},\n").unwrap();
+    }
+
+    write!(out, "}}\n").unwrap();
+}
+
+fn remove_reserved_keyword(variable: &str) -> String {
+    if is_reserved(variable) {
+        format!("{}_", variable)
+    } else {
+        variable.into()
+    }
+}
+
+fn is_reserved(variable: &str) -> bool {
+    match variable {
+        "abstract" |
+        "become" |
+        "box" |
+        "do" |
+        "final" |
+        "macro" |
+        "override" |
+        "priv" |
+        "try" |
+        "typeof" |
+        "unsized" |
+        "virtual" |
+        "yield" => true,
+        _ => false,
+    }
+}
+
+fn c_to_rust_type(c_type: &str) -> &str {
+    match c_type {
+        "uint32" => "u32",
+        "bool" => "bool",
+        "Node*" => "Box<Node>",
+        "int" => "i32",
+        "List*" => "Vec<Node>",
+        "CreateStmt" => "Box<Node>",
+        "int32" => "i32",
+        "char*" => "String",
+        "int16" => "i16",
+        "char" => "u8",
+        "SelectStmt*" => "Box<Node>",
+        other => {
+            if other.ends_with("*") {
+                other[0..other.len() - 1].into()
+            } else {
+                other
+            }
+        }
     }
 }
 
