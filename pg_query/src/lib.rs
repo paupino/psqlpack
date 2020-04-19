@@ -1,9 +1,15 @@
 extern crate libc;
 
+pub mod pg_types {
+    include!(concat!(env!("OUT_DIR"), "/types.rs"));
+}
+
 use libc::{c_char, c_int};
 
 use std::ffi::{CString, CStr};
 use std::fmt;
+
+use pg_types::Node;
 
 #[repr(C)]
 #[derive(Copy, Clone)]
@@ -73,15 +79,23 @@ fn parse_internal(query: &str) -> Result<String, ParseError> {
     }
 }
 
-pub fn parse(query: &str) -> Result<String, ParseError> {
-    parse_internal(query)
+pub fn parse(query: &str) -> Result<Node, ParseError> {
+    let json = parse_internal(query)?;
+    let root_node = serde_json::from_str(&json).unwrap_or_else(|| return Err(ParseError {
+        message: "Failed to deserialize root node".into(),
+        file: String::new(),
+        line: 0,
+        index: 0,
+        _p: ()
+    }))?;
+    root_node
 }
 
 #[cfg(test)]
 mod tests {
     #[test]
     fn it_works() {
-        println!("{}", super::parse("CREATE INDEX ix_test ON contacts.person (id, ssn) WHERE ssn IS NOT NULL;").unwrap());
+        println!("{:?}", super::parse("CREATE INDEX ix_test ON contacts.person (id, ssn) WHERE ssn IS NOT NULL;").unwrap());
         assert!(false);
     }
 }

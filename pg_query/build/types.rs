@@ -1,7 +1,6 @@
 use serde::de::{Deserialize, Deserializer, MapAccess, Visitor, Error};
 
 use std::fmt;
-use serde::export::Formatter;
 
 pub struct Struct {
     pub fields: Vec<Field>,
