@@ -79,18 +79,21 @@ fn write_footer(out: &mut BufWriter<File>) {
 }
 
 fn make_enums(enum_defs: &HashMap<String, HashMap<String, Enum>>, out: &mut BufWriter<File>) {
-    for (name, def) in &enum_defs["nodes/parsenodes"] {
-        write!(out, "    pub enum {} {{\n", name).unwrap();
+    let sections = vec!["nodes/parsenodes", "nodes/primnodes", "nodes/lockoptions", "nodes/nodes"];
+    for section in sections {
+        for (name, def) in &enum_defs[section] {
+            write!(out, "    pub enum {} {{\n", name).unwrap();
 
-        for value in &def.values {
-            if let Some(comment) = &value.comment {
-                write!(out, "        {}\n", comment).unwrap();
+            for value in &def.values {
+                if let Some(comment) = &value.comment {
+                    write!(out, "        {}\n", comment).unwrap();
+                }
+                if let Some(name) = &value.name {
+                    write!(out, "        {},\n", name).unwrap();
+                }
             }
-            if let Some(name) = &value.name {
-                write!(out, "        {},\n", name).unwrap();
-            }
+            write!(out, "    }}\n\n").unwrap();
         }
-        write!(out, "    }}\n\n").unwrap();
     }
 }
 
@@ -147,17 +150,46 @@ fn is_reserved(variable: &str) -> bool {
 
 fn c_to_rust_type(c_type: &str) -> &str {
     match c_type {
+        // Primitive mappings
         "uint32" => "u32",
         "bool" => "bool",
-        "Node*" => "Box<Node>",
         "int" => "i32",
-        "List*" => "Vec<Node>",
-        "CreateStmt" => "Box<Node>",
+        "long" => "i64",
         "int32" => "i32",
         "char*" => "String",
         "int16" => "i16",
         "char" => "u8",
+        "double" => "f64",
+
+        // Vec
+        "List*" => "Vec<Node>",
+
+        // Box
+        "Node*" => "Box<Node>",
+        "Alias*" => "Box<Node>",
+        "Bitmapset*" => "Box<Node>",
+        "CollateClause*" => "Box<Node>",
+        "CreateStmt" => "Box<Node>",
+        "Expr*" => "Box<Node>",
+        "FromExpr*" => "Box<Node>",
+        "Index" => "Box<Node>",
+        "InferClause*" => "Box<Node>",
+        "IntoClause*" => "Box<Node>",
+        "ObjectWithArgs*" => "Box<Node>",
+        "OnConflictClause*" => "Box<Node>",
+        "OnConflictExpr*" => "Box<Node>",
+        "PartitionSpec*" => "Box<Node>",
+        "PartitionBoundSpec*" => "Box<Node>",
+        "RangeVar*" => "Box<Node>",
+        "RoleSpec*" => "Box<Node>",
         "SelectStmt*" => "Box<Node>",
+        "TypeName*" => "Box<Node>",
+        "Value*" => "Box<Node>",
+        "VariableSetStmt*" => "Box<Node>",
+        "WindowDef*" => "Box<Node>",
+        "WithClause*" => "Box<Node>",
+
+        // Generic
         other => {
             if other.ends_with("*") {
                 other[0..other.len() - 1].into()
