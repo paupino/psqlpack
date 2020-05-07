@@ -10,6 +10,7 @@ edition = "2018"
 
 [dependencies]
 libc = "0.2"
+uuid = "0.8"
 
 [build-dependencies]
 serde = "1.0"

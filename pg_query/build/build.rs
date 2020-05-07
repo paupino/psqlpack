@@ -72,6 +72,8 @@ fn write_header(out: &mut BufWriter<File>) {
     write!(out, "pub use __pg_query::*;\n\n").unwrap();
     write!(out, "mod __pg_query {{\n").unwrap();
     write!(out, "    #![allow(non_snake_case, non_camel_case_types, unused_mut, unused_variables, unused_imports, unused_parens)]\n").unwrap();
+    write!(out, "\n").unwrap();
+    write!(out, "    use uuid::Uuid;\n").unwrap();
 }
 
 fn write_footer(out: &mut BufWriter<File>) {
@@ -176,10 +178,12 @@ fn c_to_rust_type(c_type: &str) -> &str {
         "InferClause*" => "Box<Node>",
         "IntoClause*" => "Box<Node>",
         "ObjectWithArgs*" => "Box<Node>",
+        "Oid" => "Uuid",
         "OnConflictClause*" => "Box<Node>",
         "OnConflictExpr*" => "Box<Node>",
         "PartitionSpec*" => "Box<Node>",
         "PartitionBoundSpec*" => "Box<Node>",
+        "Query*" => "Box<Node>",
         "RangeVar*" => "Box<Node>",
         "RoleSpec*" => "Box<Node>",
         "SelectStmt*" => "Box<Node>",
