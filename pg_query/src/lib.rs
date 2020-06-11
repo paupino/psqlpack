@@ -81,7 +81,7 @@ fn parse_internal(query: &str) -> Result<String, ParseError> {
 
 pub fn parse(query: &str) -> Result<Node, ParseError> {
     let json = parse_internal(query)?;
-    let root_node = serde_json::from_str(&json).unwrap_or_else(|| return Err(ParseError {
+    let root_node = serde_json::from_str(&json).unwrap_or_else(|_| return Err(ParseError {
         message: "Failed to deserialize root node".into(),
         file: String::new(),
         line: 0,

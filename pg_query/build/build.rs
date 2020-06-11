@@ -3,7 +3,7 @@ mod types;
 use std::collections::HashMap;
 use std::fs::File;
 use std::env;
-use std::io::{BufReader, BufWriter, Write};
+use std::io::{prelude::*, BufReader, BufWriter, Write};
 use std::process::{Command, Stdio};
 use std::path::PathBuf;
 
@@ -73,7 +73,21 @@ fn write_header(out: &mut BufWriter<File>) {
     write!(out, "mod __pg_query {{\n").unwrap();
     write!(out, "    #![allow(non_snake_case, non_camel_case_types, unused_mut, unused_variables, unused_imports, unused_parens)]\n").unwrap();
     write!(out, "\n").unwrap();
-    write!(out, "    use uuid::Uuid;\n").unwrap();
+
+    write!(out, "    use libc::{{c_char, c_int}};\n").unwrap();
+    write!(out, "    use uuid::Uuid;\n\n").unwrap();
+
+    write!(out, "    type bits32 = u32;\n").unwrap();
+    write!(out, "    type AclMode = u32;\n\n").unwrap();
+
+    // Read in the types to include
+    let out_dir = std::env::current_dir().unwrap();
+    let file = File::open(out_dir.join("types.inc")).unwrap();
+    let reader = BufReader::new(file);
+    for line in reader.lines() {
+        write!(out, "    {}\n", line.unwrap()).unwrap();
+    }
+    write!(out, "\n").unwrap();
 }
 
 fn write_footer(out: &mut BufWriter<File>) {
@@ -84,6 +98,7 @@ fn make_enums(enum_defs: &HashMap<String, HashMap<String, Enum>>, out: &mut BufW
     let sections = vec!["nodes/parsenodes", "nodes/primnodes", "nodes/lockoptions", "nodes/nodes"];
     for section in sections {
         for (name, def) in &enum_defs[section] {
+            write!(out, "    #[derive(Debug)]\n").unwrap();
             write!(out, "    pub enum {} {{\n", name).unwrap();
 
             for value in &def.values {
@@ -100,6 +115,7 @@ fn make_enums(enum_defs: &HashMap<String, HashMap<String, Enum>>, out: &mut BufW
 }
 
 fn make_nodes(struct_defs: &HashMap<String, HashMap<String, Struct>>, out: &mut BufWriter<File>) {
+    write!(out, "    #[derive(Debug)]\n").unwrap();
     write!(out, "    pub enum Node {{\n").unwrap();
     for (name, def) in &struct_defs["nodes/parsenodes"] {
         write!(out, "        {} {{\n", name).unwrap();
@@ -174,6 +190,7 @@ fn c_to_rust_type(c_type: &str) -> &str {
         "CreateStmt" => "Box<Node>",
         "Expr*" => "Box<Node>",
         "FromExpr*" => "Box<Node>",
+        "GrantStmt*" => "Box<Node>",
         "Index" => "Box<Node>",
         "InferClause*" => "Box<Node>",
         "IntoClause*" => "Box<Node>",
@@ -187,8 +204,9 @@ fn c_to_rust_type(c_type: &str) -> &str {
         "RangeVar*" => "Box<Node>",
         "RoleSpec*" => "Box<Node>",
         "SelectStmt*" => "Box<Node>",
+        "TableFunc*" => "Box<Node>",
+        "TableSampleClause*" => "Box<Node>",
         "TypeName*" => "Box<Node>",
-        "Value*" => "Box<Node>",
         "VariableSetStmt*" => "Box<Node>",
         "WindowDef*" => "Box<Node>",
         "WithClause*" => "Box<Node>",
