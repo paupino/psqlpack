@@ -13,6 +13,7 @@ use crate::errors::{PsqlpackResult, PsqlpackResultExt};
 use crate::model::{Capabilities, Dependency, Node, Package, PublishProfile, Toggle};
 use crate::sql::ast::*;
 use crate::Semver;
+use crate::model::delta::DbObject::Script;
 
 enum DbObject<'a> {
     Column(&'a TableDefinition, &'a ColumnDefinition),
@@ -680,10 +681,10 @@ impl<'package> Delta<'package> {
         let mut build_order = Vec::new();
 
         // Pre deployment scripts
-        for script in &package.scripts {
-            if script.kind == ScriptKind::PreDeployment {
-                build_order.push(DbObject::Script(script));
-            }
+        let mut scripts = package.scripts.iter().filter(|s| s.kind == ScriptKind::PreDeployment).collect::<Vec<_>>();
+        scripts.sort_by_key(|s| s.order);
+        for script in scripts {
+            build_order.push(DbObject::Script(script));
         }
 
         // Extensions
@@ -774,10 +775,10 @@ impl<'package> Delta<'package> {
         }
 
         // Add in post deployment scripts
-        for script in &package.scripts {
-            if script.kind == ScriptKind::PostDeployment {
-                build_order.push(DbObject::Script(script));
-            }
+        let mut scripts = package.scripts.iter().filter(|s| s.kind == ScriptKind::PostDeployment).collect::<Vec<_>>();
+        scripts.sort_by_key(|s| s.order);
+        for script in scripts {
+            build_order.push(DbObject::Script(script));
         }
 
         // Go through each item in order and figure out what to do with it
