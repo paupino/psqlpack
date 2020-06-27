@@ -1040,16 +1040,16 @@ impl<'input> ChangeInstruction<'input> {
             // ExtensionRequest level
             ChangeInstruction::CreateExtension(ref name, ref version) => {
                 if let Some(ref version) = version {
-                    format!("CREATE EXTENSION IF NOT EXISTS {} WITH VERSION \"{}\"", name, version)
+                    format!("CREATE EXTENSION IF NOT EXISTS \"{}\" WITH VERSION \"{}\"", name, version)
                 } else {
-                    format!("CREATE EXTENSION IF NOT EXISTS {}", name)
+                    format!("CREATE EXTENSION IF NOT EXISTS \"{}\"", name)
                 }
             }
             ChangeInstruction::UpgradeExtension(ref name, ref version) => {
                 if let Some(ref version) = version {
-                    format!("ALTER EXTENSION {} UPDATE TO \"{}\"", name, version)
+                    format!("ALTER EXTENSION \"{}\" UPDATE TO \"{}\"", name, version)
                 } else {
-                    format!("ALTER EXTENSION {} UPDATE", name)
+                    format!("ALTER EXTENSION \"{}\" UPDATE", name)
                 }
             }
 
@@ -2876,7 +2876,7 @@ mod tests {
 
         // Check the SQL generation
         assert_that!(change_set[0].to_sql(&log))
-            .is_equal_to("CREATE EXTENSION IF NOT EXISTS postgis WITH VERSION \"2.3.7\"".to_owned());
+            .is_equal_to("CREATE EXTENSION IF NOT EXISTS \"postgis\" WITH VERSION \"2.3.7\"".to_owned());
     }
 
     #[test]
@@ -2920,7 +2920,7 @@ mod tests {
         }
 
         // Check the SQL generation
-        assert_that!(change_set[0].to_sql(&log)).is_equal_to("CREATE EXTENSION IF NOT EXISTS postgis".to_owned());
+        assert_that!(change_set[0].to_sql(&log)).is_equal_to("CREATE EXTENSION IF NOT EXISTS \"postgis\"".to_owned());
     }
 
     #[test]
@@ -3040,7 +3040,7 @@ mod tests {
         }
 
         // Check the SQL generation
-        assert_that!(change_set[0].to_sql(&log)).is_equal_to("ALTER EXTENSION postgis UPDATE TO \"3.8\"".to_owned());
+        assert_that!(change_set[0].to_sql(&log)).is_equal_to("ALTER EXTENSION \"postgis\" UPDATE TO \"3.8\"".to_owned());
     }
 
     #[test]
@@ -3129,7 +3129,7 @@ mod tests {
         }
 
         // Check the SQL generation
-        assert_that!(change_set[0].to_sql(&log)).is_equal_to("ALTER EXTENSION postgis UPDATE".to_owned());
+        assert_that!(change_set[0].to_sql(&log)).is_equal_to("ALTER EXTENSION \"postgis\" UPDATE".to_owned());
     }
 
     #[test]
