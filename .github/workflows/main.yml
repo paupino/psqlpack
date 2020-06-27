@@ -49,6 +49,8 @@ jobs:
 
       - name: Run tests
         uses: actions-rs/cargo@v1
+        env:
+          POSTGRES_PASSWORD: postgres
         with:
           command: test
           args: --all --all-features -- --test-threads=1

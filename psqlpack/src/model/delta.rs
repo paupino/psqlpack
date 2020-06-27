@@ -10,10 +10,10 @@ use slog::Logger;
 use crate::connection::Connection;
 use crate::errors::PsqlpackErrorKind::*;
 use crate::errors::{PsqlpackResult, PsqlpackResultExt};
+use crate::model::delta::DbObject::Script;
 use crate::model::{Capabilities, Dependency, Node, Package, PublishProfile, Toggle};
 use crate::sql::ast::*;
 use crate::Semver;
-use crate::model::delta::DbObject::Script;
 
 enum DbObject<'a> {
     Column(&'a TableDefinition, &'a ColumnDefinition),
@@ -681,7 +681,11 @@ impl<'package> Delta<'package> {
         let mut build_order = Vec::new();
 
         // Pre deployment scripts
-        let mut scripts = package.scripts.iter().filter(|s| s.kind == ScriptKind::PreDeployment).collect::<Vec<_>>();
+        let mut scripts = package
+            .scripts
+            .iter()
+            .filter(|s| s.kind == ScriptKind::PreDeployment)
+            .collect::<Vec<_>>();
         scripts.sort_by_key(|s| s.order);
         for script in scripts {
             build_order.push(DbObject::Script(script));
@@ -775,7 +779,11 @@ impl<'package> Delta<'package> {
         }
 
         // Add in post deployment scripts
-        let mut scripts = package.scripts.iter().filter(|s| s.kind == ScriptKind::PostDeployment).collect::<Vec<_>>();
+        let mut scripts = package
+            .scripts
+            .iter()
+            .filter(|s| s.kind == ScriptKind::PostDeployment)
+            .collect::<Vec<_>>();
         scripts.sort_by_key(|s| s.order);
         for script in scripts {
             build_order.push(DbObject::Script(script));
@@ -1040,7 +1048,10 @@ impl<'input> ChangeInstruction<'input> {
             // ExtensionRequest level
             ChangeInstruction::CreateExtension(ref name, ref version) => {
                 if let Some(ref version) = version {
-                    format!("CREATE EXTENSION IF NOT EXISTS \"{}\" WITH VERSION \"{}\"", name, version)
+                    format!(
+                        "CREATE EXTENSION IF NOT EXISTS \"{}\" WITH VERSION \"{}\"",
+                        name, version
+                    )
                 } else {
                     format!("CREATE EXTENSION IF NOT EXISTS \"{}\"", name)
                 }
@@ -3040,7 +3051,8 @@ mod tests {
         }
 
         // Check the SQL generation
-        assert_that!(change_set[0].to_sql(&log)).is_equal_to("ALTER EXTENSION \"postgis\" UPDATE TO \"3.8\"".to_owned());
+        assert_that!(change_set[0].to_sql(&log))
+            .is_equal_to("ALTER EXTENSION \"postgis\" UPDATE TO \"3.8\"".to_owned());
     }
 
     #[test]
