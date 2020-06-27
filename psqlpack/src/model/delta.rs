@@ -10,6 +10,7 @@ use slog::Logger;
 use crate::connection::Connection;
 use crate::errors::PsqlpackErrorKind::*;
 use crate::errors::{PsqlpackResult, PsqlpackResultExt};
+use crate::model::delta::DbObject::Script;
 use crate::model::{Capabilities, Dependency, Node, Package, PublishProfile, Toggle};
 use crate::sql::ast::*;
 use crate::Semver;
@@ -680,10 +681,14 @@ impl<'package> Delta<'package> {
         let mut build_order = Vec::new();
 
         // Pre deployment scripts
-        for script in &package.scripts {
-            if script.kind == ScriptKind::PreDeployment {
-                build_order.push(DbObject::Script(script));
-            }
+        let mut scripts = package
+            .scripts
+            .iter()
+            .filter(|s| s.kind == ScriptKind::PreDeployment)
+            .collect::<Vec<_>>();
+        scripts.sort_by_key(|s| s.order);
+        for script in scripts {
+            build_order.push(DbObject::Script(script));
         }
 
         // Extensions
@@ -774,10 +779,14 @@ impl<'package> Delta<'package> {
         }
 
         // Add in post deployment scripts
-        for script in &package.scripts {
-            if script.kind == ScriptKind::PostDeployment {
-                build_order.push(DbObject::Script(script));
-            }
+        let mut scripts = package
+            .scripts
+            .iter()
+            .filter(|s| s.kind == ScriptKind::PostDeployment)
+            .collect::<Vec<_>>();
+        scripts.sort_by_key(|s| s.order);
+        for script in scripts {
+            build_order.push(DbObject::Script(script));
         }
 
         // Go through each item in order and figure out what to do with it
@@ -1039,16 +1048,19 @@ impl<'input> ChangeInstruction<'input> {
             // ExtensionRequest level
             ChangeInstruction::CreateExtension(ref name, ref version) => {
                 if let Some(ref version) = version {
-                    format!("CREATE EXTENSION IF NOT EXISTS {} WITH VERSION \"{}\"", name, version)
+                    format!(
+                        "CREATE EXTENSION IF NOT EXISTS \"{}\" WITH VERSION \"{}\"",
+                        name, version
+                    )
                 } else {
-                    format!("CREATE EXTENSION IF NOT EXISTS {}", name)
+                    format!("CREATE EXTENSION IF NOT EXISTS \"{}\"", name)
                 }
             }
             ChangeInstruction::UpgradeExtension(ref name, ref version) => {
                 if let Some(ref version) = version {
-                    format!("ALTER EXTENSION {} UPDATE TO \"{}\"", name, version)
+                    format!("ALTER EXTENSION \"{}\" UPDATE TO \"{}\"", name, version)
                 } else {
-                    format!("ALTER EXTENSION {} UPDATE", name)
+                    format!("ALTER EXTENSION \"{}\" UPDATE", name)
                 }
             }
 
@@ -2875,7 +2887,7 @@ mod tests {
 
         // Check the SQL generation
         assert_that!(change_set[0].to_sql(&log))
-            .is_equal_to("CREATE EXTENSION IF NOT EXISTS postgis WITH VERSION \"2.3.7\"".to_owned());
+            .is_equal_to("CREATE EXTENSION IF NOT EXISTS \"postgis\" WITH VERSION \"2.3.7\"".to_owned());
     }
 
     #[test]
@@ -2919,7 +2931,7 @@ mod tests {
         }
 
         // Check the SQL generation
-        assert_that!(change_set[0].to_sql(&log)).is_equal_to("CREATE EXTENSION IF NOT EXISTS postgis".to_owned());
+        assert_that!(change_set[0].to_sql(&log)).is_equal_to("CREATE EXTENSION IF NOT EXISTS \"postgis\"".to_owned());
     }
 
     #[test]
@@ -3039,7 +3051,8 @@ mod tests {
         }
 
         // Check the SQL generation
-        assert_that!(change_set[0].to_sql(&log)).is_equal_to("ALTER EXTENSION postgis UPDATE TO \"3.8\"".to_owned());
+        assert_that!(change_set[0].to_sql(&log))
+            .is_equal_to("ALTER EXTENSION \"postgis\" UPDATE TO \"3.8\"".to_owned());
     }
 
     #[test]
@@ -3128,7 +3141,7 @@ mod tests {
         }
 
         // Check the SQL generation
-        assert_that!(change_set[0].to_sql(&log)).is_equal_to("ALTER EXTENSION postgis UPDATE".to_owned());
+        assert_that!(change_set[0].to_sql(&log)).is_equal_to("ALTER EXTENSION \"postgis\" UPDATE".to_owned());
     }
 
     #[test]

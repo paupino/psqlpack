@@ -2,7 +2,7 @@
 set -e
 
 version=$1
-if [[ ! $version =~ ^[0-9]+\.[0-9]+$ ]]; then
+if [[ ! $version =~ ^[0-9]+\.[0-9]+(\.[0-9])?$ ]]; then
 	echo "Please enter a valid version: '$version'"
 	exit 1
 fi

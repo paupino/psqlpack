@@ -52,6 +52,7 @@ fn it_can_create_a_database_that_doesnt_exist() {
 
     // Preliminary: remove existing database
     let connection = ConnectionBuilder::new(DB_NAME, "localhost", "postgres")
+        .with_password(std::env::var("POSTGRES_PASSWORD").unwrap_or("".into()))
         .build()
         .unwrap();
     let mut client = connection.connect_host().unwrap();
@@ -70,6 +71,7 @@ fn it_can_add_a_new_table_to_an_existing_database() {
 
     // Preliminary: create a database with no tables
     let connection = ConnectionBuilder::new(DB_NAME, "localhost", "postgres")
+        .with_password(std::env::var("POSTGRES_PASSWORD").unwrap_or("".into()))
         .build()
         .unwrap();
     dump_capabilities!(connection);
@@ -89,6 +91,7 @@ fn it_can_add_a_new_column_to_an_existing_table() {
 
     // Preliminary: create a database with a partial table
     let connection = ConnectionBuilder::new(DB_NAME, "localhost", "postgres")
+        .with_password(std::env::var("POSTGRES_PASSWORD").unwrap_or("".into()))
         .build()
         .unwrap();
     dump_capabilities!(connection);
@@ -117,6 +120,7 @@ fn it_can_modify_an_existing_column_on_a_table() {
 
     // Preliminary: create a database with a partial table
     let connection = ConnectionBuilder::new(DB_NAME, "localhost", "postgres")
+        .with_password(std::env::var("POSTGRES_PASSWORD").unwrap_or("".into()))
         .build()
         .unwrap();
     dump_capabilities!(connection);
@@ -145,6 +149,7 @@ fn it_can_drop_an_existing_column_on_a_table() {
 
     // Preliminary: create a database with a partial table
     let connection = ConnectionBuilder::new(DB_NAME, "localhost", "postgres")
+        .with_password(std::env::var("POSTGRES_PASSWORD").unwrap_or("".into()))
         .build()
         .unwrap();
     dump_capabilities!(connection);
@@ -168,6 +173,7 @@ fn it_can_add_a_new_index_to_an_existing_table() {
 
     // Preliminary: create a database with a table but no indexes
     let connection = ConnectionBuilder::new(DB_NAME, "localhost", "postgres")
+        .with_password(std::env::var("POSTGRES_PASSWORD").unwrap_or("".into()))
         .build()
         .unwrap();
     dump_capabilities!(connection);
@@ -196,6 +202,7 @@ fn it_can_modify_an_index_on_a_table() {
 
     // Preliminary: create a database with a table but a broad index
     let connection = ConnectionBuilder::new(DB_NAME, "localhost", "postgres")
+        .with_password(std::env::var("POSTGRES_PASSWORD").unwrap_or("".into()))
         .build()
         .unwrap();
     dump_capabilities!(connection);
@@ -225,6 +232,7 @@ fn it_can_drop_an_index_on_a_table() {
 
     // Preliminary: create a database with a table and extra index
     let connection = ConnectionBuilder::new(DB_NAME, "localhost", "postgres")
+        .with_password(std::env::var("POSTGRES_PASSWORD").unwrap_or("".into()))
         .build()
         .unwrap();
     dump_capabilities!(connection);
