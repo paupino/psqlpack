@@ -10,6 +10,7 @@ fi
 # This is the array of targets to deploy
 targets=(
     "x86_64-apple-darwin"
+    "x86_64-unknown-linux-musl"
 )
 
 # Build each target first
@@ -18,7 +19,11 @@ for target in ${targets[*]}
 do
     # Create the binary first
     echo "Compiling $target"
-    cargo build --target=$target --release
+    if [ "$target" == "x86_64-unknown-linux-musl" ]; then
+      docker run -v $PWD:/volume --rm -t clux/muslrust cargo build --release
+    else
+      cargo build --target=$target --release
+    fi
     cp -f target/$target/release/psqlpack target/packages/
     pushd target/packages/ > /dev/null
     tar -cvzf psqlpack-$target.tar.gz psqlpack > /dev/null
@@ -57,7 +62,7 @@ id=$(curl -X POST -s \
     "https://api.github.com/repos/paupino/psqlpack/releases" | jq -r '.id')
 
 # And upload each asset
-echo "   Uploading assets..."
+echo "   Uploading assets to $id..."
 for target in ${targets[*]}
 do
     filename="psqlpack-$target.tar.gz"
