@@ -20,16 +20,16 @@ Psqlpack is a database development tool that is intended to make working with Po
 
 ## Is it ready to be used?
 
-Psqlpack can be currently used depending on the features you need for deployment. This project is under active development, so if something is found to be missing then please raise an issue. The following list is a state of feature development:
+Probably not. There are many features missing including SQL constructs as well as validations. This project is under development (albeit slowly), so if something is found to be missing then please raise an issue. The following list is a state of feature development:
 
 ### Data Object Support
 
 Feature | Status
 --------|--------
-Schemas | [![Supported]](https://github.com/paupino/psqlpack/issues?q=is%3Aopen+is%3Aissue+label%3Afeature-schemas)
-Tables | [![Supported]](https://github.com/paupino/psqlpack/issues?q=is%3Aopen+is%3Aissue+label%3Afeature-tables)
-Types | [![Supported]](https://github.com/paupino/psqlpack/issues?q=is%3Aopen+is%3Aissue+label%3Afeature-types)
-Primary and Foreign Keys | [![Supported]](https://github.com/paupino/psqlpack/issues?q=is%3Aopen+is%3Aissue+label%3Afeature-constraints)
+Schemas | [![Partial]](https://github.com/paupino/psqlpack/issues?q=is%3Aopen+is%3Aissue+label%3Afeature-schemas)
+Tables | [![Partial]](https://github.com/paupino/psqlpack/issues?q=is%3Aopen+is%3Aissue+label%3Afeature-tables)
+Types | [![Partial]](https://github.com/paupino/psqlpack/issues?q=is%3Aopen+is%3Aissue+label%3Afeature-types)
+Primary and Foreign Keys | [![Partial]](https://github.com/paupino/psqlpack/issues?q=is%3Aopen+is%3Aissue+label%3Afeature-constraints)
 Functions | [![Partial]](https://github.com/paupino/psqlpack/issues?q=is%3Aopen+is%3Aissue+label%3Afeature-functions)
 Indexes | [![Partial]](https://github.com/paupino/psqlpack/issues?q=is%3Aopen+is%3Aissue+label%3Afeature-indexes)
 Views | [![NotStarted]](https://github.com/paupino/psqlpack/issues?q=is%3Aopen+is%3Aissue+label%3Afeature-views)

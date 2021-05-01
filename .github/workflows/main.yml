@@ -22,10 +22,14 @@ jobs:
       postgres:
         image: ${{ matrix.postgres }}
         env:
-          POSTGRES_PASSWORD:
+          POSTGRES_PASSWORD: postgres
         ports:
           - 5432:5432
-        options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
       - uses: actions/checkout@v2
@@ -49,6 +53,8 @@ jobs:
 
       - name: Run tests
         uses: actions-rs/cargo@v1
+        env:
+          POSTGRES_PASSWORD: postgres
         with:
           command: test
           args: --all --all-features -- --test-threads=1
