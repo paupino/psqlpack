@@ -1,4 +1,4 @@
-use serde::de::{Deserialize, Deserializer, MapAccess, Visitor, Error};
+use serde::de::{Deserialize, Deserializer, Error, MapAccess, Visitor};
 
 use std::fmt;
 
@@ -9,7 +9,8 @@ pub struct Struct {
 
 impl<'de> Deserialize<'de> for Struct {
     fn deserialize<D>(d: D) -> Result<Struct, D::Error>
-        where D: Deserializer<'de>
+    where
+        D: Deserializer<'de>,
     {
         enum StructField {
             Fields,
@@ -18,7 +19,8 @@ impl<'de> Deserialize<'de> for Struct {
 
         impl<'de> Deserialize<'de> for StructField {
             fn deserialize<D>(d: D) -> Result<StructField, D::Error>
-                where D: Deserializer<'de>
+            where
+                D: Deserializer<'de>,
             {
                 struct StructFieldVisitor;
 
@@ -30,7 +32,8 @@ impl<'de> Deserialize<'de> for Struct {
                     }
 
                     fn visit_str<E>(self, value: &str) -> Result<StructField, E>
-                        where E: Error
+                    where
+                        E: Error,
                     {
                         match value {
                             "fields" => Ok(StructField::Fields),
@@ -54,7 +57,8 @@ impl<'de> Deserialize<'de> for Struct {
             }
 
             fn visit_map<A>(self, mut map: A) -> Result<Struct, A::Error>
-                where A: MapAccess<'de>
+            where
+                A: MapAccess<'de>,
             {
                 let mut fields = None;
                 let mut comment = None;
@@ -64,7 +68,7 @@ impl<'de> Deserialize<'de> for Struct {
                         StructField::Fields => {
                             let v: Vec<Field> = map.next_value()?;
                             fields = Some(v)
-                        },
+                        }
                         StructField::Comment => {
                             let v: Option<String> = map.next_value()?;
                             comment = Some(v);
@@ -73,9 +77,7 @@ impl<'de> Deserialize<'de> for Struct {
                 }
 
                 let fields = match fields {
-                    Some(fields) => fields.into_iter()
-                        .filter(|f| f.name.is_some())
-                        .collect(),
+                    Some(fields) => fields.into_iter().filter(|f| f.name.is_some()).collect(),
                     None => return Err(A::Error::missing_field("fields")),
                 };
                 // Make comment optional
@@ -84,10 +86,7 @@ impl<'de> Deserialize<'de> for Struct {
                     None => None,
                 };
 
-                Ok(Struct {
-                    fields,
-                    comment,
-                })
+                Ok(Struct { fields, comment })
             }
         }
 
@@ -103,7 +102,8 @@ pub struct Field {
 
 impl<'de> Deserialize<'de> for Field {
     fn deserialize<D>(d: D) -> Result<Field, D::Error>
-        where D: Deserializer<'de>
+    where
+        D: Deserializer<'de>,
     {
         enum FieldField {
             Name,
@@ -113,7 +113,8 @@ impl<'de> Deserialize<'de> for Field {
 
         impl<'de> Deserialize<'de> for FieldField {
             fn deserialize<D>(d: D) -> Result<FieldField, D::Error>
-                where D: Deserializer<'de>
+            where
+                D: Deserializer<'de>,
             {
                 struct FieldFieldVisitor;
 
@@ -125,7 +126,8 @@ impl<'de> Deserialize<'de> for Field {
                     }
 
                     fn visit_str<E>(self, value: &str) -> Result<FieldField, E>
-                        where E: Error
+                    where
+                        E: Error,
                     {
                         match value {
                             "name" => Ok(FieldField::Name),
@@ -150,7 +152,8 @@ impl<'de> Deserialize<'de> for Field {
             }
 
             fn visit_map<A>(self, mut map: A) -> Result<Field, A::Error>
-                where A: MapAccess<'de>
+            where
+                A: MapAccess<'de>,
             {
                 let mut name = None;
                 let mut c_type = None;
@@ -177,11 +180,7 @@ impl<'de> Deserialize<'de> for Field {
                     None => None,
                 };
 
-                Ok(Field {
-                    name,
-                    c_type,
-                    comment,
-                })
+                Ok(Field { name, c_type, comment })
             }
         }
 
@@ -196,7 +195,8 @@ pub struct Enum {
 
 impl<'de> Deserialize<'de> for Enum {
     fn deserialize<D>(d: D) -> Result<Enum, D::Error>
-        where D: Deserializer<'de>
+    where
+        D: Deserializer<'de>,
     {
         enum EnumField {
             Values,
@@ -205,7 +205,8 @@ impl<'de> Deserialize<'de> for Enum {
 
         impl<'de> Deserialize<'de> for EnumField {
             fn deserialize<D>(d: D) -> Result<EnumField, D::Error>
-                where D: Deserializer<'de>
+            where
+                D: Deserializer<'de>,
             {
                 struct EnumFieldVisitor;
 
@@ -217,7 +218,8 @@ impl<'de> Deserialize<'de> for Enum {
                     }
 
                     fn visit_str<E>(self, value: &str) -> Result<EnumField, E>
-                        where E: Error
+                    where
+                        E: Error,
                     {
                         match value {
                             "values" => Ok(EnumField::Values),
@@ -241,7 +243,8 @@ impl<'de> Deserialize<'de> for Enum {
             }
 
             fn visit_map<A>(self, mut map: A) -> Result<Enum, A::Error>
-                where A: MapAccess<'de>
+            where
+                A: MapAccess<'de>,
             {
                 let mut values = None;
                 let mut comment = None;
@@ -251,7 +254,7 @@ impl<'de> Deserialize<'de> for Enum {
                         EnumField::Values => {
                             let v: Vec<EnumValue> = map.next_value()?;
                             values = Some(v);
-                        },
+                        }
                         EnumField::Comment => {
                             let v: Option<String> = map.next_value()?;
                             comment = Some(v);
@@ -260,9 +263,7 @@ impl<'de> Deserialize<'de> for Enum {
                 }
 
                 let values = match values {
-                    Some(values) => values.into_iter()
-                        .filter(|v| v.name.is_some())
-                        .collect(),
+                    Some(values) => values.into_iter().filter(|v| v.name.is_some()).collect(),
                     None => return Err(A::Error::missing_field("values")),
                 };
                 // Make comment optional
@@ -271,10 +272,7 @@ impl<'de> Deserialize<'de> for Enum {
                     None => None,
                 };
 
-                Ok(Enum {
-                    values,
-                    comment,
-                })
+                Ok(Enum { values, comment })
             }
         }
 
@@ -289,7 +287,8 @@ pub struct EnumValue {
 
 impl<'de> Deserialize<'de> for EnumValue {
     fn deserialize<D>(d: D) -> Result<EnumValue, D::Error>
-        where D: Deserializer<'de>
+    where
+        D: Deserializer<'de>,
     {
         enum EnumValueField {
             Name,
@@ -298,7 +297,8 @@ impl<'de> Deserialize<'de> for EnumValue {
 
         impl<'de> Deserialize<'de> for EnumValueField {
             fn deserialize<D>(d: D) -> Result<EnumValueField, D::Error>
-                where D: Deserializer<'de>
+            where
+                D: Deserializer<'de>,
             {
                 struct EnumValueFieldVisitor;
 
@@ -310,7 +310,8 @@ impl<'de> Deserialize<'de> for EnumValue {
                     }
 
                     fn visit_str<E>(self, value: &str) -> Result<EnumValueField, E>
-                        where E: Error
+                    where
+                        E: Error,
                     {
                         match value {
                             "name" => Ok(EnumValueField::Name),
@@ -334,7 +335,8 @@ impl<'de> Deserialize<'de> for EnumValue {
             }
 
             fn visit_map<A>(self, mut map: A) -> Result<EnumValue, A::Error>
-                where A: MapAccess<'de>
+            where
+                A: MapAccess<'de>,
             {
                 let mut name = None;
                 let mut comment = None;
@@ -343,10 +345,10 @@ impl<'de> Deserialize<'de> for EnumValue {
                     match key {
                         EnumValueField::Name => {
                             name = Some(value);
-                        },
+                        }
                         EnumValueField::Comment => {
                             comment = Some(value);
-                        },
+                        }
                     }
                 }
 
@@ -359,10 +361,7 @@ impl<'de> Deserialize<'de> for EnumValue {
                     None => None,
                 };
 
-                Ok(EnumValue {
-                    name,
-                    comment,
-                })
+                Ok(EnumValue { name, comment })
             }
         }
 

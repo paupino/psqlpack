@@ -6,7 +6,7 @@ pub mod pg_types {
 
 use libc::{c_char, c_int};
 
-use std::ffi::{CString, CStr};
+use std::ffi::{CStr, CString};
 use std::fmt;
 
 use pg_types::Node;
@@ -51,8 +51,12 @@ impl fmt::Debug for ParseError {
 impl ParseError {
     unsafe fn from_raw(raw: *mut PgQueryError) -> ParseError {
         ParseError {
-            message: std::str::from_utf8(CStr::from_ptr((*raw).message).to_bytes()).unwrap().to_owned(),
-            file: std::str::from_utf8(CStr::from_ptr((*raw).filename).to_bytes()).unwrap().to_owned(),
+            message: std::str::from_utf8(CStr::from_ptr((*raw).message).to_bytes())
+                .unwrap()
+                .to_owned(),
+            file: std::str::from_utf8(CStr::from_ptr((*raw).filename).to_bytes())
+                .unwrap()
+                .to_owned(),
             line: (*raw).lineno as u32,
             index: (*raw).cursorpos as usize,
             _p: (),
@@ -70,7 +74,9 @@ fn parse_internal(query: &str) -> Result<String, ParseError> {
     unsafe {
         let raw_result = pg_query_parse(query.as_ptr() as *mut _);
         let result = if raw_result.error.is_null() {
-            Ok(std::str::from_utf8(CStr::from_ptr(raw_result.parse_tree).to_bytes()).unwrap().to_owned())
+            Ok(std::str::from_utf8(CStr::from_ptr(raw_result.parse_tree).to_bytes())
+                .unwrap()
+                .to_owned())
         } else {
             Err(ParseError::from_raw(raw_result.error))
         };
@@ -81,13 +87,15 @@ fn parse_internal(query: &str) -> Result<String, ParseError> {
 
 pub fn parse(query: &str) -> Result<Node, ParseError> {
     let json = parse_internal(query)?;
-    let root_node = serde_json::from_str(&json).unwrap_or_else(|_| return Err(ParseError {
-        message: "Failed to deserialize root node".into(),
-        file: String::new(),
-        line: 0,
-        index: 0,
-        _p: ()
-    }))?;
+    let root_node = serde_json::from_str(&json).unwrap_or_else(|_| {
+        return Err(ParseError {
+            message: "Failed to deserialize root node".into(),
+            file: String::new(),
+            line: 0,
+            index: 0,
+            _p: (),
+        });
+    })?;
     root_node
 }
 
@@ -95,7 +103,10 @@ pub fn parse(query: &str) -> Result<Node, ParseError> {
 mod tests {
     #[test]
     fn it_works() {
-        println!("{:?}", super::parse("CREATE INDEX ix_test ON contacts.person (id, ssn) WHERE ssn IS NOT NULL;").unwrap());
+        println!(
+            "{:?}",
+            super::parse("CREATE INDEX ix_test ON contacts.person (id, ssn) WHERE ssn IS NOT NULL;").unwrap()
+        );
         assert!(false);
     }
 }

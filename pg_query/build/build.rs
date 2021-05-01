@@ -1,11 +1,11 @@
 mod types;
 
 use std::collections::HashMap;
-use std::fs::File;
 use std::env;
+use std::fs::File;
 use std::io::{prelude::*, BufReader, BufWriter, Write};
-use std::process::{Command, Stdio};
 use std::path::PathBuf;
+use std::process::{Command, Stdio};
 
 use types::{Enum, Struct};
 
@@ -28,7 +28,12 @@ fn compile_pg_query() -> PathBuf {
     }
 
     if !build_dir.exists() {
-        run_command(Command::new("tar").arg("xzf").arg(out_dir.join(tarball)).current_dir(&out_dir));
+        run_command(
+            Command::new("tar")
+                .arg("xzf")
+                .arg(out_dir.join(tarball))
+                .current_dir(&out_dir),
+        );
     }
 
     let mut command = Command::new("make");
@@ -44,7 +49,6 @@ fn compile_pg_query() -> PathBuf {
 }
 
 fn generate_pg_query_types(dir: &PathBuf) {
-
     // Common out dir
     let out_dir = PathBuf::from(env::var_os("OUT_DIR").unwrap());
     let out_file = File::create(out_dir.join("types.rs")).unwrap();
@@ -54,15 +58,13 @@ fn generate_pg_query_types(dir: &PathBuf) {
     // First do enums
     let enum_defs = File::open(dir.join("enum_defs.json")).unwrap();
     let enum_defs = BufReader::new(enum_defs);
-    let enum_defs: HashMap<String, HashMap<String, Enum>> =
-        serde_json::from_reader(enum_defs).unwrap();
+    let enum_defs: HashMap<String, HashMap<String, Enum>> = serde_json::from_reader(enum_defs).unwrap();
     make_enums(&enum_defs, &mut out_file);
 
     // Next do structs
     let struct_defs = File::open(dir.join("struct_defs.json")).unwrap();
     let struct_defs = BufReader::new(struct_defs);
-    let struct_defs: HashMap<String, HashMap<String, Struct>> =
-        serde_json::from_reader(struct_defs).unwrap();
+    let struct_defs: HashMap<String, HashMap<String, Struct>> = serde_json::from_reader(struct_defs).unwrap();
     make_nodes(&struct_defs, &mut out_file);
 
     write_footer(&mut out_file);
@@ -95,7 +97,12 @@ fn write_footer(out: &mut BufWriter<File>) {
 }
 
 fn make_enums(enum_defs: &HashMap<String, HashMap<String, Enum>>, out: &mut BufWriter<File>) {
-    let sections = vec!["nodes/parsenodes", "nodes/primnodes", "nodes/lockoptions", "nodes/nodes"];
+    let sections = vec![
+        "nodes/parsenodes",
+        "nodes/primnodes",
+        "nodes/lockoptions",
+        "nodes/nodes",
+    ];
     for section in sections {
         for (name, def) in &enum_defs[section] {
             write!(out, "    #[derive(Debug)]\n").unwrap();
@@ -129,8 +136,13 @@ fn make_nodes(struct_defs: &HashMap<String, HashMap<String, Struct>>, out: &mut 
             if name == "type" {
                 continue;
             }
-            write!(out, "            {}: {},\n",
-                   remove_reserved_keyword(name), c_to_rust_type(c_type)).unwrap();
+            write!(
+                out,
+                "            {}: {},\n",
+                remove_reserved_keyword(name),
+                c_to_rust_type(c_type)
+            )
+            .unwrap();
         }
 
         write!(out, "        }},\n").unwrap();
@@ -149,19 +161,8 @@ fn remove_reserved_keyword(variable: &str) -> String {
 
 fn is_reserved(variable: &str) -> bool {
     match variable {
-        "abstract" |
-        "become" |
-        "box" |
-        "do" |
-        "final" |
-        "macro" |
-        "override" |
-        "priv" |
-        "try" |
-        "typeof" |
-        "unsized" |
-        "virtual" |
-        "yield" => true,
+        "abstract" | "become" | "box" | "do" | "final" | "macro" | "override" | "priv" | "try" | "typeof"
+        | "unsized" | "virtual" | "yield" => true,
         _ => false,
     }
 }
@@ -223,10 +224,11 @@ fn c_to_rust_type(c_type: &str) -> &str {
 }
 
 fn run_command(command: &mut Command) {
-    let status = command.stdin(Stdio::null())
-                        .stdout(Stdio::inherit())
-                        .stderr(Stdio::inherit())
-                        .status()
-                        .unwrap();
+    let status = command
+        .stdin(Stdio::null())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .status()
+        .unwrap();
     assert!(status.success());
 }
