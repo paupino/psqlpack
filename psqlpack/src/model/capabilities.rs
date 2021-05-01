@@ -418,10 +418,10 @@ fn parse_function(row: &Row) -> PsqlpackResult<FunctionDefinition> {
             err.end_pos,
         )
         .into()
-    };
+    }
     fn parse(err: lalrpop_util::ParseError<(), lexer::Token, &'static str>) -> PsqlpackError {
         InlineParseError(err).into()
-    };
+    }
 
     let function_args = if raw_args.is_empty() {
         Vec::new()

@@ -4,13 +4,11 @@ use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 
-use serde_json;
 use slog::Logger;
 
 use crate::connection::Connection;
 use crate::errors::PsqlpackErrorKind::*;
 use crate::errors::{PsqlpackResult, PsqlpackResultExt};
-use crate::model::delta::DbObject::Script;
 use crate::model::{Capabilities, Dependency, Node, Package, PublishProfile, Toggle};
 use crate::sql::ast::*;
 use crate::Semver;
@@ -138,7 +136,7 @@ impl<'a> Diffable<'a, Package> for ExtensionRequest<'a> {
             // Something is installed - verify if we need to upgrade.
             if let Some(ref version) = self.version {
                 // A SPECIFIC version is specified so check to see if it is available
-                let version_available = available.iter().filter(|e| e.version.eq(version)).nth(0);
+                let version_available = available.iter().find(|e| e.version.eq(version));
                 if let Some(v) = version_available {
                     // It's available so if it is not installed then upgrade
                     if !v.installed {
@@ -1168,7 +1166,7 @@ impl<'input> ChangeInstruction<'input> {
                 instr.push_str(&format!("CREATE TABLE {} (", def.name));
                 for (position, column) in def.columns.iter().enumerate() {
                     if position > 0 {
-                        instr.push_str(",");
+                        instr.push(',');
                     }
                     instr.push_str("\n\t");
                     instr.push_str(&format!("{} {}", column.name, column.sql_type));
@@ -1295,7 +1293,7 @@ impl<'input> ChangeInstruction<'input> {
                                     IndexParameter::FillFactor(i) => instr.push_str(&format!("FILLFACTOR={}", i)[..]),
                                 }
                             }
-                            instr.push_str(")");
+                            instr.push(')');
                         }
                     }
                     TableConstraint::Foreign {
@@ -1381,7 +1379,7 @@ impl<'input> ChangeInstruction<'input> {
                         });
                     }
                 }
-                instr.push_str(")");
+                instr.push(')');
                 if let Some(ref storage_parameters) = index.storage_parameters {
                     instr.push_str(" WITH (");
                     for (position, value) in storage_parameters.iter().enumerate() {
@@ -1392,7 +1390,7 @@ impl<'input> ChangeInstruction<'input> {
                             IndexParameter::FillFactor(i) => instr.push_str(&format!("FILLFACTOR={}", i)),
                         }
                     }
-                    instr.push_str(")");
+                    instr.push(')');
                 }
                 instr
             }

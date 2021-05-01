@@ -6,8 +6,6 @@ use std::str::FromStr;
 
 use chrono::prelude::*;
 use glob::glob;
-use petgraph;
-use serde_json;
 use slog::Logger;
 use zip::write::FileOptions;
 use zip::{ZipArchive, ZipWriter};
@@ -71,10 +69,7 @@ pub struct MetaInfo {
 
 impl MetaInfo {
     pub fn new(source: SourceInfo) -> Self {
-        let publishable = match source {
-            SourceInfo::Extension(..) => false,
-            _ => true,
-        };
+        let publishable = !matches!(source, SourceInfo::Extension(..));
         MetaInfo {
             version: crate_version(),
             generated_at: Utc::now(),
@@ -218,7 +213,7 @@ impl Package {
     ) -> PsqlpackResult<Option<Package>> {
         let log = log.new(o!("package" => "from_connection"));
 
-        trace!(log, "Checking for database `{}`", &connection.database()[..]);
+        trace!(log, "Checking for database `{}`", connection.database());
         if !capabilities.database_exists {
             return Ok(None);
         }
@@ -458,10 +453,10 @@ impl Package {
                     column.constraints.remove(pk_pos);
 
                     // Add a table constraint if it doesn't exist
-                    let found = table.constraints.iter().position(|c| match c {
-                        TableConstraint::Primary { .. } => true,
-                        _ => false,
-                    });
+                    let found = table
+                        .constraints
+                        .iter()
+                        .position(|c| matches!(c, TableConstraint::Primary { .. }));
                     if found.is_none() {
                         let name = format!("{}_pkey", table.name.name);
                         table.constraints.push(TableConstraint::Primary {
@@ -519,8 +514,7 @@ impl Package {
 
     // TODO: Stop moving string, consider making this a utility
     fn expand_tilde(input: &str) -> String {
-        if input.starts_with('~') {
-            let after_tilde = &input[1..];
+        if let Some(after_tilde) = input.strip_prefix('~') {
             if after_tilde.is_empty() || after_tilde.starts_with('/') {
                 if let Some(hd) = dirs::home_dir() {
                     format!("{}{}", hd.display(), after_tilde)
@@ -793,13 +787,7 @@ impl Package {
         errors.extend(
             self.functions
                 .iter()
-                .filter(|&function| {
-                    if let FunctionLanguage::Custom(_) = function.language {
-                        true
-                    } else {
-                        false
-                    }
-                })
+                .filter(|&function| matches!(function.language, FunctionLanguage::Custom(_)))
                 .map(|ref function| ValidationKind::UnsupportedFunctionLanguage {
                     language: function.language.clone(),
                     name: function.name.clone(),

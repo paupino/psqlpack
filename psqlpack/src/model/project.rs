@@ -5,7 +5,6 @@ use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
 
 use glob::glob;
-use serde_json;
 use slog::Logger;
 
 use crate::errors::PsqlpackErrorKind::*;
@@ -118,12 +117,12 @@ impl Project {
                 trace!(log, "Parsing project file");
                 Self::from_reader(file)
             })
-            .and_then(|mut project: Project| {
+            .map(|mut project: Project| {
                 project.project_file_path = Some(project_file_path.to_path_buf());
                 if project.default_schema.is_empty() {
                     project.default_schema = "public".into();
                 }
-                Ok(project)
+                project
             })
     }
 

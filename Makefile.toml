@@ -1,0 +1,17 @@
+[config]
+default_to_workspace = false
+
+[tasks.build]
+command = "cargo"
+args = ["build"]
+
+[tasks.format]
+workspace = true
+install_crate = "rustfmt"
+command = "cargo"
+args = ["fmt", "--", "--emit=files"]
+
+[tasks.outdated]
+install_crate = "cargo-outdated"
+command = "cargo"
+args = ["outdated", "-R"]

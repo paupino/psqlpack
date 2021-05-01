@@ -394,7 +394,7 @@ fn handle(log: &Logger, matches: &ArgMatches) -> HandleResult {
             let source = match package.value_of("SOURCE") {
                 Some(cmd_source) => cmd_source.into(),
                 None => {
-                    let mut path = env::current_dir().unwrap().to_path_buf();
+                    let mut path = env::current_dir().unwrap();
                     path.push("project.json");
                     path
                 }

@@ -99,7 +99,7 @@ impl FromStr for Connection {
         }
 
         // Make sure we have enough for a connection string
-        Ok(builder.build()?)
+        builder.build()
     }
 }
 

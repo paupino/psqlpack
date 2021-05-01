@@ -1,3 +1,4 @@
+#![allow(clippy::upper_case_acronyms)]
 /*
 TODO: This isn't all that efficient. We could gain some efficiencies using a generated lexer.
 TODO: Proper lookahead.

@@ -1,3 +1,4 @@
+#![allow(clippy::upper_case_acronyms)]
 use rust_decimal::Decimal;
 
 use std::fmt;

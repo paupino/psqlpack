@@ -98,6 +98,7 @@ error_chain! {
             description("An error in the glob pattern was found")
             display("An error in the glob pattern was found: {}", err)
         }
+        #[allow(clippy::upper_case_acronyms)]
         IOError(file: String, message: String) {
             description("IO error when reading a file")
             display("IO error when reading {}: {}", file, message)

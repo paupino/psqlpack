@@ -3,8 +3,9 @@ use std::fmt;
 use std::str::FromStr;
 
 use regex::Regex;
+use std::cmp::Ordering;
 
-#[derive(Clone, Copy, Debug, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub struct Semver {
     major: u32,
     minor: u32,
@@ -27,14 +28,6 @@ impl fmt::Display for Semver {
     }
 }
 
-impl cmp::PartialEq for Semver {
-    fn eq(&self, other: &Semver) -> bool {
-        self.cmp(other) == cmp::Ordering::Equal
-    }
-}
-
-impl Eq for Semver {}
-
 impl cmp::PartialOrd for Semver {
     fn partial_cmp(&self, other: &Semver) -> Option<cmp::Ordering> {
         Some(self.cmp(other))
@@ -43,27 +36,21 @@ impl cmp::PartialOrd for Semver {
 
 impl cmp::Ord for Semver {
     fn cmp(&self, other: &Semver) -> cmp::Ordering {
-        if self.major > other.major {
-            return cmp::Ordering::Greater;
-        } else if self.major < other.major {
-            return cmp::Ordering::Less;
+        match self.major.cmp(&other.major) {
+            Ordering::Less => return Ordering::Less,
+            Ordering::Greater => return Ordering::Greater,
+            Ordering::Equal => {}
         }
 
-        if self.minor > other.minor {
-            return cmp::Ordering::Greater;
-        } else if self.minor < other.minor {
-            return cmp::Ordering::Less;
+        match self.minor.cmp(&other.minor) {
+            Ordering::Less => return Ordering::Less,
+            Ordering::Greater => return Ordering::Greater,
+            Ordering::Equal => {}
         }
 
         let my_rev = self.revision.unwrap_or(0);
         let other_rev = other.revision.unwrap_or(0);
-        if my_rev > other_rev {
-            return cmp::Ordering::Greater;
-        } else if my_rev < other_rev {
-            return cmp::Ordering::Less;
-        }
-
-        cmp::Ordering::Equal
+        my_rev.cmp(&other_rev)
     }
 }
 
@@ -102,9 +89,9 @@ impl<'de> serde::de::Visitor<'de> for SemverVisitor {
     }
 }
 
-impl<'a> Into<Semver> for &'a str {
-    fn into(self) -> Semver {
-        Semver::from_str(self).unwrap()
+impl From<&str> for Semver {
+    fn from(value: &str) -> Self {
+        Semver::from_str(value).unwrap()
     }
 }
 

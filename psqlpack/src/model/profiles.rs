@@ -8,8 +8,6 @@ use std::fs::File;
 use std::io::{BufReader, Read};
 use std::path::Path;
 
-use serde_json;
-
 use crate::errors::PsqlpackErrorKind::*;
 use crate::errors::{PsqlpackResult, PsqlpackResultExt};
 use crate::semver::Semver;
@@ -120,7 +118,7 @@ impl PublishProfile {
     pub fn from_path(profile_path: &Path) -> PsqlpackResult<PublishProfile> {
         File::open(profile_path)
             .chain_err(|| PublishProfileReadError(profile_path.to_path_buf()))
-            .and_then(|file| Self::from_reader(file))
+            .and_then(Self::from_reader)
     }
 
     fn from_reader<R>(reader: R) -> PsqlpackResult<PublishProfile>

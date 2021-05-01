@@ -2,7 +2,6 @@ use std::fs::{self, File};
 use std::path::Path;
 
 use serde::ser::Serialize;
-use serde_json;
 
 use super::{Project, PublishProfile};
 use crate::errors::PsqlpackErrorKind::*;
