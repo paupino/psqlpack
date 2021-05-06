@@ -74,6 +74,9 @@ pub enum SimpleSqlType {
     TimeWithTimeZone,     // time with time zone
 
     Uuid, // uuid
+
+    Json,
+    Jsonb,
 }
 
 #[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
@@ -500,6 +503,9 @@ impl fmt::Display for SimpleSqlType {
             SimpleSqlType::TimeWithTimeZone => write!(f, "time with time zone"),
 
             SimpleSqlType::Uuid => write!(f, "uuid"),
+
+            SimpleSqlType::Json => write!(f, "json"),
+            SimpleSqlType::Jsonb => write!(f, "jsonb"),
         }
     }
 }

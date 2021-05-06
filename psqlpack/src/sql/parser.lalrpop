@@ -56,6 +56,8 @@ extern {
         INT4 => lexer::Token::INT4,
         INT8 => lexer::Token::INT8,
         INTEGER => lexer::Token::INTEGER,
+        JSON => lexer::Token::JSON,
+        JSONB => lexer::Token::JSONB,
         KEY => lexer::Token::KEY,
         LANGUAGE => lexer::Token::LANGUAGE,
         LAST => lexer::Token::LAST,
@@ -414,6 +416,9 @@ SimpleType: SimpleSqlType = {
     INT2 => SimpleSqlType::SmallInteger,
     INT4 => SimpleSqlType::Integer,
     INT8 => SimpleSqlType::BigInteger,
+
+    JSON => SimpleSqlType::Json,
+    JSONB => SimpleSqlType::Jsonb,
 
     SMALLSERIAL => SimpleSqlType::SmallSerial,
     SERIAL => SimpleSqlType::Serial,

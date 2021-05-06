@@ -981,7 +981,7 @@ dependencies = [
 
 [[package]]
 name = "psqlpack"
-version = "0.6.2"
+version = "0.6.3"
 dependencies = [
  "chrono",
  "dirs 3.0.2",
@@ -1006,7 +1006,7 @@ dependencies = [
 
 [[package]]
 name = "psqlpack-cli"
-version = "0.6.2"
+version = "0.6.3"
 dependencies = [
  "clap",
  "psqlpack",

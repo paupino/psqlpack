@@ -172,6 +172,8 @@ pub enum Token {
     INT4,
     INT8,
     INTEGER,
+    JSON,
+    JSONB,
     KEY,
     LANGUAGE,
     LAST,
@@ -282,6 +284,8 @@ impl fmt::Display for Token {
             Token::INT4 => write!(f, "INT4"),
             Token::INT8 => write!(f, "INT8"),
             Token::INTEGER => write!(f, "INTEGER"),
+            Token::JSON => write!(f, "JSON"),
+            Token::JSONB => write!(f, "JSONB"),
             Token::KEY => write!(f, "KEY"),
             Token::LANGUAGE => write!(f, "LANGUAGE"),
             Token::LAST => write!(f, "LAST"),
@@ -461,6 +465,8 @@ fn create_normal_token(context: &mut Context) -> Option<Token> {
     match_keyword!(value, INT4);
     match_keyword!(value, INT8);
     match_keyword!(value, INTEGER);
+    match_keyword!(value, JSON);
+    match_keyword!(value, JSONB);
     match_keyword!(value, KEY);
     match_keyword!(value, LANGUAGE);
     match_keyword!(value, LAST);
