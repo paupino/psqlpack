@@ -10,7 +10,7 @@ fi
 # This is the array of targets to deploy
 targets=(
     "x86_64-apple-darwin"
-    "x86_64-unknown-linux-musl"
+    #"x86_64-unknown-linux-musl"
 )
 
 # Build each target first
