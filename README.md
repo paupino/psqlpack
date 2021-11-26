@@ -1,11 +1,16 @@
-# psqlpack &emsp; [![Build Status]][actions]
+# psqlpack
 
-
-[Build Status]: https://img.shields.io/endpoint.svg?url=https%3A%2F%2Factions-badge.atrox.dev%2Fpaupino%2Fpsqlpack%2Fbadge&label=build&logo=none
-[actions]: https://actions-badge.atrox.dev/paupino/psqlpack/goto
 [Supported]: docs/images/supported.svg
 [Partial]: docs/images/partially-supported.svg
 [NotStarted]: docs/images/not-started.svg
+
+## Project Archived
+
+**Nov 26, 2021**
+
+This project is no longer maintained and is archived for reference purposes. I am currently looking at rebuilding a similar tool from the ground up which is database independent. Information about this project will be released on [paupino/dbpack](https://github.com/paupino/dbpack) when available.
+
+## Psqlpack
 
 [Documentation](docs/index.md)
 
