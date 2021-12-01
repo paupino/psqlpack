@@ -113,9 +113,17 @@ impl FromStr for Semver {
             }
         }
 
-        let caps = match VERSION.captures(version) {
+        let version = if version.eq("unpackaged") {
+            "0.0".to_string()
+        } else if version.ends_with("next") {
+            version.replace("next", "").to_string()
+        } else {
+            version.to_string()
+        };
+
+        let caps = match VERSION.captures(&version) {
             Some(x) => x,
-            None => return Err("Unexpected version format".into()),
+            None => return Err(format!("Unexpected version format: {}", version)),
         };
         let major = match get_u32(&caps, 1, false) {
             Some(x) => x,
@@ -144,6 +152,8 @@ mod tests {
             ("10.4", "10.4"),
             ("9.4.18", "9.4.18"),
             ("9.6.9", "9.6.9"),
+            ("unpackaged", "0.0"),
+            ("3.1.4next", "3.1.4"),
         ];
         for &(given, expected) in tests {
             let parsed = Semver::from_str(given);
