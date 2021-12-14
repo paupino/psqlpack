@@ -4,11 +4,11 @@
 [Partial]: docs/images/partially-supported.svg
 [NotStarted]: docs/images/not-started.svg
 
-## Project Archived
+## Project Status
 
-**Nov 26, 2021**
+**Dec 14, 2021**
 
-This project is no longer maintained and is archived for reference purposes. I am currently looking at rebuilding a similar tool from the ground up which is database independent. Information about this project will be released on [paupino/dbpack](https://github.com/paupino/dbpack) when available.
+While this project is not abandoned, it is not actively maintained. Occasionally new features or bug fixes will be released on an as-needed basis. 
 
 ## Psqlpack
 
