@@ -1,11 +1,16 @@
-# psqlpack &emsp; [![Build Status]][actions]
+# psqlpack
 
-
-[Build Status]: https://img.shields.io/endpoint.svg?url=https%3A%2F%2Factions-badge.atrox.dev%2Fpaupino%2Fpsqlpack%2Fbadge&label=build&logo=none
-[actions]: https://actions-badge.atrox.dev/paupino/psqlpack/goto
 [Supported]: docs/images/supported.svg
 [Partial]: docs/images/partially-supported.svg
 [NotStarted]: docs/images/not-started.svg
+
+## Project Status
+
+**Dec 14, 2021**
+
+While this project is not abandoned, it is not actively maintained. Occasionally new features or bug fixes will be released on an as-needed basis. 
+
+## Psqlpack
 
 [Documentation](docs/index.md)
 
