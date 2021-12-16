@@ -5,7 +5,7 @@ authors = ["Paul Mason <paul@form1.co.nz>", "Justin Latimer <justinlatimer@gmail
 build = "build.rs"
 license = "MIT/Apache-2.0"
 readme = "../README.md"
-edition = "2018"
+edition = "2021"
 
 [dependencies]
 chrono = { version = "0.4", features = ["serde"] }
