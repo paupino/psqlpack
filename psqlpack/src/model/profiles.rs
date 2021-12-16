@@ -8,6 +8,8 @@ use std::fs::File;
 use std::io::{BufReader, Read};
 use std::path::Path;
 
+use serde::{Deserialize, Serialize};
+
 use crate::errors::PsqlpackErrorKind::*;
 use crate::errors::{PsqlpackResult, PsqlpackResultExt};
 use crate::semver::Semver;

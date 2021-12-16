@@ -1,5 +1,6 @@
 #![allow(clippy::upper_case_acronyms)]
 use rust_decimal::Decimal;
+use serde::{Deserialize, Serialize};
 
 use std::fmt;
 

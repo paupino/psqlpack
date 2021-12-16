@@ -5,6 +5,7 @@ use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
 
 use glob::glob;
+use serde::{Deserialize, Serialize};
 use slog::Logger;
 
 use crate::errors::PsqlpackErrorKind::*;

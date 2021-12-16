@@ -4,6 +4,7 @@ use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 
+use serde::Serialize;
 use slog::Logger;
 
 use crate::connection::Connection;

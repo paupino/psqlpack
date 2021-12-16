@@ -6,6 +6,7 @@ use std::str::FromStr;
 
 use chrono::prelude::*;
 use glob::glob;
+use serde::{Deserialize, Serialize};
 use slog::Logger;
 use zip::write::FileOptions;
 use zip::{ZipArchive, ZipWriter};
