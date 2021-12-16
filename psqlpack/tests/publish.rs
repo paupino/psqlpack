@@ -1,7 +1,6 @@
 extern crate psqlpack;
 #[macro_use]
 extern crate slog;
-#[macro_use]
 extern crate spectral;
 
 #[macro_use]

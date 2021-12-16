@@ -15,3 +15,7 @@ args = ["fmt", "--", "--emit=files"]
 install_crate = "cargo-outdated"
 command = "cargo"
 args = ["outdated", "-R"]
+
+[tasks.test]
+command = "cargo"
+args = ["test", "--all", "--", "--test-threads=1"]
