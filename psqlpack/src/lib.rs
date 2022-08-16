@@ -14,11 +14,8 @@ extern crate serde;
 extern crate serde_json;
 #[macro_use]
 extern crate slog;
-extern crate slog_stdlog;
-#[cfg(test)]
-#[macro_use]
-extern crate spectral;
 extern crate glob;
+extern crate slog_stdlog;
 extern crate zip;
 
 mod errors;

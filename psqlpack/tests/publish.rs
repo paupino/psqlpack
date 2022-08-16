@@ -1,7 +1,6 @@
 extern crate psqlpack;
 #[macro_use]
 extern crate slog;
-extern crate spectral;
 
 #[macro_use]
 mod common;
@@ -9,7 +8,6 @@ mod common;
 use psqlpack::ast::*;
 use psqlpack::*;
 use slog::{Discard, Drain, Logger};
-use spectral::prelude::*;
 
 macro_rules! publish_package {
     ($db_name:ident, $connection:ident, $package:ident) => {{

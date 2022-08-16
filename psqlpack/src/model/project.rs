@@ -329,7 +329,6 @@ mod tests {
 
     use crate::model::project::Project;
     use crate::{Dependency, Semver};
-    use spectral::prelude::*;
     use std::path::Path;
 
     #[test]
@@ -340,15 +339,26 @@ mod tests {
         let result = project.walk_files(&parent);
 
         // Check the expected files were returned
-        assert_that!(result).is_ok().has_length(4);
+        assert!(result.is_ok());
         let result = result.unwrap();
+        assert_eq!(result.len(), 4);
         let result: Vec<&str> = result.iter().map(|x| x.to_str().unwrap()).collect();
-        assert_that!(result).contains_all_of(&vec![
-            &"../samples/simple/public/tables/public.expense_status.sql",
-            &"../samples/simple/public/tables/public.organisation.sql",
-            &"../samples/simple/public/tables/public.tax_table.sql",
-            &"../samples/simple/public/tables/public.vendor.sql",
-        ]);
+        assert!(
+            result.contains(&"../samples/simple/public/tables/public.expense_status.sql"),
+            "expense_status.sql"
+        );
+        assert!(
+            result.contains(&"../samples/simple/public/tables/public.organisation.sql"),
+            "organisation.sql"
+        );
+        assert!(
+            result.contains(&"../samples/simple/public/tables/public.tax_table.sql"),
+            "tax_table.sql"
+        );
+        assert!(
+            result.contains(&"../samples/simple/public/tables/public.vendor.sql"),
+            "vendor.sql"
+        );
     }
 
     #[test]
@@ -369,15 +379,14 @@ mod tests {
         let result = project.walk_files(&parent);
 
         // Check the expected files were returned
-        assert_that!(result).is_ok().has_length(3);
+        assert!(result.is_ok());
         let result = result.unwrap();
+        assert_eq!(result.len(), 3);
         let result: Vec<&str> = result.iter().map(|x| x.to_str().unwrap()).collect();
-        assert_that!(result).does_not_contain(&"../samples/simple/public/tables/public.organisation.sql");
-        assert_that!(result).contains_all_of(&vec![
-            &"../samples/simple/public/tables/public.expense_status.sql",
-            &"../samples/simple/public/tables/public.tax_table.sql",
-            &"../samples/simple/public/tables/public.vendor.sql",
-        ]);
+        assert!(!result.contains(&"../samples/simple/public/tables/public.organisation.sql"));
+        assert!(result.contains(&"../samples/simple/public/tables/public.expense_status.sql"));
+        assert!(result.contains(&"../samples/simple/public/tables/public.tax_table.sql"));
+        assert!(result.contains(&"../samples/simple/public/tables/public.vendor.sql"));
     }
 
     #[test]
@@ -398,13 +407,12 @@ mod tests {
         let result = project.walk_files(&parent);
 
         // Check the expected files were returned
-        assert_that!(result).is_ok();
+        assert!(result.is_ok());
         let result = result.unwrap();
         let result: Vec<&str> = result.iter().map(|x| x.to_str().unwrap()).collect();
-        assert_that!(result)
-            .does_not_contain(&"../samples/complex/geo/functions/fn_do_any_coordinates_fall_inside.sql");
-        assert_that!(result).does_not_contain(&"../samples/complex/geo/tables/states.sql");
-        assert_that!(result).does_not_contain(&"../samples/complex/scripts/seed/geo.states.sql");
+        assert!(!result.contains(&"../samples/complex/geo/functions/fn_do_any_coordinates_fall_inside.sql"));
+        assert!(!result.contains(&"../samples/complex/geo/tables/states.sql"));
+        assert!(!result.contains(&"../samples/complex/scripts/seed/geo.states.sql"));
     }
 
     #[test]
@@ -425,10 +433,11 @@ mod tests {
         let result = project.walk_files(&parent);
 
         // Check the expected files were returned
-        assert_that!(result).is_ok().has_length(1);
+        assert!(result.is_ok());
         let result = result.unwrap();
+        assert_eq!(result.len(), 1);
         let result: Vec<&str> = result.iter().map(|x| x.to_str().unwrap()).collect();
-        assert_that!(result).contains_all_of(&vec![&"../samples/simple/public/tables/public.organisation.sql"]);
+        assert!(result.contains(&"../samples/simple/public/tables/public.organisation.sql"));
     }
 
     #[test]
@@ -457,37 +466,46 @@ mod tests {
         "#;
         let project = Project::from_reader(DATA.as_bytes());
         let project = project.unwrap();
-        assert_that!(project.version).is_equal_to(Semver::new(1, 0, None));
-        assert_that!(project.default_schema).is_equal_to("public".to_owned());
+        assert_eq!(project.version, Semver::new(1, 0, None));
+        assert_eq!(project.default_schema, "public");
 
-        assert_that!(project.pre_deploy_scripts).has_length(1);
-        assert_that!(project.pre_deploy_scripts[0]).is_equal_to("scripts/pre-deploy/drop-something.sql".to_owned());
+        assert_eq!(project.pre_deploy_scripts.len(), 1);
+        assert_eq!(project.pre_deploy_scripts[0], "scripts/pre-deploy/drop-something.sql");
 
-        assert_that!(project.post_deploy_scripts).has_length(2);
-        assert_that!(project.post_deploy_scripts[0]).is_equal_to("scripts/seed/seed1.sql".to_owned());
-        assert_that!(project.post_deploy_scripts[1]).is_equal_to("scripts/seed/seed2.sql".to_owned());
+        assert_eq!(project.post_deploy_scripts.len(), 2);
+        assert_eq!(project.post_deploy_scripts[0], "scripts/seed/seed1.sql");
+        assert_eq!(project.post_deploy_scripts[1], "scripts/seed/seed2.sql");
 
-        assert_that!(project.exclude_globs).is_some();
+        assert!(project.exclude_globs.is_some());
         let exclude_globs = project.exclude_globs.unwrap();
-        assert_that!(exclude_globs).has_length(2);
-        assert_that!(exclude_globs[0]).is_equal_to("**/ex/**/*.sql".to_owned());
-        assert_that!(exclude_globs[1]).is_equal_to("**/ex.*".to_owned());
+        assert_eq!(exclude_globs.len(), 2);
+        assert_eq!(exclude_globs[0], "**/ex/**/*.sql");
+        assert_eq!(exclude_globs[1], "**/ex.*");
 
-        assert_that!(project.extensions).is_some();
+        assert!(project.extensions.is_some());
         let extensions = project.extensions.unwrap();
-        assert_that!(extensions).has_length(3);
-        assert_that!(extensions[0]).is_equal_to(Dependency {
-            name: "postgis".into(),
-            version: None,
-        });
-        assert_that!(extensions[1]).is_equal_to(Dependency {
-            name: "postgis_topology".into(),
-            version: None,
-        });
-        assert_that!(extensions[2]).is_equal_to(Dependency {
-            name: "postgis_tiger_geocoder".into(),
-            version: None,
-        });
+        assert_eq!(extensions.len(), 3);
+        assert_eq!(
+            extensions[0],
+            Dependency {
+                name: "postgis".into(),
+                version: None,
+            }
+        );
+        assert_eq!(
+            extensions[1],
+            Dependency {
+                name: "postgis_topology".into(),
+                version: None,
+            }
+        );
+        assert_eq!(
+            extensions[2],
+            Dependency {
+                name: "postgis_tiger_geocoder".into(),
+                version: None,
+            }
+        );
     }
 
     #[test]
@@ -514,36 +532,45 @@ mod tests {
         "#;
         let project = Project::from_reader(DATA.as_bytes());
         let project = project.unwrap();
-        assert_that!(project.version).is_equal_to(Semver::new(1, 0, None));
-        assert_that!(project.default_schema).is_equal_to("public".to_owned());
+        assert_eq!(project.version, Semver::new(1, 0, None));
+        assert_eq!(project.default_schema, "public");
 
-        assert_that!(project.pre_deploy_scripts).has_length(1);
-        assert_that!(project.pre_deploy_scripts[0]).is_equal_to("scripts/pre-deploy/drop-something.sql".to_owned());
+        assert_eq!(project.pre_deploy_scripts.len(), 1);
+        assert_eq!(project.pre_deploy_scripts[0], "scripts/pre-deploy/drop-something.sql");
 
-        assert_that!(project.post_deploy_scripts).has_length(2);
-        assert_that!(project.post_deploy_scripts[0]).is_equal_to("scripts/seed/seed1.sql".to_owned());
-        assert_that!(project.post_deploy_scripts[1]).is_equal_to("scripts/seed/seed2.sql".to_owned());
+        assert_eq!(project.post_deploy_scripts.len(), 2);
+        assert_eq!(project.post_deploy_scripts[0], "scripts/seed/seed1.sql");
+        assert_eq!(project.post_deploy_scripts[1], "scripts/seed/seed2.sql");
 
-        assert_that!(project.exclude_globs).is_some();
+        assert!(project.exclude_globs.is_some());
         let exclude_globs = project.exclude_globs.unwrap();
-        assert_that!(exclude_globs).has_length(2);
-        assert_that!(exclude_globs[0]).is_equal_to("**/ex/**/*.sql".to_owned());
-        assert_that!(exclude_globs[1]).is_equal_to("**/ex.*".to_owned());
+        assert_eq!(exclude_globs.len(), 2);
+        assert_eq!(exclude_globs[0], "**/ex/**/*.sql");
+        assert_eq!(exclude_globs[1], "**/ex.*");
 
-        assert_that!(project.extensions).is_some();
+        assert!(project.extensions.is_some());
         let extensions = project.extensions.unwrap();
-        assert_that!(extensions).has_length(3);
-        assert_that!(extensions[0]).is_equal_to(Dependency {
-            name: "postgis".into(),
-            version: None,
-        });
-        assert_that!(extensions[1]).is_equal_to(Dependency {
-            name: "postgis_topology".into(),
-            version: None,
-        });
-        assert_that!(extensions[2]).is_equal_to(Dependency {
-            name: "postgis_tiger_geocoder".into(),
-            version: None,
-        });
+        assert_eq!(extensions.len(), 3);
+        assert_eq!(
+            extensions[0],
+            Dependency {
+                name: "postgis".into(),
+                version: None,
+            }
+        );
+        assert_eq!(
+            extensions[1],
+            Dependency {
+                name: "postgis_topology".into(),
+                version: None,
+            }
+        );
+        assert_eq!(
+            extensions[2],
+            Dependency {
+                name: "postgis_tiger_geocoder".into(),
+                version: None,
+            }
+        );
     }
 }

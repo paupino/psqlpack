@@ -150,7 +150,6 @@ impl PublishProfile {
 mod tests {
     use crate::model::Toggle;
     use crate::{PublishProfile, Semver};
-    use spectral::prelude::*;
 
     #[test]
     fn it_can_add_read_a_publish_profile_in_json_format() {
@@ -172,17 +171,17 @@ mod tests {
         "#;
         let publish_profile = PublishProfile::from_reader(DATA.as_bytes());
         let publish_profile = publish_profile.unwrap();
-        assert_that!(publish_profile.version).is_equal_to(Semver::new(1, 0, None));
+        assert_eq!(publish_profile.version, Semver::new(1, 0, None));
         let options = publish_profile.generation_options;
-        assert_that!(options.always_recreate_database).is_false();
-        assert_that!(options.drop_enum_values).is_equal_to(Toggle::Error);
-        assert_that!(options.drop_functions).is_equal_to(Toggle::Error);
-        assert_that!(options.drop_tables).is_equal_to(Toggle::Error);
-        assert_that!(options.drop_columns).is_equal_to(Toggle::Error);
-        assert_that!(options.drop_primary_key_constraints).is_equal_to(Toggle::Error);
-        assert_that!(options.drop_foreign_key_constraints).is_equal_to(Toggle::Allow);
-        assert_that!(options.drop_indexes).is_equal_to(Toggle::Ignore);
-        assert_that!(options.force_concurrent_indexes).is_false();
+        assert!(!options.always_recreate_database);
+        assert_eq!(options.drop_enum_values, Toggle::Error);
+        assert_eq!(options.drop_functions, Toggle::Error);
+        assert_eq!(options.drop_tables, Toggle::Error);
+        assert_eq!(options.drop_columns, Toggle::Error);
+        assert_eq!(options.drop_primary_key_constraints, Toggle::Error);
+        assert_eq!(options.drop_foreign_key_constraints, Toggle::Allow);
+        assert_eq!(options.drop_indexes, Toggle::Ignore);
+        assert!(!options.force_concurrent_indexes);
     }
 
     #[test]
@@ -203,16 +202,16 @@ mod tests {
         "#;
         let publish_profile = PublishProfile::from_reader(DATA.as_bytes());
         let publish_profile = publish_profile.unwrap();
-        assert_that!(publish_profile.version).is_equal_to(Semver::new(1, 0, None));
+        assert_eq!(publish_profile.version, Semver::new(1, 0, None));
         let options = publish_profile.generation_options;
-        assert_that!(options.always_recreate_database).is_false();
-        assert_that!(options.drop_enum_values).is_equal_to(Toggle::Error);
-        assert_that!(options.drop_functions).is_equal_to(Toggle::Error);
-        assert_that!(options.drop_tables).is_equal_to(Toggle::Error);
-        assert_that!(options.drop_columns).is_equal_to(Toggle::Error);
-        assert_that!(options.drop_primary_key_constraints).is_equal_to(Toggle::Error);
-        assert_that!(options.drop_foreign_key_constraints).is_equal_to(Toggle::Allow);
-        assert_that!(options.drop_indexes).is_equal_to(Toggle::Ignore);
-        assert_that!(options.force_concurrent_indexes).is_false();
+        assert!(!options.always_recreate_database);
+        assert_eq!(options.drop_enum_values, Toggle::Error);
+        assert_eq!(options.drop_functions, Toggle::Error);
+        assert_eq!(options.drop_tables, Toggle::Error);
+        assert_eq!(options.drop_columns, Toggle::Error);
+        assert_eq!(options.drop_primary_key_constraints, Toggle::Error);
+        assert_eq!(options.drop_foreign_key_constraints, Toggle::Allow);
+        assert_eq!(options.drop_indexes, Toggle::Ignore);
+        assert!(!options.force_concurrent_indexes);
     }
 }
