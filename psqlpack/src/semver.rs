@@ -143,8 +143,6 @@ mod tests {
     use super::Semver;
     use std::str::FromStr;
 
-    use spectral::prelude::*;
-
     #[test]
     fn it_can_parse_version_strings() {
         let tests = &[
@@ -157,8 +155,8 @@ mod tests {
         ];
         for &(given, expected) in tests {
             let parsed = Semver::from_str(given);
-            assert_that!(parsed).is_ok();
-            assert_that!(parsed.unwrap().to_string()).is_equal_to(expected.to_string());
+            assert!(parsed.is_ok());
+            assert_eq!(parsed.unwrap().to_string(), expected.to_string());
         }
     }
 }

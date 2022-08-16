@@ -1086,7 +1086,6 @@ mod tests {
     use crate::sql::{ast, lexer};
 
     use slog::{Discard, Drain, Logger};
-    use spectral::prelude::*;
 
     fn package_sql(sql: &str) -> Package {
         let tokens = match lexer::tokenize_stmt(sql) {
@@ -1120,7 +1119,7 @@ mod tests {
         ($graph:ident,$index:expr,$name:expr) => {
             match $graph[$index] {
                 Node::Table(table) => {
-                    assert_that!(table.name.to_string()).is_equal_to($name.to_owned());
+                    assert_eq!(table.name.to_string(), $name);
                 }
                 _ => panic!("Expected a table at index {}", $index),
             }
@@ -1131,8 +1130,8 @@ mod tests {
         ($graph:ident,$index:expr,$table_name:expr,$column_name:expr) => {
             match $graph[$index] {
                 Node::Column(table, column) => {
-                    assert_that!(table.name.to_string()).is_equal_to($table_name.to_owned());
-                    assert_that!(column.name.to_string()).is_equal_to($column_name.to_owned());
+                    assert_eq!(table.name.to_string(), $table_name);
+                    assert_eq!(column.name.to_string(), $column_name);
                 }
                 _ => panic!("Expected a column at index {}", $index),
             }
@@ -1143,10 +1142,10 @@ mod tests {
         ($graph:ident,$index:expr,$table_name:expr,$constraint_name:expr) => {
             match $graph[$index] {
                 Node::Constraint(table, constraint) => {
-                    assert_that!(table.name.to_string()).is_equal_to($table_name.to_owned());
+                    assert_eq!(table.name.to_string(), $table_name);
                     match *constraint {
                         ast::TableConstraint::Primary { ref name, .. } => {
-                            assert_that!(name.to_string()).is_equal_to($constraint_name.to_owned());
+                            assert_eq!(name.to_string(), $constraint_name);
                         }
                         _ => panic!("Expected a primary key constraint at index {}", $index),
                     }
@@ -1160,10 +1159,10 @@ mod tests {
         ($graph:ident,$index:expr,$table_name:expr,$constraint_name:expr) => {
             match $graph[$index] {
                 Node::Constraint(table, constraint) => {
-                    assert_that!(table.name.to_string()).is_equal_to($table_name.to_owned());
+                    assert_eq!(table.name.to_string(), $table_name);
                     match *constraint {
                         ast::TableConstraint::Foreign { ref name, .. } => {
-                            assert_that!(name.to_string()).is_equal_to($constraint_name.to_owned());
+                            assert_eq!(name.to_string(), $constraint_name);
                         }
                         _ => panic!("Expected a foreign key constraint at index {}", $index),
                     }
@@ -1180,24 +1179,23 @@ mod tests {
 
         // Pre-condition checks
         {
-            assert_that!(package.schemas).is_empty();
-            assert_that!(package.tables).has_length(1);
+            assert!(package.schemas.is_empty());
+            assert_eq!(package.tables.len(), 1);
             let table = &package.tables[0];
-            assert_that!(table.name.schema).is_none();
-            assert_that!(table.name.name).is_equal_to("hello_world".to_owned());
+            assert!(table.name.schema.is_none());
+            assert_eq!(table.name.name, "hello_world");
         }
 
         // Set the defaults and assert again
         package.set_defaults(&project);
-        assert_that!(package.schemas).has_length(1);
-        assert_that!(package.tables).has_length(1);
+        assert_eq!(package.schemas.len(), 1);
+        assert_eq!(package.tables.len(), 1);
         let schema = &package.schemas[0];
-        assert_that!(schema.name).is_equal_to("public".to_owned());
+        assert_eq!(schema.name, "public");
         let table = &package.tables[0];
-        assert_that!(table.name.schema)
-            .is_some()
-            .is_equal_to("public".to_owned());
-        assert_that!(table.name.name).is_equal_to("hello_world".to_owned());
+        assert!(table.name.schema.is_some());
+        assert_eq!(table.name.schema.as_ref().unwrap(), "public");
+        assert_eq!(table.name.name, "hello_world");
     }
 
     #[test]
@@ -1207,38 +1205,35 @@ mod tests {
 
         // Pre-condition checks
         {
-            assert_that!(package.schemas).is_empty();
-            assert_that!(package.indexes).has_length(1);
+            assert!(package.schemas.is_empty());
+            assert_eq!(package.indexes.len(), 1);
             let index = &package.indexes[0];
-            assert_that!(index.table.schema).is_none();
-            assert_that!(index.table.name).is_equal_to("person".to_owned());
-            assert_that!(index.columns).has_length(1);
+            assert!(index.table.schema.is_none());
+            assert_eq!(index.table.name, "person");
+            assert_eq!(index.columns.len(), 1);
             let col = &index.columns[0];
-            assert_that!(col.name).is_equal_to("name".to_owned());
-            assert_that!(col.order).is_none();
-            assert_that!(col.null_position).is_none();
+            assert_eq!(col.name, "name");
+            assert!(col.order.is_none());
+            assert!(col.null_position.is_none());
         }
 
         // Set the defaults and assert again
         package.set_defaults(&project);
-        assert_that!(package.schemas).has_length(1);
-        assert_that!(package.indexes).has_length(1);
+        assert_eq!(package.schemas.len(), 1);
+        assert_eq!(package.indexes.len(), 1);
         let schema = &package.schemas[0];
-        assert_that!(schema.name).is_equal_to("public".to_owned());
+        assert_eq!(schema.name, "public");
         let index = &package.indexes[0];
-        assert_that!(index.table.schema)
-            .is_some()
-            .is_equal_to("public".to_owned());
-        assert_that!(index.table.name).is_equal_to("person".to_owned());
-        assert_that!(index.columns).has_length(1);
+        assert!(index.table.schema.is_some());
+        assert_eq!(index.table.schema.as_ref().unwrap(), "public");
+        assert_eq!(index.table.name, "person");
+        assert_eq!(index.columns.len(), 1);
         let col = &index.columns[0];
-        assert_that!(col.name).is_equal_to("name".to_owned());
-        assert_that!(col.order)
-            .is_some()
-            .is_equal_to(ast::IndexOrder::Ascending);
-        assert_that!(col.null_position)
-            .is_some()
-            .is_equal_to(ast::IndexPosition::Last);
+        assert_eq!(col.name, "name");
+        assert!(col.order.is_some());
+        assert_eq!(col.order.as_ref().unwrap(), &ast::IndexOrder::Ascending);
+        assert!(col.null_position.is_some());
+        assert_eq!(col.null_position.as_ref().unwrap(), &ast::IndexPosition::Last);
     }
 
     #[test]
@@ -1252,8 +1247,9 @@ mod tests {
 
         // Make sure we generated two nodes.
         // We don't generate schema's so it's just going to be table/column
-        assert_that!(graph).is_ok().has_length(2);
+        assert!(graph.is_ok());
         let graph = graph.unwrap();
+        assert_eq!(graph.len(), 2);
         assert_table!(graph, 0, "my.parents");
         assert_column!(graph, 1, "my.parents", "id");
     }
@@ -1271,8 +1267,9 @@ mod tests {
         let graph = package.generate_dependency_graph(&logger);
 
         // Make sure we generated enough nodes (two tables + three columns + one constraint).
-        assert_that!(graph).is_ok().has_length(6);
+        assert!(graph.is_ok());
         let graph = graph.unwrap();
+        assert_eq!(graph.len(), 6);
         assert_table!(graph, 0, "my.parent");
         assert_column!(graph, 1, "my.parent", "id");
         assert_table!(graph, 2, "my.child");
@@ -1301,8 +1298,9 @@ mod tests {
         let graph = package.generate_dependency_graph(&logger);
 
         // Make sure we generated enough nodes (two tables + three columns + three constraints).
-        assert_that!(graph).is_ok().has_length(8);
+        assert!(graph.is_ok());
         let graph = graph.unwrap();
+        assert_eq!(graph.len(), 8);
         assert_table!(graph, 0, "public.transaction");
         assert_column!(graph, 1, "public.transaction", "id");
         assert_column!(graph, 2, "public.transaction", "allocation_id");
@@ -1320,23 +1318,23 @@ mod tests {
         let result = package.validate(&Vec::new());
 
         // `my` schema is missing
-        assert_that!(result).is_err();
+        assert!(result.is_err());
         let validation_errors = match result.err().unwrap() {
             PsqlpackError(ValidationError(errors), _) => errors,
             unexpected => panic!("Expected validation error however saw {:?}", unexpected),
         };
-        assert_that!(validation_errors).has_length(1);
+        assert_eq!(validation_errors.len(), 1);
         match validation_errors[0] {
             ValidationKind::SchemaMissing { ref schema, ref object } => {
-                assert_that!(*schema).is_equal_to("my".to_owned());
-                assert_that!(*object).is_equal_to("items".to_owned());
+                assert_eq!(schema, "my");
+                assert_eq!(object, "items");
             }
             ref unexpected => panic!("Unexpected validation type: {:?}", unexpected),
         }
 
         // Add the schema and try again
         package.schemas.push(ast::SchemaDefinition { name: "my".to_owned() });
-        assert_that!(package.validate(&Vec::new())).is_ok();
+        assert!(package.validate(&Vec::new()).is_ok());
     }
 
     #[test]
@@ -1350,19 +1348,22 @@ mod tests {
         let result = package.validate(&Vec::new());
 
         // `mytype` is missing
-        assert_that!(result).is_err();
+        assert!(result.is_err());
         let validation_errors = match result.err().unwrap() {
             PsqlpackError(ValidationError(errors), _) => errors,
             unexpected => panic!("Expected validation error however saw {:?}", unexpected),
         };
-        assert_that!(validation_errors).has_length(1);
+        assert_eq!(validation_errors.len(), 1);
         match validation_errors[0] {
             ValidationKind::UnknownType { ref ty, ref table } => {
-                assert_that!(*ty).is_equal_to(ast::ObjectName {
-                    schema: Some("public".to_string()),
-                    name: "mytype".to_string(),
-                });
-                assert_that!(*table).is_equal_to("my.items".to_owned());
+                assert_eq!(
+                    *ty,
+                    ast::ObjectName {
+                        schema: Some("public".to_string()),
+                        name: "mytype".to_string(),
+                    }
+                );
+                assert_eq!(table, "my.items");
             }
             ref unexpected => panic!("Unexpected validation type: {:?}", unexpected),
         }
@@ -1375,7 +1376,7 @@ mod tests {
             },
             kind: ast::TypeDefinitionKind::Enum(Vec::new()),
         });
-        assert_that!(package.validate(&Vec::new())).is_ok();
+        assert!(package.validate(&Vec::new()).is_ok());
     }
 
     #[test]
@@ -1390,19 +1391,19 @@ mod tests {
         let result = package.validate(&Vec::new());
 
         // `my.parent` does not exist
-        assert_that!(result).is_err();
+        assert!(result.is_err());
         let validation_errors = match result.err().unwrap() {
             PsqlpackError(ValidationError(errors), _) => errors,
             unexpected => panic!("Expected validation error however saw {:?}", unexpected),
         };
-        assert_that!(validation_errors).has_length(1);
+        assert_eq!(validation_errors.len(), 1);
         match validation_errors[0] {
             ValidationKind::TableConstraintInvalidReferenceTable {
                 ref constraint,
                 ref table,
             } => {
-                assert_that!(*constraint).is_equal_to("fk_parent_child".to_owned());
-                assert_that!(*table).is_equal_to("my.parent".to_owned());
+                assert_eq!(constraint, "fk_parent_child");
+                assert_eq!(table, "my.parent");
             }
             ref unexpected => panic!("Unexpected validation type: {:?}", unexpected),
         }
@@ -1420,7 +1421,7 @@ mod tests {
             }],
             constraints: Vec::new(),
         });
-        assert_that!(package.validate(&Vec::new())).is_ok();
+        assert!(package.validate(&Vec::new()).is_ok());
     }
 
     #[test]
@@ -1436,22 +1437,22 @@ mod tests {
         let result = package.validate(&Vec::new());
 
         // Column `parent_id` is invalid
-        assert_that!(result).is_err();
+        assert!(result.is_err());
         let validation_errors = match result.err().unwrap() {
             PsqlpackError(ValidationError(errors), _) => errors,
             unexpected => panic!("Expected validation error however saw {:?}", unexpected),
         };
-        assert_that!(validation_errors).has_length(1);
+        assert_eq!(validation_errors.len(), 1);
         match validation_errors[0] {
             ValidationKind::TableConstraintInvalidReferenceColumns {
                 ref constraint,
                 ref table,
                 ref columns,
             } => {
-                assert_that!(*constraint).is_equal_to("fk_parent_child".to_owned());
-                assert_that!(*table).is_equal_to("my.parent".to_owned());
-                assert_that!(*columns).has_length(1);
-                assert_that!(columns[0]).is_equal_to("parent_id".to_owned());
+                assert_eq!(constraint, "fk_parent_child");
+                assert_eq!(table, "my.parent");
+                assert_eq!(columns.len(), 1);
+                assert_eq!(columns[0], "parent_id");
             }
             ref unexpected => panic!("Unexpected validation type: {:?}", unexpected),
         }
@@ -1465,7 +1466,7 @@ mod tests {
                 constraints: Vec::new(),
             });
         }
-        assert_that!(package.validate(&Vec::new())).is_ok();
+        assert!(package.validate(&Vec::new()).is_ok());
     }
 
     #[test]
@@ -1481,20 +1482,20 @@ mod tests {
         let result = package.validate(&Vec::new());
 
         // Column `par_id` is invalid
-        assert_that!(result).is_err();
+        assert!(result.is_err());
         let validation_errors = match result.err().unwrap() {
             PsqlpackError(ValidationError(errors), _) => errors,
             unexpected => panic!("Expected validation error however saw {:?}", unexpected),
         };
-        assert_that!(validation_errors).has_length(1);
+        assert_eq!(validation_errors.len(), 1);
         match validation_errors[0] {
             ValidationKind::TableConstraintInvalidSourceColumns {
                 ref constraint,
                 ref columns,
             } => {
-                assert_that!(*constraint).is_equal_to("fk_parent_child".to_owned());
-                assert_that!(*columns).has_length(1);
-                assert_that!(columns[0]).is_equal_to("par_id".to_owned());
+                assert_eq!(constraint, "fk_parent_child");
+                assert_eq!(columns.len(), 1);
+                assert_eq!(columns[0], "par_id");
             }
             ref unexpected => panic!("Unexpected validation type: {:?}", unexpected),
         }
@@ -1508,7 +1509,7 @@ mod tests {
                 constraints: Vec::new(),
             });
         }
-        assert_that!(package.validate(&Vec::new())).is_ok();
+        assert!(package.validate(&Vec::new()).is_ok());
     }
 
     #[test]
@@ -1521,16 +1522,16 @@ mod tests {
         let result = package.validate(&Vec::new());
 
         // `my.company` does not exist
-        assert_that!(result).is_err();
+        assert!(result.is_err());
         let validation_errors = match result.err().unwrap() {
             PsqlpackError(ValidationError(errors), _) => errors,
             unexpected => panic!("Expected validation error however saw {:?}", unexpected),
         };
-        assert_that!(validation_errors).has_length(1);
+        assert_eq!(validation_errors.len(), 1);
         match validation_errors[0] {
             ValidationKind::IndexInvalidReferenceTable { ref index, ref table } => {
-                assert_that!(*index).is_equal_to("idx_company_name".to_owned());
-                assert_that!(*table).is_equal_to("my.company".to_owned());
+                assert_eq!(index, "idx_company_name");
+                assert_eq!(table, "my.company");
             }
             ref unexpected => panic!("Unexpected validation type: {:?}", unexpected),
         }
@@ -1555,7 +1556,7 @@ mod tests {
             ],
             constraints: Vec::new(),
         });
-        assert_that!(package.validate(&Vec::new())).is_ok();
+        assert!(package.validate(&Vec::new()).is_ok());
     }
 
     #[test]
@@ -1568,22 +1569,22 @@ mod tests {
         let result = package.validate(&Vec::new());
 
         // Column `person.number` is invalid
-        assert_that!(result).is_err();
+        assert!(result.is_err());
         let validation_errors = match result.err().unwrap() {
             PsqlpackError(ValidationError(errors), _) => errors,
             unexpected => panic!("Expected validation error however saw {:?}", unexpected),
         };
-        assert_that!(validation_errors).has_length(1);
+        assert_eq!(validation_errors.len(), 1);
         match validation_errors[0] {
             ValidationKind::IndexInvalidReferenceColumns {
                 ref index,
                 ref table,
                 ref columns,
             } => {
-                assert_that!(*index).is_equal_to("idx_person_number".to_owned());
-                assert_that!(*table).is_equal_to("my.person".to_owned());
-                assert_that!(*columns).has_length(1);
-                assert_that!(columns[0]).is_equal_to("number".to_owned());
+                assert_eq!(index, "idx_person_number");
+                assert_eq!(table, "my.person");
+                assert_eq!(columns.len(), 1);
+                assert_eq!(columns[0], "number");
             }
             ref unexpected => panic!("Unexpected validation type: {:?}", unexpected),
         }
@@ -1597,6 +1598,6 @@ mod tests {
                 constraints: Vec::new(),
             });
         }
-        assert_that!(package.validate(&Vec::new())).is_ok();
+        assert!(package.validate(&Vec::new()).is_ok());
     }
 }

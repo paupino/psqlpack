@@ -1418,7 +1418,6 @@ mod tests {
     use crate::Semver;
 
     use slog::{Discard, Drain, Logger};
-    use spectral::prelude::*;
 
     fn empty_logger() -> Logger {
         Logger::root(Discard.fuse(), o!())
@@ -1456,31 +1455,36 @@ mod tests {
             &publish_profile,
             &log,
         );
-        assert_that!(result).is_ok();
+        assert!(result.is_ok());
 
         // We should have a single instruction to add
-        assert_that!(change_set).has_length(1);
+        assert_eq!(change_set.len(), 1);
         match change_set[0] {
             ChangeInstruction::AddType(ref ty) => {
-                assert_that!(ty.name).is_equal_to(ast::ObjectName {
-                    schema: Some("public".to_string()),
-                    name: "colors".to_string(),
-                });
+                assert_eq!(
+                    ty.name,
+                    ast::ObjectName {
+                        schema: Some("public".to_string()),
+                        name: "colors".to_string(),
+                    }
+                );
                 let values = match ty.kind {
                     TypeDefinitionKind::Enum(ref values) => values.clone(),
                     ref unknown => panic!("Unknown kind: {}", unknown), // TODO
                 };
-                assert_that!(values).has_length(3);
-                assert_that!(values[0]).is_equal_to("red".to_owned());
-                assert_that!(values[1]).is_equal_to("green".to_owned());
-                assert_that!(values[2]).is_equal_to("blue".to_owned());
+                assert_eq!(values.len(), 3);
+                assert_eq!(values[0], "red");
+                assert_eq!(values[1], "green");
+                assert_eq!(values[2], "blue");
             }
             ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
         }
 
         // Check the SQL generation
-        assert_that!(change_set[0].to_sql(&log))
-            .is_equal_to("CREATE TYPE public.colors AS ENUM (\n  'red',\n  'green',\n  'blue'\n)".to_owned());
+        assert_eq!(
+            change_set[0].to_sql(&log),
+            "CREATE TYPE public.colors AS ENUM (\n  'red',\n  'green',\n  'blue'\n)"
+        );
     }
 
     #[test]
@@ -1506,10 +1510,10 @@ mod tests {
             &publish_profile,
             &log,
         );
-        assert_that!(result).is_ok();
+        assert!(result.is_ok());
 
         // We should have a single instruction to add
-        assert_that!(change_set).is_empty();
+        assert!(change_set.is_empty());
     }
 
     #[test]
@@ -1546,22 +1550,25 @@ mod tests {
             &publish_profile,
             &log,
         );
-        assert_that!(result).is_ok();
+        assert!(result.is_ok());
 
         // We should have a single instruction to modify the enum with an additional value
-        assert_that!(change_set).has_length(1);
+        assert_eq!(change_set.len(), 1);
         match change_set[0] {
             ChangeInstruction::ModifyType(ty, ref action) => {
-                assert_that!(ty.name).is_equal_to(ast::ObjectName {
-                    schema: Some("public".to_string()),
-                    name: "colors".to_string(),
-                });
+                assert_eq!(
+                    ty.name,
+                    ast::ObjectName {
+                        schema: Some("public".to_string()),
+                        name: "colors".to_string(),
+                    }
+                );
 
                 // Also, match the action
                 match *action {
                     TypeModificationAction::AddEnumValueAfter { ref value, ref after } => {
-                        assert_that!(*value).is_equal_to("black".to_owned());
-                        assert_that!(*after).is_equal_to("blue".to_owned());
+                        assert_eq!(*value, "black");
+                        assert_eq!(*after, "blue");
                     }
                     ref unexpected => panic!("Unexpected enum modification action: {:?}", unexpected),
                 }
@@ -1570,8 +1577,10 @@ mod tests {
         }
 
         // Check the SQL generation
-        assert_that!(change_set[0].to_sql(&log))
-            .is_equal_to("ALTER TYPE public.colors ADD VALUE 'black' AFTER 'blue'".to_owned());
+        assert_eq!(
+            change_set[0].to_sql(&log),
+            "ALTER TYPE public.colors ADD VALUE 'black' AFTER 'blue'"
+        );
     }
 
     #[test]
@@ -1608,22 +1617,25 @@ mod tests {
             &publish_profile,
             &log,
         );
-        assert_that!(result).is_ok();
+        assert!(result.is_ok());
 
         // We should have a single instruction to modify the enum with an additional value
-        assert_that!(change_set).has_length(1);
+        assert_eq!(change_set.len(), 1);
         match change_set[0] {
             ChangeInstruction::ModifyType(ty, ref action) => {
-                assert_that!(ty.name).is_equal_to(ast::ObjectName {
-                    schema: Some("public".to_string()),
-                    name: "colors".to_string(),
-                });
+                assert_eq!(
+                    ty.name,
+                    ast::ObjectName {
+                        schema: Some("public".to_string()),
+                        name: "colors".to_string(),
+                    }
+                );
 
                 // Also, match the action
                 match *action {
                     TypeModificationAction::AddEnumValueBefore { ref value, ref before } => {
-                        assert_that!(*value).is_equal_to("black".to_owned());
-                        assert_that!(*before).is_equal_to("red".to_owned());
+                        assert_eq!(*value, "black");
+                        assert_eq!(*before, "red");
                     }
                     ref unexpected => panic!("Unexpected enum modification action: {:?}", unexpected),
                 }
@@ -1632,8 +1644,10 @@ mod tests {
         }
 
         // Check the SQL generation
-        assert_that!(change_set[0].to_sql(&log))
-            .is_equal_to("ALTER TYPE public.colors ADD VALUE 'black' BEFORE 'red'".to_owned());
+        assert_eq!(
+            change_set[0].to_sql(&log),
+            "ALTER TYPE public.colors ADD VALUE 'black' BEFORE 'red'"
+        );
     }
 
     #[test]
@@ -1670,22 +1684,25 @@ mod tests {
             &publish_profile,
             &log,
         );
-        assert_that!(result).is_ok();
+        assert!(result.is_ok());
 
         // We should have a single instruction to modify the enum with an additional value
-        assert_that!(change_set).has_length(1);
+        assert_eq!(change_set.len(), 1);
         match change_set[0] {
             ChangeInstruction::ModifyType(ty, ref action) => {
-                assert_that!(ty.name).is_equal_to(ast::ObjectName {
-                    schema: Some("public".to_string()),
-                    name: "colors".to_string(),
-                });
+                assert_eq!(
+                    ty.name,
+                    ast::ObjectName {
+                        schema: Some("public".to_string()),
+                        name: "colors".to_string(),
+                    }
+                );
 
                 // Also, match the action
                 match *action {
                     TypeModificationAction::AddEnumValueAfter { ref value, ref after } => {
-                        assert_that!(*value).is_equal_to("black".to_owned());
-                        assert_that!(*after).is_equal_to("green".to_owned());
+                        assert_eq!(*value, "black");
+                        assert_eq!(*after, "green");
                     }
                     ref unexpected => panic!("Unexpected enum modification action: {:?}", unexpected),
                 }
@@ -1694,8 +1711,10 @@ mod tests {
         }
 
         // Check the SQL generation
-        assert_that!(change_set[0].to_sql(&log))
-            .is_equal_to("ALTER TYPE public.colors ADD VALUE 'black' AFTER 'green'".to_owned());
+        assert_eq!(
+            change_set[0].to_sql(&log),
+            "ALTER TYPE public.colors ADD VALUE 'black' AFTER 'green'"
+        );
     }
 
     #[test]
@@ -1728,23 +1747,26 @@ mod tests {
             &publish_profile,
             &log,
         );
-        assert_that!(result).is_ok();
+        assert!(result.is_ok());
 
         // We should have a single instruction to modify the enum with an additional value
-        assert_that!(change_set).has_length(2);
+        assert_eq!(change_set.len(), 2);
 
         // Removals first
         match change_set[0] {
             ChangeInstruction::ModifyType(ty, ref action) => {
-                assert_that!(ty.name).is_equal_to(ast::ObjectName {
-                    schema: Some("public".to_string()),
-                    name: "colors".to_string(),
-                });
+                assert_eq!(
+                    ty.name,
+                    ast::ObjectName {
+                        schema: Some("public".to_string()),
+                        name: "colors".to_string(),
+                    }
+                );
 
                 // Also, match the action
                 match *action {
                     TypeModificationAction::RemoveEnumValue { ref value } => {
-                        assert_that!(*value).is_equal_to("red".to_owned());
+                        assert_eq!(*value, "red");
                     }
                     ref unexpected => panic!("Unexpected enum modification action: {:?}", unexpected),
                 }
@@ -1752,26 +1774,29 @@ mod tests {
             ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
         }
         // Check the SQL generation
-        assert_that!(change_set[0].to_sql(&log)).is_equal_to(
+        assert_eq!(
+            change_set[0].to_sql(&log),
             "DELETE FROM pg_enum \
              WHERE enumlabel='red' AND \
-             enumtypid=(SELECT oid FROM pg_type WHERE nspname='public' AND typname='colors')"
-                .to_owned(),
+             enumtypid=(SELECT oid FROM pg_type WHERE nspname='public' AND typname='colors')",
         );
 
         // Additions second
         match change_set[1] {
             ChangeInstruction::ModifyType(ty, ref action) => {
-                assert_that!(ty.name).is_equal_to(ast::ObjectName {
-                    schema: Some("public".to_string()),
-                    name: "colors".to_string(),
-                });
+                assert_eq!(
+                    ty.name,
+                    ast::ObjectName {
+                        schema: Some("public".to_string()),
+                        name: "colors".to_string(),
+                    }
+                );
 
                 // Also, match the action
                 match *action {
                     TypeModificationAction::AddEnumValueBefore { ref value, ref before } => {
-                        assert_that!(*value).is_equal_to("black".to_owned());
-                        assert_that!(*before).is_equal_to("green".to_owned());
+                        assert_eq!(value, "black");
+                        assert_eq!(before, "green");
                     }
                     ref unexpected => panic!("Unexpected enum modification action: {:?}", unexpected),
                 }
@@ -1779,8 +1804,10 @@ mod tests {
             ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
         }
         // Check the SQL generation
-        assert_that!(change_set[1].to_sql(&log))
-            .is_equal_to("ALTER TYPE public.colors ADD VALUE 'black' BEFORE 'green'".to_owned());
+        assert_eq!(
+            change_set[1].to_sql(&log),
+            "ALTER TYPE public.colors ADD VALUE 'black' BEFORE 'green'"
+        );
     }
 
     #[test]
@@ -1812,7 +1839,7 @@ mod tests {
             &publish_profile,
             &log,
         );
-        assert_that!(result).is_err();
+        assert!(result.is_err());
         match result.err().unwrap() {
             PsqlpackError(PublishUnsafeOperationError(_), _) => {}
             unexpected => panic!("Expected unsafe operation error however saw {:?}", unexpected),
@@ -1849,23 +1876,26 @@ mod tests {
             &publish_profile,
             &log,
         );
-        assert_that!(result).is_ok();
+        assert!(result.is_ok());
 
         // We should have a single instruction to modify the enum with an additional value
-        assert_that!(change_set).has_length(1);
+        assert_eq!(change_set.len(), 1);
 
         // Removals first
         match change_set[0] {
             ChangeInstruction::ModifyType(ty, ref action) => {
-                assert_that!(ty.name).is_equal_to(ast::ObjectName {
-                    schema: Some("public".to_string()),
-                    name: "colors".to_string(),
-                });
+                assert_eq!(
+                    ty.name,
+                    ast::ObjectName {
+                        schema: Some("public".to_string()),
+                        name: "colors".to_string(),
+                    }
+                );
 
                 // Also, match the action
                 match *action {
                     TypeModificationAction::RemoveEnumValue { ref value } => {
-                        assert_that!(*value).is_equal_to("red".to_owned());
+                        assert_eq!(*value, "red");
                     }
                     ref unexpected => panic!("Unexpected enum modification action: {:?}", unexpected),
                 }
@@ -1873,11 +1903,11 @@ mod tests {
             ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
         }
         // Check the SQL generation
-        assert_that!(change_set[0].to_sql(&log)).is_equal_to(
+        assert_eq!(
+            change_set[0].to_sql(&log),
             "DELETE FROM pg_enum \
              WHERE enumlabel='red' AND \
-             enumtypid=(SELECT oid FROM pg_type WHERE nspname='public' AND typname='colors')"
-                .to_owned(),
+             enumtypid=(SELECT oid FROM pg_type WHERE nspname='public' AND typname='colors')",
         );
     }
 
@@ -1930,30 +1960,30 @@ mod tests {
             &publish_profile,
             &log,
         );
-        assert_that!(result).is_ok();
+        assert!(result.is_ok());
 
         // We should have a single instruction to create a new table
-        assert_that!(change_set).has_length(1);
+        assert_eq!(change_set.len(), 1);
         match change_set[0] {
             ChangeInstruction::AddTable(ref table) => {
-                assert_that!(table.name.to_string()).is_equal_to("my.contacts".to_owned());
-                assert_that!(table.columns).has_length(3);
-                assert_that!(table.columns[0].name).is_equal_to("id".to_owned());
-                assert_that!(table.columns[1].name).is_equal_to("company_id".to_owned());
-                assert_that!(table.columns[2].name).is_equal_to("first_name".to_owned());
-                assert_that!(table.constraints).is_empty();
+                assert_eq!(table.name.to_string(), "my.contacts");
+                assert_eq!(table.columns.len(), 3);
+                assert_eq!(table.columns[0].name, "id");
+                assert_eq!(table.columns[1].name, "company_id");
+                assert_eq!(table.columns[2].name, "first_name");
+                assert!(table.constraints.is_empty());
             }
             ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
         }
 
         // Check the SQL generation
-        assert_that!(change_set[0].to_sql(&log)).is_equal_to(
+        assert_eq!(
+            change_set[0].to_sql(&log),
             "CREATE TABLE my.contacts (\n\
              \tid serial NOT NULL PRIMARY KEY,\n\
              \tcompany_id bigint NOT NULL,\n\
              \tfirst_name varchar(100) NOT NULL\n\
              )"
-            .to_owned(),
         );
     }
 
@@ -1986,7 +2016,7 @@ mod tests {
             &publish_profile,
             &log,
         );
-        assert_that!(change_set).is_empty();
+        assert!(change_set.is_empty());
 
         // Now we check with a linked column
         let result = LinkedColumn {
@@ -2000,24 +2030,28 @@ mod tests {
             &publish_profile,
             &log,
         );
-        assert_that!(result).is_ok();
+        assert!(result.is_ok());
 
         // We should have a single instruction to create a new table
-        assert_that!(change_set).has_length(1);
+        assert_eq!(change_set.len(), 1);
         match change_set[0] {
             ChangeInstruction::AddColumn(ref table, ref column) => {
-                assert_that!(table.name.to_string()).is_equal_to("my.contacts".to_owned());
-                assert_that!(column.name).is_equal_to("last_name".to_owned());
-                assert_that!(column.sql_type)
-                    .is_equal_to(SqlType::Simple(SimpleSqlType::VariableLengthString(100), None));
-                assert_that!(column.constraints).has_length(1);
+                assert_eq!(table.name.to_string(), "my.contacts");
+                assert_eq!(column.name, "last_name");
+                assert_eq!(
+                    column.sql_type,
+                    SqlType::Simple(SimpleSqlType::VariableLengthString(100), None)
+                );
+                assert_eq!(column.constraints.len(), 1);
             }
             ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
         }
 
         // Check the SQL generation
-        assert_that!(change_set[0].to_sql(&log))
-            .is_equal_to("ALTER TABLE my.contacts ADD COLUMN last_name varchar(100) NOT NULL".to_owned());
+        assert_eq!(
+            change_set[0].to_sql(&log),
+            "ALTER TABLE my.contacts ADD COLUMN last_name varchar(100) NOT NULL"
+        );
     }
 
     #[test]
@@ -2056,7 +2090,7 @@ mod tests {
             &publish_profile,
             &log,
         );
-        assert_that!(change_set).is_empty();
+        assert!(change_set.is_empty());
 
         // Now we check with a linked column
         let result = LinkedColumn {
@@ -2070,24 +2104,28 @@ mod tests {
             &publish_profile,
             &log,
         );
-        assert_that!(result).is_ok();
+        assert!(result.is_ok());
 
         // We should have a single instruction to create a new table
-        assert_that!(change_set).has_length(1);
+        assert_eq!(change_set.len(), 1);
         match change_set[0] {
             ChangeInstruction::ModifyColumnType(ref table, ref column) => {
-                assert_that!(table.name.to_string()).is_equal_to("my.contacts".to_owned());
-                assert_that!(column.name).is_equal_to("last_name".to_owned());
-                assert_that!(column.sql_type)
-                    .is_equal_to(SqlType::Simple(SimpleSqlType::VariableLengthString(200), None));
-                assert_that!(column.constraints).has_length(1);
+                assert_eq!(table.name.to_string(), "my.contacts");
+                assert_eq!(column.name, "last_name");
+                assert_eq!(
+                    column.sql_type,
+                    SqlType::Simple(SimpleSqlType::VariableLengthString(200), None)
+                );
+                assert_eq!(column.constraints.len(), 1);
             }
             ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
         }
 
         // Check the SQL generation
-        assert_that!(change_set[0].to_sql(&log))
-            .is_equal_to("ALTER TABLE my.contacts ALTER COLUMN last_name TYPE varchar(200)".to_owned());
+        assert_eq!(
+            change_set[0].to_sql(&log),
+            "ALTER TABLE my.contacts ALTER COLUMN last_name TYPE varchar(200)"
+        );
     }
 
     #[test]
@@ -2121,21 +2159,23 @@ mod tests {
             &publish_profile,
             &log,
         );
-        assert_that!(result).is_ok();
+        assert!(result.is_ok());
 
         // We should have a single instruction to create a new table
-        assert_that!(change_set).has_length(1);
+        assert_eq!(change_set.len(), 1);
         match change_set[0] {
             ChangeInstruction::DropColumn(ref table, ref column_name) => {
-                assert_that!(table.name.to_string()).is_equal_to("my.contacts".to_owned());
-                assert_that!(*column_name).is_equal_to("last_name".to_owned());
+                assert_eq!(table.name.to_string(), "my.contacts");
+                assert_eq!(column_name, "last_name");
             }
             ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
         }
 
         // Check the SQL generation
-        assert_that!(change_set[0].to_sql(&log))
-            .is_equal_to("ALTER TABLE my.contacts DROP COLUMN last_name".to_owned());
+        assert_eq!(
+            change_set[0].to_sql(&log),
+            "ALTER TABLE my.contacts DROP COLUMN last_name"
+        );
     }
 
     #[test]
@@ -2167,7 +2207,7 @@ mod tests {
             &publish_profile,
             &log,
         );
-        assert_that!(change_set).is_empty();
+        assert!(change_set.is_empty());
 
         // Now we check with a linked table constraint
         let result = LinkedTableConstraint {
@@ -2181,34 +2221,35 @@ mod tests {
             &publish_profile,
             &log,
         );
-        assert_that!(result).is_ok();
+        assert!(result.is_ok());
 
         // We should have a single instruction to add a constraint
-        assert_that!(change_set).has_length(1);
+        assert_eq!(change_set.len(), 1);
         match change_set[0] {
             ChangeInstruction::AddConstraint(ref table, ref constraint) => {
-                assert_that!(table.name.to_string()).is_equal_to("my.contacts".to_owned());
+                assert_eq!(table.name.to_string(), "my.contacts");
                 match *constraint {
                     TableConstraint::Primary {
                         name,
                         columns,
                         parameters,
                     } => {
-                        assert_that!(*name).is_equal_to("pk_my_contacts_id".to_owned());
-                        assert_that!(*columns).has_length(1);
-                        assert_that!(columns.iter()).contains("id".to_owned());
-                        assert_that!(*parameters).is_some().has_length(1);
+                        assert_eq!(name, "pk_my_contacts_id");
+                        assert_eq!(columns.len(), 1);
+                        assert!(columns.contains(&"id".to_owned()));
+                        assert!(parameters.is_some());
+                        assert_eq!(parameters.as_ref().unwrap().len(), 1);
                     }
-                    unxpected => panic!("Unexpected constraint: {:?}", unxpected),
+                    unexpected => panic!("Unexpected constraint: {:?}", unexpected),
                 }
             }
             ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
         }
 
         // Check the SQL generation
-        assert_that!(change_set[0].to_sql(&log)).is_equal_to(
+        assert_eq!(
+            change_set[0].to_sql(&log),
             "ALTER TABLE my.contacts\nADD CONSTRAINT pk_my_contacts_id PRIMARY KEY (id) WITH (FILLFACTOR=80)"
-                .to_owned(),
         );
     }
 
@@ -2243,21 +2284,23 @@ mod tests {
             &publish_profile,
             &log,
         );
-        assert_that!(result).is_ok();
+        assert!(result.is_ok());
 
         // We should have a single instruction to remove the constraint
-        assert_that!(change_set).has_length(1);
+        assert_eq!(change_set.len(), 1);
         match change_set[0] {
             ChangeInstruction::DropConstraint(ref table, ref name) => {
-                assert_that!(table.name.to_string()).is_equal_to("my.contacts".to_owned());
-                assert_that!(*name).is_equal_to("pk_my_contacts_id".to_owned());
+                assert_eq!(table.name.to_string(), "my.contacts");
+                assert_eq!(name, "pk_my_contacts_id");
             }
             ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
         }
 
         // Check the SQL generation
-        assert_that!(change_set[0].to_sql(&log))
-            .is_equal_to("ALTER TABLE my.contacts\nDROP CONSTRAINT pk_my_contacts_id".to_owned());
+        assert_eq!(
+            change_set[0].to_sql(&log),
+            "ALTER TABLE my.contacts\nDROP CONSTRAINT pk_my_contacts_id"
+        );
     }
 
     #[test]
@@ -2296,7 +2339,7 @@ mod tests {
             &publish_profile,
             &log,
         );
-        assert_that!(change_set).is_empty();
+        assert!(change_set.is_empty());
 
         // Now we check with a linked table constraint
         let result = LinkedTableConstraint {
@@ -2310,43 +2353,46 @@ mod tests {
             &publish_profile,
             &log,
         );
-        assert_that!(result).is_ok();
+        assert!(result.is_ok());
 
         // Primary keys cannot be altered, so we drop/create
-        assert_that!(change_set).has_length(2);
+        assert_eq!(change_set.len(), 2);
         match change_set[0] {
             ChangeInstruction::DropConstraint(ref table, ref name) => {
-                assert_that!(table.name.to_string()).is_equal_to("my.contacts".to_owned());
-                assert_that!(*name).is_equal_to("pk_my_contacts_id".to_owned());
+                assert_eq!(table.name.to_string(), "my.contacts");
+                assert_eq!(name, "pk_my_contacts_id");
             }
             ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
         }
         match change_set[1] {
             ChangeInstruction::AddConstraint(ref table, ref constraint) => {
-                assert_that!(table.name.to_string()).is_equal_to("my.contacts".to_owned());
+                assert_eq!(table.name.to_string(), "my.contacts");
                 match *constraint {
                     TableConstraint::Primary {
                         name,
                         columns,
                         parameters,
                     } => {
-                        assert_that!(*name).is_equal_to("pk_my_contacts_id".to_owned());
-                        assert_that!(*columns).has_length(1);
-                        assert_that!(columns.iter()).contains("id".to_owned());
-                        assert_that!(*parameters).is_some().has_length(1);
+                        assert_eq!(name, "pk_my_contacts_id");
+                        assert_eq!(columns.len(), 1);
+                        assert!(columns.contains(&"id".to_owned()));
+                        assert!(parameters.is_some());
+                        assert_eq!(parameters.as_ref().unwrap().len(), 1);
                     }
-                    unxpected => panic!("Unexpected constraint: {:?}", unxpected),
+                    unexpected => panic!("Unexpected constraint: {:?}", unexpected),
                 }
             }
             ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
         }
 
         // Check the SQL generation
-        assert_that!(change_set[0].to_sql(&log))
-            .is_equal_to("ALTER TABLE my.contacts\nDROP CONSTRAINT pk_my_contacts_id".to_owned());
-        assert_that!(change_set[1].to_sql(&log)).is_equal_to(
+        assert_eq!(
+            change_set[0].to_sql(&log),
+            "ALTER TABLE my.contacts\nDROP CONSTRAINT pk_my_contacts_id"
+        );
+        assert_eq!(
+            change_set[1].to_sql(&log),
             "ALTER TABLE my.contacts\nADD CONSTRAINT pk_my_contacts_id PRIMARY KEY (id) WITH (FILLFACTOR=80)"
-                .to_owned(),
         );
     }
 
@@ -2388,7 +2434,7 @@ mod tests {
             &publish_profile,
             &log,
         );
-        assert_that!(change_set).is_empty();
+        assert!(change_set.is_empty());
 
         // Now we check with a linked table constraint
         let result = LinkedTableConstraint {
@@ -2402,13 +2448,13 @@ mod tests {
             &publish_profile,
             &log,
         );
-        assert_that!(result).is_ok();
+        assert!(result.is_ok());
 
         // We should have a single instruction to create a new constraint
-        assert_that!(change_set).has_length(1);
+        assert_eq!(change_set.len(), 1);
         match change_set[0] {
             ChangeInstruction::AddConstraint(ref table, ref constraint) => {
-                assert_that!(table.name.to_string()).is_equal_to("my.contacts".to_owned());
+                assert_eq!(table.name.to_string(), "my.contacts");
                 match *constraint {
                     TableConstraint::Foreign {
                         name,
@@ -2418,29 +2464,29 @@ mod tests {
                         match_type,
                         events,
                     } => {
-                        assert_that!(*name).is_equal_to("fk_my_contacts_my_companies".to_owned());
-                        assert_that!(*columns).has_length(1);
-                        assert_that!(columns.iter()).contains("company_id".to_owned());
-                        assert_that!(ref_table.to_string()).is_equal_to("my.companies".to_owned());
-                        assert_that!(*ref_columns).has_length(1);
-                        assert_that!(ref_columns.iter()).contains("id".to_owned());
-                        assert_that!(*match_type)
-                            .is_some()
-                            .is_equal_to(ForeignConstraintMatchType::Simple);
-                        assert_that!(*events).is_some().has_length(2); // We test this further below
+                        assert_eq!(name, "fk_my_contacts_my_companies");
+                        assert_eq!(columns.len(), 1);
+                        assert!(columns.contains(&"company_id".to_owned()));
+                        assert_eq!(ref_table.to_string(), "my.companies");
+                        assert_eq!(ref_columns.len(), 1);
+                        assert!(ref_columns.contains(&"id".to_owned()));
+                        assert!(match_type.is_some());
+                        assert_eq!(match_type.as_ref().unwrap(), &ForeignConstraintMatchType::Simple);
+                        assert!(events.is_some());
+                        assert_eq!(events.as_ref().unwrap().len(), 2); // We test this further below
                     }
-                    unxpected => panic!("Unexpected constraint: {:?}", unxpected),
+                    unexpected => panic!("Unexpected constraint: {:?}", unexpected),
                 }
             }
             ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
         }
 
         // Check the SQL generation
-        assert_that!(change_set[0].to_sql(&log)).is_equal_to(
+        assert_eq!(
+            change_set[0].to_sql(&log),
             "ALTER TABLE my.contacts\n\
              ADD CONSTRAINT fk_my_contacts_my_companies FOREIGN KEY (company_id) \
              REFERENCES my.companies (id) MATCH SIMPLE ON UPDATE CASCADE ON DELETE NO ACTION"
-                .to_owned(),
         );
     }
 
@@ -2484,21 +2530,23 @@ mod tests {
             &publish_profile,
             &log,
         );
-        assert_that!(result).is_ok();
+        assert!(result.is_ok());
 
         // We should have a single instruction to remove a constraint
-        assert_that!(change_set).has_length(1);
+        assert_eq!(change_set.len(), 1);
         match change_set[0] {
             ChangeInstruction::DropConstraint(ref table, ref name) => {
-                assert_that!(table.name.to_string()).is_equal_to("my.contacts".to_owned());
-                assert_that!(*name).is_equal_to("fk_my_contacts_my_companies".to_owned());
+                assert_eq!(table.name.to_string(), "my.contacts");
+                assert_eq!(name, "fk_my_contacts_my_companies");
             }
             ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
         }
 
         // Check the SQL generation
-        assert_that!(change_set[0].to_sql(&log))
-            .is_equal_to("ALTER TABLE my.contacts\nDROP CONSTRAINT fk_my_contacts_my_companies".to_owned());
+        assert_eq!(
+            change_set[0].to_sql(&log),
+            "ALTER TABLE my.contacts\nDROP CONSTRAINT fk_my_contacts_my_companies"
+        );
     }
 
     #[test]
@@ -2555,7 +2603,7 @@ mod tests {
             &publish_profile,
             &log,
         );
-        assert_that!(change_set).is_empty();
+        assert!(change_set.is_empty());
 
         // Now we check with a linked table constraint
         let result = LinkedTableConstraint {
@@ -2569,20 +2617,20 @@ mod tests {
             &publish_profile,
             &log,
         );
-        assert_that!(result).is_ok();
+        assert!(result.is_ok());
 
         // Primary keys cannot be altered, so we drop/create
-        assert_that!(change_set).has_length(2);
+        assert_eq!(change_set.len(), 2);
         match change_set[0] {
             ChangeInstruction::DropConstraint(ref table, ref name) => {
-                assert_that!(table.name.to_string()).is_equal_to("my.contacts".to_owned());
-                assert_that!(*name).is_equal_to("fk_my_contacts_my_companies".to_owned());
+                assert_eq!(table.name.to_string(), "my.contacts");
+                assert_eq!(name, "fk_my_contacts_my_companies");
             }
             ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
         }
         match change_set[1] {
             ChangeInstruction::AddConstraint(ref table, ref constraint) => {
-                assert_that!(table.name.to_string()).is_equal_to("my.contacts".to_owned());
+                assert_eq!(table.name.to_string(), "my.contacts");
                 match *constraint {
                     TableConstraint::Foreign {
                         name,
@@ -2592,31 +2640,33 @@ mod tests {
                         match_type,
                         events,
                     } => {
-                        assert_that!(*name).is_equal_to("fk_my_contacts_my_companies".to_owned());
-                        assert_that!(*columns).has_length(1);
-                        assert_that!(columns.iter()).contains("company_id".to_owned());
-                        assert_that!(ref_table.to_string()).is_equal_to("my.companies".to_owned());
-                        assert_that!(*ref_columns).has_length(1);
-                        assert_that!(ref_columns.iter()).contains("id".to_owned());
-                        assert_that!(*match_type)
-                            .is_some()
-                            .is_equal_to(ForeignConstraintMatchType::Simple);
-                        assert_that!(*events).is_some().has_length(2); // We test this further below
+                        assert_eq!(*name, "fk_my_contacts_my_companies");
+                        assert_eq!(columns.len(), 1);
+                        assert!(columns.contains(&"company_id".to_owned()));
+                        assert_eq!(ref_table.to_string(), "my.companies");
+                        assert_eq!(ref_columns.len(), 1);
+                        assert!(ref_columns.contains(&"id".to_owned()));
+                        assert!(match_type.is_some());
+                        assert_eq!(match_type.as_ref().unwrap(), &ForeignConstraintMatchType::Simple);
+                        assert!(events.is_some());
+                        assert_eq!(events.as_ref().unwrap().len(), 2); // We test this further below
                     }
-                    unxpected => panic!("Unexpected constraint: {:?}", unxpected),
+                    unexpected => panic!("Unexpected constraint: {:?}", unexpected),
                 }
             }
             ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
         }
 
         // Check the SQL generation
-        assert_that!(change_set[0].to_sql(&log))
-            .is_equal_to("ALTER TABLE my.contacts\nDROP CONSTRAINT fk_my_contacts_my_companies".to_owned());
-        assert_that!(change_set[1].to_sql(&log)).is_equal_to(
+        assert_eq!(
+            change_set[0].to_sql(&log),
+            "ALTER TABLE my.contacts\nDROP CONSTRAINT fk_my_contacts_my_companies"
+        );
+        assert_eq!(
+            change_set[1].to_sql(&log),
             "ALTER TABLE my.contacts\n\
              ADD CONSTRAINT fk_my_contacts_my_companies FOREIGN KEY (company_id) \
              REFERENCES my.companies (id) MATCH SIMPLE ON UPDATE NO ACTION ON DELETE NO ACTION"
-                .to_owned(),
         );
     }
 
@@ -2656,24 +2706,24 @@ mod tests {
             &publish_profile,
             &log,
         );
-        assert_that!(result).is_ok();
+        assert!(result.is_ok());
 
         // We should have a single instruction to create a new index
-        assert_that!(change_set).has_length(1);
+        assert_eq!(change_set.len(), 1);
         match change_set[0] {
             ChangeInstruction::AddIndex(ref index, concurrently) => {
-                assert_that!(index.name).is_equal_to("idx_contacts_first_name".to_owned());
-                assert_that!(index.table.to_string()).is_equal_to("public.contacts".to_owned());
-                assert_that!(concurrently).is_true();
+                assert_eq!(index.name, "idx_contacts_first_name");
+                assert_eq!(index.table.to_string(), "public.contacts");
+                assert!(concurrently);
             }
             ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
         }
 
         // Check the SQL generation
-        assert_that!(change_set[0].to_sql(&log)).is_equal_to(
+        assert_eq!(
+            change_set[0].to_sql(&log),
             "CREATE UNIQUE INDEX CONCURRENTLY idx_contacts_first_name \
              ON public.contacts USING btree (first_name ASC NULLS LAST)"
-                .to_owned(),
         );
     }
 
@@ -2719,7 +2769,7 @@ mod tests {
             &capabilities,
             &publish_profile,
         );
-        assert_that!(result).is_err();
+        assert!(result.is_err());
         // Now run it again - it should be ok now
         let capabilities = Capabilities {
             server_version: Semver::new(9, 6, None),
@@ -2736,24 +2786,26 @@ mod tests {
             &capabilities,
             &publish_profile,
         );
-        assert_that!(result).is_ok();
+        assert!(result.is_ok());
         let change_set = match result.unwrap() {
             Delta(c) => c,
         };
 
         // We should have a single instruction to remove an index (first will be use database)
-        assert_that!(change_set).has_length(2);
+        assert_eq!(change_set.len(), 2);
         match change_set[1] {
             ChangeInstruction::DropIndex(ref index, concurrently) => {
-                assert_that!(*index).is_equal_to("public.idx_contacts_first_name".to_owned());
-                assert_that!(concurrently).is_true();
+                assert_eq!(*index, "public.idx_contacts_first_name");
+                assert!(concurrently);
             }
             ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
         }
 
         // Check the SQL generation
-        assert_that!(change_set[1].to_sql(&log))
-            .is_equal_to("DROP INDEX CONCURRENTLY IF EXISTS public.idx_contacts_first_name".to_owned());
+        assert_eq!(
+            change_set[1].to_sql(&log),
+            "DROP INDEX CONCURRENTLY IF EXISTS public.idx_contacts_first_name"
+        );
     }
 
     #[test]
@@ -2814,33 +2866,35 @@ mod tests {
             &publish_profile,
             &log,
         );
-        assert_that!(result).is_ok();
+        assert!(result.is_ok());
 
         // We should have two instructions to drop/create a new index
-        assert_that!(change_set).has_length(2);
+        assert_eq!(change_set.len(), 2);
         match change_set[0] {
             ChangeInstruction::DropIndex(ref index_name, concurrently) => {
-                assert_that!(*index_name).is_equal_to("public.idx_contacts_name".to_owned());
-                assert_that!(concurrently).is_true();
+                assert_eq!(*index_name, "public.idx_contacts_name");
+                assert!(concurrently);
             }
             ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
         }
         match change_set[1] {
             ChangeInstruction::AddIndex(ref index, concurrently) => {
-                assert_that!(index.name).is_equal_to("idx_contacts_name".to_owned());
-                assert_that!(index.table.to_string()).is_equal_to("public.contacts".to_owned());
-                assert_that!(concurrently).is_true();
+                assert_eq!(index.name, "idx_contacts_name");
+                assert_eq!(index.table.to_string(), "public.contacts");
+                assert!(concurrently);
             }
             ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
         }
 
         // Check the SQL generation
-        assert_that!(change_set[0].to_sql(&log))
-            .is_equal_to("DROP INDEX CONCURRENTLY IF EXISTS public.idx_contacts_name".to_owned());
-        assert_that!(change_set[1].to_sql(&log)).is_equal_to(
+        assert_eq!(
+            change_set[0].to_sql(&log),
+            "DROP INDEX CONCURRENTLY IF EXISTS public.idx_contacts_name"
+        );
+        assert_eq!(
+            change_set[1].to_sql(&log),
             "CREATE INDEX CONCURRENTLY idx_contacts_name \
              ON public.contacts USING btree (first_name ASC NULLS LAST, last_name DESC NULLS FIRST)"
-                .to_owned(),
         );
     }
 
@@ -2873,20 +2927,22 @@ mod tests {
             &publish_profile,
             &log,
         );
-        assert_that!(result).is_ok();
+        assert!(result.is_ok());
 
         // We should have one instruction to create an extension
-        assert_that!(change_set).has_length(1);
+        assert_eq!(change_set.len(), 1);
         match change_set[0] {
             ChangeInstruction::CreateExtension(ref name, ref _version) => {
-                assert_that!(name).is_equal_to(&"postgis".to_owned());
+                assert_eq!(name, "postgis");
             }
             ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
         }
 
         // Check the SQL generation
-        assert_that!(change_set[0].to_sql(&log))
-            .is_equal_to("CREATE EXTENSION IF NOT EXISTS \"postgis\" WITH VERSION \"2.3.7\"".to_owned());
+        assert_eq!(
+            change_set[0].to_sql(&log),
+            "CREATE EXTENSION IF NOT EXISTS \"postgis\" WITH VERSION \"2.3.7\""
+        );
     }
 
     #[test]
@@ -2918,19 +2974,19 @@ mod tests {
             &publish_profile,
             &log,
         );
-        assert_that!(result).is_ok();
+        assert!(result.is_ok());
 
         // We should have one instruction to create an extension
-        assert_that!(change_set).has_length(1);
+        assert_eq!(change_set.len(), 1);
         match change_set[0] {
             ChangeInstruction::CreateExtension(ref name, ref _version) => {
-                assert_that!(name).is_equal_to(&"postgis".to_owned());
+                assert_eq!(name, "postgis");
             }
             ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
         }
 
         // Check the SQL generation
-        assert_that!(change_set[0].to_sql(&log)).is_equal_to("CREATE EXTENSION IF NOT EXISTS \"postgis\"".to_owned());
+        assert_eq!(change_set[0].to_sql(&log), "CREATE EXTENSION IF NOT EXISTS \"postgis\"");
     }
 
     #[test]
@@ -2962,11 +3018,13 @@ mod tests {
             &publish_profile,
             &log,
         );
-        assert_that!(result).is_err();
+        assert!(result.is_err());
 
         let err = result.err().unwrap();
-        let expect = "Publish error: ExtensionRequest postgis version 2.4.7 not available to install".to_owned();
-        assert_that!(format!("{}", err)).is_equal_to(&expect);
+        assert_eq!(
+            format!("{}", err),
+            "Publish error: ExtensionRequest postgis version 2.4.7 not available to install"
+        );
     }
 
     #[test]
@@ -2994,11 +3052,13 @@ mod tests {
             &publish_profile,
             &log,
         );
-        assert_that!(result).is_err();
+        assert!(result.is_err());
 
         let err = result.err().unwrap();
-        let expect = "Publish error: ExtensionRequest postgis version 2.3.7 not available to install".to_owned();
-        assert_that!(format!("{}", err)).is_equal_to(&expect);
+        assert_eq!(
+            format!("{}", err),
+            "Publish error: ExtensionRequest postgis version 2.3.7 not available to install"
+        );
     }
 
     #[test]
@@ -3038,20 +3098,22 @@ mod tests {
             &publish_profile,
             &log,
         );
-        assert_that!(result).is_ok();
+        assert!(result.is_ok());
 
         // We should have one instruction to upgrade an extension
-        assert_that!(change_set).has_length(1);
+        assert_eq!(change_set.len(), 1);
         match change_set[0] {
             ChangeInstruction::UpgradeExtension(ref name, ref _version) => {
-                assert_that!(name).is_equal_to(&"postgis".to_owned());
+                assert_eq!(name, "postgis");
             }
             ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
         }
 
         // Check the SQL generation
-        assert_that!(change_set[0].to_sql(&log))
-            .is_equal_to("ALTER EXTENSION \"postgis\" UPDATE TO \"3.8\"".to_owned());
+        assert_eq!(
+            change_set[0].to_sql(&log),
+            "ALTER EXTENSION \"postgis\" UPDATE TO \"3.8\""
+        );
     }
 
     #[test]
@@ -3084,10 +3146,10 @@ mod tests {
             &publish_profile,
             &log,
         );
-        assert_that!(result).is_ok();
+        assert!(result.is_ok());
 
         // We should have no instructions
-        assert_that!(change_set).is_empty();
+        assert!(change_set.is_empty());
     }
 
     #[test]
@@ -3128,19 +3190,19 @@ mod tests {
             &publish_profile,
             &log,
         );
-        assert_that!(result).is_ok();
+        assert!(result.is_ok());
 
         // We should have one instruction to upgrade an extension
-        assert_that!(change_set).has_length(1);
+        assert_eq!(change_set.len(), 1);
         match change_set[0] {
             ChangeInstruction::UpgradeExtension(ref name, ref _version) => {
-                assert_that!(name).is_equal_to(&"postgis".to_owned());
+                assert_eq!(name, "postgis");
             }
             ref unexpected => panic!("Unexpected instruction type: {:?}", unexpected),
         }
 
         // Check the SQL generation
-        assert_that!(change_set[0].to_sql(&log)).is_equal_to("ALTER EXTENSION \"postgis\" UPDATE".to_owned());
+        assert_eq!(change_set[0].to_sql(&log), "ALTER EXTENSION \"postgis\" UPDATE");
     }
 
     #[test]
@@ -3181,10 +3243,10 @@ mod tests {
             &publish_profile,
             &log,
         );
-        assert_that!(result).is_ok();
+        assert!(result.is_ok());
 
         // We should have no instructions
-        assert_that!(change_set).is_empty();
+        assert!(change_set.is_empty());
     }
 
     #[test]
@@ -3225,12 +3287,9 @@ mod tests {
             &publish_profile,
             &log,
         );
-        assert_that!(result).is_err();
+        assert!(result.is_err());
 
         let err = result.err().unwrap();
-        let expect =
-            "Couldn't publish database due to an unsafe operation: ExtensionRequest postgis version 3.8 is available to upgrade"
-                .to_owned();
-        assert_that!(format!("{}", err)).is_equal_to(&expect);
+        assert_eq!(format!("{}", err), "Couldn't publish database due to an unsafe operation: ExtensionRequest postgis version 3.8 is available to upgrade");
     }
 }

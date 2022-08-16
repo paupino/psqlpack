@@ -100,42 +100,36 @@ macro_rules! assert_simple_package {
         // We don't assert the length of collection's, only that our one's exist
 
         // Assert that the package exists in the expected format
-        //assert_that!($package.schemas).has_length(2);
         assert!(&$package.schemas.iter().any(|s| s.name.eq($namespace)));
         assert!(&$package.schemas.iter().any(|s| s.name.eq("public")));
 
         // Validate the table
-        //assert_that!($package.tables).has_length(1);
         let table = $package
             .tables
             .iter()
             .find(|s| s.name.to_string().eq(&format!("{}.contacts", $namespace)));
-        assert_that!(table).is_some();
+        assert!(table.is_some());
         let table = table.unwrap();
-        assert_that!(table.name.to_string()).is_equal_to(format!("{}.contacts", $namespace));
-        assert_that!(table.columns).named(&"table.columns").has_length(2);
-        assert_that!(table.constraints)
-            .named(&"table.constraints")
-            .has_length(1);
+        assert_eq!(table.name.to_string(), format!("{}.contacts", $namespace));
+        assert_eq!(table.columns.len(), 2);
+        assert_eq!(table.constraints.len(), 1);
 
         // Validate the id column
         let col_id = &table.columns[0];
-        assert_that!(col_id.name).is_equal_to("id".to_string());
-        assert_that!(col_id.sql_type).is_equal_to(SqlType::Simple(SimpleSqlType::Serial, None));
-        assert_that!(col_id.constraints)
-            .named(&"col_id.constraints")
-            .has_length(1);
-        let constraints = col_id.constraints.iter();
-        assert_that!(constraints).contains(ColumnConstraint::NotNull);
+        assert_eq!(col_id.name, "id");
+        assert_eq!(col_id.sql_type, SqlType::Simple(SimpleSqlType::Serial, None));
+        assert_eq!(col_id.constraints.len(), 1);
+        assert!(col_id.constraints.contains(&ColumnConstraint::NotNull));
 
         // Validate the name column
         let col_name = &table.columns[1];
-        assert_that!(col_name.name).is_equal_to("name".to_string());
-        assert_that!(col_name.sql_type).is_equal_to(SqlType::Simple(SimpleSqlType::VariableLengthString(50), None));
-        assert_that!(col_name.constraints)
-            .named(&"col_name.constraints")
-            .has_length(1);
-        assert_that!(col_name.constraints[0]).is_equal_to(ColumnConstraint::NotNull);
+        assert_eq!(col_name.name, "name");
+        assert_eq!(
+            col_name.sql_type,
+            SqlType::Simple(SimpleSqlType::VariableLengthString(50), None)
+        );
+        assert_eq!(col_name.constraints.len(), 1);
+        assert_eq!(col_name.constraints[0], ColumnConstraint::NotNull);
 
         // We can't assert indexes since we share a database but separate by schema.
         // To get around this we'll filter by schema first.
@@ -150,21 +144,20 @@ macro_rules! assert_simple_package {
                 }
             })
             .collect();
-        assert_that!(schema_indexes).named("package.indexes").has_length(1);
+        assert_eq!(schema_indexes.len(), 1);
         let index = &schema_indexes[0];
-        assert_that!(index.name).is_equal_to("idx_contacts_name".to_string());
-        assert_that!(index.table.to_string()).is_equal_to(format!("{}.contacts", $namespace));
-        assert_that!(index.unique).is_false();
-        assert_that!(index.index_type).is_some().is_equal_to(IndexType::BTree);
-        assert_that!(index.storage_parameters).is_none();
-        assert_that!(index.columns).named("index.columns").has_length(1);
+        assert_eq!(index.name, "idx_contacts_name");
+        assert_eq!(index.table.to_string(), format!("{}.contacts", $namespace));
+        assert!(!index.unique);
+        assert!(index.index_type.is_some());
+        assert_eq!(index.index_type.as_ref().unwrap(), &IndexType::BTree);
+        assert!(index.storage_parameters.is_none());
+        assert_eq!(index.columns.len(), 1);
         let index_col = &index.columns[0];
-        assert_that!(index_col.name).is_equal_to("name".to_string());
-        assert_that!(index_col.order)
-            .is_some()
-            .is_equal_to(IndexOrder::Ascending);
-        assert_that!(index_col.null_position)
-            .is_some()
-            .is_equal_to(IndexPosition::Last);
+        assert_eq!(index_col.name, "name");
+        assert!(index_col.order.is_some());
+        assert_eq!(index_col.order.as_ref().unwrap(), &IndexOrder::Ascending);
+        assert!(index_col.null_position.is_some());
+        assert_eq!(index_col.null_position.as_ref().unwrap(), &IndexPosition::Last);
     }};
 }
