@@ -6,7 +6,7 @@
 
 ## Project Status
 
-This experimental project has now been archived and will not be maintained. 
+This experimental project has now been archived and is no longer maintained. 
 
 ## Psqlpack
 
