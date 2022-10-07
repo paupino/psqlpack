@@ -6,9 +6,7 @@
 
 ## Project Status
 
-**Dec 14, 2021**
-
-While this project is not abandoned, it is not actively maintained. Occasionally new features or bug fixes will be released on an as-needed basis. 
+This experimental project has now been archived and will not be maintained. 
 
 ## Psqlpack
 
